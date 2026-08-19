@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Razi-Nova Finance</title>
+  <style>
+    :root {
+      --primary: #1a472a;
+      --secondary: #d4af37;
+      --danger: #dc3545;
+      --warning: #ffc107;
+      --success: #28a745;
+      --info: #17a2b8;
+      --bg: #f8f9fa;
+      --border: #dee2e6;
+      --text: #333;
+      --text-light: #666;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      font-size: 16px;
+      line-height: 1.5;
+      height: 100%;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    #login-screen {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background: linear-gradient(135deg, var(--primary) 0%, #2d5a42 100%);
+      padding: 20px;
+    }
+
+    .login-box {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      padding: 40px;
+      width: 100%;
+      max-width: 350px;
+    }
+
+    .login-logo {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .login-logo h1 {
+      font-size: 24px;
+      color: var(--primary);
+      margin-bottom: 5px;
+    }
+
+    .login-logo p {
+      color: var(--text-light);
+      font-size: 12px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    input[type="number"],
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(26, 71, 42, 0.1);
+    }
+
+    button {
+      background-color: var(--primary);
+      color: white;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 4px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+      width: 100%;
+    }
+
+    button:hover {
+      background-color: #0f2a1a;
+    }
+
+    button:active {
+      transform: scale(0.98);
+    }
+
+    button.secondary {
+      background-color: var(--secondary);
+      color: var(--text);
+    }
+
+    button.secondary:hover {
+      background-color: #c99b1a;
+    }
+
+    button.danger {
+      background-color: var(--danger);
+    }
+
+    button.danger:hover {
+      background-color: #c82333;
+    }
+
+    button.small {
+      padding: 6px 12px;
+      font-size: 12px;
+      width: auto;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #app {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .header {
+      background-color: var(--primary);
+      color: white;
+      padding: 16px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .header h1 {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .user-badge {
+      background-color: rgba(255,255,255,0.2);
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .tabs {
+      display: flex;
+      background-color: white;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .tab {
+      flex: 0 0 auto;
+      padding: 12px 16px;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: var(--text-light);
+      font-weight: 600;
+      font-size: 14px;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 20px;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .card {
+      background: white;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .card h2 {
+      margin-top: 0;
+      margin-bottom: 16px;
+      font-size: 18px;
+      color: var(--primary);
+    }
+
+    .card h3 {
+      margin-top: 0;
+      margin-bottom: 12px;
+      font-size: 16px;
+      color: var(--primary);
+    }
+
+    .card p {
+      margin: 8px 0;
+      color: var(--text-light);
+      font-size: 14px;
+    }
+
+    .number {
+      font-size: 28px;
+      font-weight: bold;
+      color: var(--primary);
+      margin: 12px 0;
+    }
+
+    .number.positive {
+      color: var(--success);
+    }
+
+    .number.negative {
+      color: var(--danger);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .summary-item {
+      background: var(--bg);
+      padding: 12px;
+      border-radius: 4px;
+      text-align: center;
+    }
+
+    .summary-item-label {
+      font-size: 12px;
+      color: var(--text-light);
+      text-transform: uppercase;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .summary-item-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: var(--primary);
+    }
+
+    .alert {
+      padding: 12px 16px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+
+    .alert-critical {
+      background-color: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+
+    .alert-warning {
+      background-color: #fff3cd;
+      border: 1px solid #ffeeba;
+      color: #856404;
+    }
+
+    .alert-success {
+      background-color: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+    }
+
+    .alert-info {
+      background-color: #d1ecf1;
+      border: 1px solid #bee5eb;
+      color: #0c5460;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    thead {
+      background-color: var(--bg);
+    }
+
+    th {
+      padding: 12px 8px;
+      text-align: left;
+      font-weight: 600;
+      color: var(--text);
+      border-bottom: 2px solid var(--border);
+    }
+
+    td {
+      padding: 12px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tr:hover {
+      background-color: var(--bg);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .badge-success {
+      background-color: var(--success);
+      color: white;
+    }
+
+    .badge-warning {
+      background-color: var(--warning);
+      color: var(--text);
+    }
+
+    .badge-danger {
+      background-color: var(--danger);
+      color: white;
+    }
+
+    .badge-info {
+      background-color: var(--info);
+      color: white;
+    }
+
+    .file-upload-area {
+      border: 2px dashed var(--border);
+      border-radius: 6px;
+      padding: 30px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .file-upload-area:hover {
+      border-color: var(--primary);
+      background-color: rgba(26, 71, 42, 0.05);
+    }
+
+    .file-upload-area.dragover {
+      border-color: var(--primary);
+      background-color: rgba(26, 71, 42, 0.1);
+    }
+
+    .file-input {
+      display: none;
+    }
+
+    .mt-4 {
+      margin-top: 20px;
+    }
+
+    .text-muted {
+      color: var(--text-light);
+    }
+
+    .text-danger {
+      color: var(--danger);
+    }
+
+    .text-success {
+      color: var(--success);
+    }
+
+    .loading {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (max-width: 600px) {
+      .login-box {
+        padding: 30px 20px;
+      }
+
+      .header h1 {
+        font-size: 16px;
+      }
+
+      .tab {
+        padding: 12px 12px;
+        font-size: 12px;
+      }
+
+      table {
+        font-size: 12px;
+      }
+
+      th, td {
+        padding: 8px 4px;
+      }
+
+      button {
+        padding: 10px 16px;
+        font-size: 13px;
+      }
+
+      .card {
+        padding: 12px;
+      }
+
+      .card h2, .card h3 {
+        font-size: 14px;
+      }
+
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .number {
+        font-size: 20px;
+      }
+
+      .content {
+        padding: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <h1>Razi-Nova</h1>
+      <p>Finance System</p>
+    </div>
+    <form id="login-form">
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="text" id="email" placeholder="your@email.com" required>
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="••••••••" required>
+      </div>
+      <div class="form-group">
+        <label for="role">Role</label>
+        <select id="role">
+          <option value="owner">Owner</option>
+          <option value="manager">Manager</option>
+          <option value="bookkeeper">Bookkeeper</option>
+        </select>
+      </div>
+      <button type="submit">Sign In</button>
+    </form>
+  </div>
+</div>
+
+<div id="app">
+  <div class="header">
+    <h1>Razi-Nova Finance</h1>
+    <div class="user-badge" id="user-display">Owner</div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="home">Home</button>
+    <button class="tab" data-tab="sales">Sales</button>
+    <button class="tab" data-tab="calendar">AP Calendar</button>
+    <button class="tab" data-tab="checks">Checks</button>
+    <button class="tab" data-tab="charges">Charges</button>
+    <button class="tab" data-tab="cash">Cash</button>
+    <button class="tab" data-tab="pl">P&L</button>
+    <button class="tab" data-tab="bank">Bank</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </div>
+
+  <div class="content">
+
+    <!-- HOME TAB -->
+    <div class="tab-content active" id="home-tab">
+      <div class="card">
+        <h2>Weekly Summary</h2>
+        <div class="summary-grid">
+          <div class="summary-item">
+            <div class="summary-item-label">Sales</div>
+            <div class="summary-item-value" id="home-sales">$0</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-item-label">Customers</div>
+            <div class="summary-item-value" id="home-customers">0</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-item-label">Expenses</div>
+            <div class="summary-item-value" id="home-expenses">$0</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-item-label">Profit</div>
+            <div class="summary-item-value" id="home-profit">$0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Cash Position</h3>
+        <p>Available: <strong id="home-available">$0</strong></p>
+        <p>True Position: <strong id="home-true">$0</strong></p>
+      </div>
+
+      <div class="card">
+        <h3>Action Items</h3>
+        <div id="home-actions">
+          <p>Loading...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SALES TAB -->
+    <div class="tab-content" id="sales-tab">
+      <h2 style="margin-bottom: 16px;">Daily Sales</h2>
+      <div id="sales-data">
+        <p>Loading sales data...</p>
+      </div>
+    </div>
+
+    <!-- AP CALENDAR TAB -->
+    <div class="tab-content" id="calendar-tab">
+      <h2 style="margin-bottom: 16px;">AP Calendar</h2>
+      <div id="calendar-data">
+        <p>Loading calendar...</p>
+      </div>
+    </div>
+
+    <!-- CHECKS TAB -->
+    <div class="tab-content" id="checks-tab">
+      <h2 style="margin-bottom: 16px;">Check Run</h2>
+      <div class="card">
+        <p>No pending checks.</p>
+      </div>
+    </div>
+
+    <!-- CHARGES TAB -->
+    <div class="tab-content" id="charges-tab">
+      <h2 style="margin-bottom: 16px;">Charge Accounts</h2>
+      <div class="card">
+        <p>Auto-debit and charge account payments.</p>
+      </div>
+    </div>
+
+    <!-- CASH TAB -->
+    <div class="tab-content" id="cash-tab">
+      <h2 style="margin-bottom: 16px;">Cash Position</h2>
+      <div id="cash-data">
+        <p>Loading cash position...</p>
+      </div>
+    </div>
+
+    <!-- P&L TAB -->
+    <div class="tab-content" id="pl-tab">
+      <h2 style="margin-bottom: 16px;">Profit & Loss</h2>
+      <div id="pl-data">
+        <p>Loading P&L...</p>
+      </div>
+    </div>
+
+    <!-- BANK TAB -->
+    <div class="tab-content" id="bank-tab">
+      <h2 style="margin-bottom: 16px;">Bank Import</h2>
+      <div class="card">
+        <p>Upload bank CSV to reconcile deposits.</p>
+        <div class="file-upload-area" id="bank-upload-area">
+          <div style="font-size: 40px; margin-bottom: 10px;">🏦</div>
+          <p><strong>Tap to upload CSV</strong></p>
+          <input type="file" id="bank-file" class="file-input" accept=".csv,.txt">
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div class="tab-content" id="settings-tab">
+      <h2 style="margin-bottom: 16px;">Settings</h2>
+      <div class="card">
+        <h3>Cash Floor</h3>
+        <label>Minimum Available Cash</label>
+        <input type="number" id="cash-floor" value="3000" step="100">
+        <button class="small mt-4" id="save-floor">Save Floor</button>
+      </div>
+      <div class="card">
+        <h3>Account</h3>
+        <button class="danger mt-4" id="logout-btn">Sign Out</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+var APP = {
+  store_id: 'store1',
+  user_id: null,
+  user_role: 'owner',
+  cash_floor: 3000,
+  auth_token: null,
+  api_url: '/.netlify/functions',
+  
+  init: function() {
+    this.setupEventListeners();
+    this.restoreSession();
+  },
+
+  setupEventListeners: function() {
+    var self = this;
+
+    document.getElementById('login-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      self.login();
+    });
+
+    var tabs = document.querySelectorAll('.tab');
+    tabs.forEach(function(tab) {
+      tab.addEventListener('click', function() {
+        self.switchTab(this.getAttribute('data-tab'));
+      });
+    });
+
+    document.getElementById('save-floor').addEventListener('click', function() {
+      self.saveCashFloor();
+    });
+
+    document.getElementById('logout-btn').addEventListener('click', function() {
+      self.logout();
+    });
+
+    var uploadArea = document.getElementById('bank-upload-area');
+    uploadArea.addEventListener('click', function() {
+      document.getElementById('bank-file').click();
+    });
+  },
+
+  login: function() {
+    var email = document.getElementById('email').value;
+    var role = document.getElementById('role').value;
+
+    if (!email) {
+      alert('Please enter email');
+      return;
+    }
+
+    this.user_id = 'user_' + Date.now();
+    this.user_role = role;
+    this.auth_token = 'token_' + Date.now();
+
+    localStorage.setItem('rn_user_id', this.user_id);
+    localStorage.setItem('rn_user_role', this.user_role);
+    localStorage.setItem('rn_auth_token', this.auth_token);
+    localStorage.setItem('rn_email', email);
+    localStorage.setItem('rn_cash_floor', this.cash_floor);
+
+    this.showApp();
+  },
+
+  logout: function() {
+    localStorage.clear();
+    this.showLogin();
+  },
+
+  restoreSession: function() {
+    var token = localStorage.getItem('rn_auth_token');
+    if (token) {
+      this.user_id = localStorage.getItem('rn_user_id');
+      this.user_role = localStorage.getItem('rn_user_role');
+      this.auth_token = token;
+      this.cash_floor = parseFloat(localStorage.getItem('rn_cash_floor') || 3000);
+      this.showApp();
+    }
+  },
+
+  showLogin: function() {
+    document.getElementById('login-screen').style.display = 'flex';
+    document.getElementById('app').style.display = 'none';
+  },
+
+  showApp: function() {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    document.getElementById('user-display').textContent = (this.user_role.charAt(0).toUpperCase() + this.user_role.slice(1));
+    document.getElementById('cash-floor').value = this.cash_floor;
+    this.loadHome();
+  },
+
+  switchTab: function(tabName) {
+    var tabs = document.querySelectorAll('.tab-content');
+    tabs.forEach(function(tab) {
+      tab.classList.remove('active');
+    });
+
+    var buttons = document.querySelectorAll('.tab');
+    buttons.forEach(function(btn) {
+      btn.classList.remove('active');
+    });
+
+    document.getElementById(tabName + '-tab').classList.add('active');
+    document.querySelector('[data-tab="' + tabName + '"]').classList.add('active');
+
+    if (tabName === 'sales') this.loadSales();
+    if (tabName === 'calendar') this.loadAPCalendar();
+    if (tabName === 'cash') this.loadCashPosition();
+    if (tabName === 'pl') this.loadPL();
+  },
+
+  loadHome: function() {
+    var self = this;
+    this.loadPL();
+    this.loadCashPosition();
+  },
+
+  loadSales: function() {
+    var self = this;
+    
+    fetch(this.api_url + '/profit-and-loss?store_id=' + this.store_id, {
+      headers: { 'Authorization': 'Bearer ' + this.auth_token }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.daily_detail) {
+        var html = '<table><thead><tr><th>Date</th><th>Sales</th><th>Customers</th><th>Avg Sale</th></tr></thead><tbody>';
+        data.daily_detail.forEach(function(day) {
+          html += '<tr><td>' + day.date + '</td><td>$' + day.sales.toFixed(2) + '</td><td>' + day.customers + '</td><td>$' + day.avg_transaction + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('sales-data').innerHTML = html;
+      }
+    })
+    .catch(function(err) {
+      document.getElementById('sales-data').innerHTML = '<p>Error loading sales: ' + err.message + '</p>';
+    });
+  },
+
+  loadAPCalendar: function() {
+    var self = this;
+    
+    fetch(this.api_url + '/ap-calendar?store_id=' + this.store_id, {
+      headers: { 'Authorization': 'Bearer ' + this.auth_token }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.summary) {
+        var html = '<div class="card"><h3>Summary</h3>';
+        html += '<p>Total Open AP: <strong>$' + data.summary.total_open_ap.toFixed(2) + '</strong></p>';
+        html += '<p>Overdue: <strong style="color: var(--danger);">$' + data.summary.total_overdue.toFixed(2) + '</strong></p>';
+        html += '</div>';
+        
+        if (data.calendar && data.calendar.length > 0) {
+          html += '<table><thead><tr><th>Vendor</th><th>Due</th><th>Amount</th></tr></thead><tbody>';
+          data.calendar.forEach(function(inv) {
+            html += '<tr><td>' + inv.vendor_name + '</td><td>' + inv.due_date + '</td><td>$' + inv.balance.toFixed(2) + '</td></tr>';
+          });
+          html += '</tbody></table>';
+        } else {
+          html += '<div class="card"><p>No invoices due.</p></div>';
+        }
+        document.getElementById('calendar-data').innerHTML = html;
+      }
+    })
+    .catch(function(err) {
+      document.getElementById('calendar-data').innerHTML = '<p>Error: ' + err.message + '</p>';
+    });
+  },
+
+  loadCashPosition: function() {
+    var self = this;
+    
+    fetch(this.api_url + '/cash-position?store_id=' + this.store_id + '&floor=' + this.cash_floor, {
+      headers: { 'Authorization': 'Bearer ' + this.auth_token }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.available_cash !== undefined) {
+        var html = '';
+        if (data.warnings && data.warnings.length > 0) {
+          data.warnings.forEach(function(w) {
+            var cssClass = w.severity === 'critical' ? 'alert-critical' : 'alert-warning';
+            html += '<div class="alert ' + cssClass + '"><strong>' + w.severity.toUpperCase() + ':</strong> ' + w.message + '</div>';
+          });
+        }
+        
+        html += '<div class="card"><h3>Available Cash</h3>';
+        html += '<div class="number ' + (data.available_cash >= data.cash_floor ? 'positive' : 'negative') + '">$' + data.available_cash.toFixed(2) + '</div>';
+        html += '<p>Bank: $' + data.bank_balance.toFixed(2) + ' | Checks: −$' + data.outstanding_checks.toFixed(2) + ' | Auto-debits: −$' + data.auto_debits_3day.toFixed(2) + '</p>';
+        html += '</div>';
+        
+        html += '<div class="card"><h3>True Cash Position</h3>';
+        html += '<div class="number ' + (data.true_cash_position >= 0 ? 'positive' : 'negative') + '">$' + data.true_cash_position.toFixed(2) + '</div>';
+        html += '</div>';
+        
+        document.getElementById('cash-data').innerHTML = html;
+        document.getElementById('home-available').textContent = '$' + data.available_cash.toFixed(2);
+        document.getElementById('home-true').textContent = '$' + data.true_cash_position.toFixed(2);
+      }
+    })
+    .catch(function(err) {
+      document.getElementById('cash-data').innerHTML = '<p>Error: ' + err.message + '</p>';
+    });
+  },
+
+  loadPL: function() {
+    var self = this;
+    
+    fetch(this.api_url + '/profit-and-loss?store_id=' + this.store_id, {
+      headers: { 'Authorization': 'Bearer ' + this.auth_token }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.summary) {
+        document.getElementById('home-sales').textContent = '$' + data.summary.total_sales.toFixed(2);
+        document.getElementById('home-customers').textContent = data.summary.total_customers;
+        document.getElementById('home-expenses').textContent = '$' + data.summary.operating_expenses.toFixed(2);
+        document.getElementById('home-profit').textContent = '$' + data.summary.operating_profit.toFixed(2);
+        
+        var plHtml = '<div class="card"><h3>' + data.week_start + ' to ' + data.week_end + '</h3>';
+        plHtml += '<table><tr><td>Sales</td><td style="text-align: right; font-weight: bold;">$' + data.summary.total_sales.toFixed(2) + '</td></tr>';
+        plHtml += '<tr><td>Est. COGS (75%)</td><td style="text-align: right;">−$' + data.summary.estimated_cogs.toFixed(2) + '</td></tr>';
+        plHtml += '<tr><td style="border-bottom: 2px solid var(--border);">Gross Margin</td><td style="text-align: right; border-bottom: 2px solid var(--border); font-weight: bold;">$' + data.summary.gross_margin.toFixed(2) + '</td></tr>';
+        plHtml += '<tr><td>Operating Expenses</td><td style="text-align: right;">−$' + data.summary.operating_expenses.toFixed(2) + '</td></tr>';
+        plHtml += '<tr><td style="border-bottom: 3px solid var(--primary); font-weight: bold;">Operating Profit</td><td style="text-align: right; border-bottom: 3px solid var(--primary); font-weight: bold; color: ' + (data.summary.operating_profit >= 0 ? 'var(--success)' : 'var(--danger)') + ';">$' + data.summary.operating_profit.toFixed(2) + '</td></tr>';
+        plHtml += '</table></div>';
+        
+        document.getElementById('pl-data').innerHTML = plHtml;
+      }
+    })
+    .catch(function(err) {
+      document.getElementById('pl-data').innerHTML = '<p>Error: ' + err.message + '</p>';
+    });
+  },
+
+  saveCashFloor: function() {
+    var floor = parseFloat(document.getElementById('cash-floor').value);
+    if (floor < 0) {
+      alert('Floor must be positive');
+      return;
+    }
+    this.cash_floor = floor;
+    localStorage.setItem('rn_cash_floor', floor);
+    alert('Cash floor saved: $' + floor.toFixed(2));
+  }
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+  APP.init();
+});
+</script>
+
+</body>
+</html>

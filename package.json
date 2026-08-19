@@ -1,0 +1,9 @@
+{
+  "name": "razco-finance",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.0",
+    "@supabase/supabase-js": "^2.38.0"
+  }
+}
