@@ -18,18 +18,22 @@ exports.handler = async (event) => {
     }
 
     const data = JSON.parse(event.body);
-    const { store_id, sync_data } = data;
+    
+    // Accept both formats: { store_id, sync_data } or { store_id, daily_sales, ... }
+    const store_id = data.store_id;
+    const sync_data = data.sync_data || data;
 
-    if (!store_id || !sync_data) {
+    if (!store_id) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: 'Missing store_id or sync_data' }),
+        body: JSON.stringify({ error: 'Missing store_id' }),
       };
     }
 
     // Sync daily sales data
-    if (sync_data.daily_sales && Array.isArray(sync_data.daily_sales)) {
-      for (const sale of sync_data.daily_sales) {
+    const daily_sales = sync_data.daily_sales || data.daily_sales;
+    if (daily_sales && Array.isArray(daily_sales)) {
+      for (const sale of daily_sales) {
         const { business_date, net_sales, customer_count } = sale;
 
         // Upsert: update if exists, insert if not
@@ -51,8 +55,9 @@ exports.handler = async (event) => {
     }
 
     // Sync tender totals (cash, credit, debit, etc.)
-    if (sync_data.tender_totals && Array.isArray(sync_data.tender_totals)) {
-      for (const tender of sync_data.tender_totals) {
+    const tender_totals = sync_data.tender_totals || data.tender_totals;
+    if (tender_totals && Array.isArray(tender_totals)) {
+      for (const tender of tender_totals) {
         const { business_date, tender_id, amount } = tender;
 
         const { error } = await supabase
@@ -73,8 +78,9 @@ exports.handler = async (event) => {
     }
 
     // Sync department sales
-    if (sync_data.dept_sales && Array.isArray(sync_data.dept_sales)) {
-      for (const dept of sync_data.dept_sales) {
+    const dept_sales = sync_data.dept_sales || data.dept_sales;
+    if (dept_sales && Array.isArray(dept_sales)) {
+      for (const dept of dept_sales) {
         const { business_date, dept_id, net_sales } = dept;
 
         const { error } = await supabase
