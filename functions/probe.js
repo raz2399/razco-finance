@@ -57,6 +57,8 @@ exports.handler = function (event, context, callback) {
     checked_at: new Date().toISOString(),
     supabase_url_set: false,
     service_key_set: false,
+    supabase_host: null,
+    supabase_project_ref: null,
     tables: [],
     sales_samples: {},
     notes: []
@@ -86,6 +88,13 @@ exports.handler = function (event, context, callback) {
   var base = process.env.SUPABASE_URL;
   var key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
   out.supabase_url_set = !!base;
+  // Hostname only, never the key — this is what production is actually pointed at.
+  if (base) {
+    var hostOnly = String(base).replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    out.supabase_host = hostOnly;
+    out.supabase_project_ref = hostOnly.split('.')[0];
+  }
+  out.service_key_tail = key ? ('...' + String(key).slice(-6)) : null;
   out.service_key_set = !!key;
   if (!base || !key) {
     out.notes.push('SUPABASE_URL or SUPABASE_SERVICE_KEY missing from Netlify environment variables.');
