@@ -237,6 +237,34 @@ exports.handler = async (event) => {
       accountCreated = true;
     }
 
+    // The account row must exist first — bank_transactions.account_id is a
+    // foreign key pointing at it. Create it now, set the real balance later.
+    const writeAccount = async (balance, asOf) => {
+      const row = onlyRealColumns(
+        {
+          account_id: resolvedId,
+          store_id,
+          label,
+          name: label,
+          account_name: label,
+          current_balance: balance,
+          balance_as_of: asOf,
+        },
+        acctCols
+      );
+      return supabase.from('bank_accounts').upsert(row, { onConflict: 'account_id' });
+    };
+
+    if (accountCreated) {
+      const seed = await writeAccount(0, new Date().toISOString().split('T')[0]);
+      if (seed.error) {
+        return {
+          statusCode: 500,
+          body: JSON.stringify({ error: 'Could not create the bank account row: ' + seed.error.message }),
+        };
+      }
+    }
+
     const batchId = crypto.randomUUID();
     transactions.forEach((t) => {
       t.hash = hashTransaction(t.date, t.description, Math.abs(t.amount));
@@ -360,19 +388,10 @@ exports.handler = async (event) => {
     let balanceError = null;
 
     if (newBalance !== null && !isNaN(newBalance)) {
-      const row = onlyRealColumns(
-        {
-          account_id: resolvedId,
-          store_id,
-          label,
-          name: label,
-          account_name: label,
-          current_balance: newBalance,
-          balance_as_of: latestDate || new Date().toISOString().split('T')[0],
-        },
-        acctCols
+      const write = await writeAccount(
+        newBalance,
+        latestDate || new Date().toISOString().split('T')[0]
       );
-      const write = await supabase.from('bank_accounts').upsert(row, { onConflict: 'account_id' });
       balanceWritten = !write.error;
       if (write.error) balanceError = write.error.message;
     }
