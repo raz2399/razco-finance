@@ -13,6 +13,31 @@
 //  - matched/unmatched counts now reflect reality
 
 const crypto = require('crypto');
+
+const isUuid = (v) =>
+  typeof v === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+
+// Ask PostgREST which columns each table actually has, so we never send a
+// field that does not exist. One call, cached for the life of the invocation.
+let schemaCache = null;
+async function schema() {
+  if (schemaCache) return schemaCache;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  const res = await fetch(process.env.SUPABASE_URL.replace(/\/+$/, '') + '/rest/v1/', {
+    headers: { apikey: key, Authorization: 'Bearer ' + key, Accept: 'application/json' },
+  });
+  const spec = await res.json();
+  schemaCache = spec.definitions || {};
+  return schemaCache;
+}
+
+// Drop any key the table does not have.
+function onlyRealColumns(row, columns) {
+  const out = {};
+  Object.keys(row).forEach((k) => { if (columns[k]) out[k] = row[k]; });
+  return out;
+}
 const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(
@@ -80,9 +105,9 @@ function hashTransaction(date, desc, amount) {
 }
 
 // --- handler ---------------------------------------------------------------
-// Batched: the whole file is processed in a handful of queries instead of
-// several per row. A 150-line statement used to mean ~400 round trips and a
-// gateway timeout; it is now about 6 regardless of file size.
+// Batched: whole file in a handful of queries, not several per row.
+// Self-adapting: reads the real column list before writing, and resolves the
+// bank account itself so the user never has to supply a UUID.
 
 const CHUNK = 200;
 
@@ -91,8 +116,8 @@ exports.handler = async (event) => {
     const { store_id, account_id, csv_text, ending_balance, account_label } =
       JSON.parse(event.body || '{}');
 
-    if (!store_id || !account_id || !csv_text) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Missing required fields' }) };
+    if (!store_id || !csv_text) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Missing store_id or csv_text' }) };
     }
 
     const transactions = parseCSV(csv_text);
@@ -100,12 +125,35 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'No transactions found in CSV' }) };
     }
 
+    const defs = await schema();
+    const acctCols = (defs.bank_accounts || {}).properties || {};
+    const txnCols = (defs.bank_transactions || {}).properties || {};
+
+    // --- resolve the account, creating one on first run -------------------
+    const label = account_label || account_id || 'Operating';
+    let resolvedId = null;
+    let accountCreated = false;
+
+    const existing = await supabase
+      .from('bank_accounts')
+      .select('account_id')
+      .eq('store_id', store_id)
+      .limit(1)
+      .maybeSingle();
+
+    if (existing.data && existing.data.account_id) {
+      resolvedId = existing.data.account_id;
+    } else {
+      resolvedId = isUuid(account_id) ? account_id : crypto.randomUUID();
+      accountCreated = true;
+    }
+
     const batchId = crypto.randomUUID();
     transactions.forEach((t) => {
       t.hash = hashTransaction(t.date, t.description, Math.abs(t.amount));
     });
 
-    // 1. Which of these have we already imported? One query per 200 rows.
+    // --- 1. which have we seen before -------------------------------------
     const seen = new Set();
     for (let i = 0; i < transactions.length; i += CHUNK) {
       const hashes = transactions.slice(i, i + CHUNK).map((t) => t.hash);
@@ -116,7 +164,6 @@ exports.handler = async (event) => {
       (found.data || []).forEach((r) => seen.add(r.import_hash));
     }
 
-    // Same file can also contain the same row twice — dedupe within the batch.
     const batchSeen = new Set();
     const fresh = [];
     const duplicates = [];
@@ -129,21 +176,29 @@ exports.handler = async (event) => {
       fresh.push(t);
     }
 
-    // 2. Insert everything new in bulk.
+    // --- 2. bulk insert ----------------------------------------------------
     let insertedRows = [];
     let insertError = null;
     for (let i = 0; i < fresh.length; i += CHUNK) {
-      const payload = fresh.slice(i, i + CHUNK).map((t) => ({
-        account_id,
-        store_id,
-        posted_date: t.date,
-        description: t.description,
-        amount: t.amount,
-        import_batch: batchId,
-        import_hash: t.hash,
-        match_status: 'unmatched',
-      }));
-      const res = await supabase.from('bank_transactions').insert(payload).select('bank_txn_id, import_hash, amount');
+      const payload = fresh.slice(i, i + CHUNK).map((t) =>
+        onlyRealColumns(
+          {
+            account_id: resolvedId,
+            store_id,
+            posted_date: t.date,
+            description: t.description,
+            amount: t.amount,
+            import_batch: batchId,
+            import_hash: t.hash,
+            match_status: 'unmatched',
+          },
+          txnCols
+        )
+      );
+      const res = await supabase
+        .from('bank_transactions')
+        .insert(payload)
+        .select('bank_txn_id, import_hash, amount');
       if (res.error) { insertError = res.error.message; break; }
       insertedRows = insertedRows.concat(res.data || []);
     }
@@ -152,7 +207,7 @@ exports.handler = async (event) => {
       return { statusCode: 500, body: JSON.stringify({ error: 'Insert failed: ' + insertError }) };
     }
 
-    // 3. All outstanding checks for this store, in one query.
+    // --- 3. outstanding checks, one query ---------------------------------
     const checksRes = await supabase
       .from('payments')
       .select('payment_id, check_number, amount')
@@ -163,7 +218,7 @@ exports.handler = async (event) => {
     const openChecks = checksRes.data || [];
     const usedCheck = new Set();
 
-    // 4. Match in memory — no queries at all.
+    // --- 4. match in memory ------------------------------------------------
     const hashToTxn = {};
     fresh.forEach((t) => { hashToTxn[t.hash] = t; });
 
@@ -181,7 +236,6 @@ exports.handler = async (event) => {
       }
     }
 
-    // 5. Write the matches. One pair of updates per matched check only.
     for (const m of matches) {
       await supabase
         .from('bank_transactions')
@@ -193,7 +247,7 @@ exports.handler = async (event) => {
         .eq('payment_id', m.payment_id);
     }
 
-    // 6. Update the account balance — the step that was missing entirely.
+    // --- 5. balance --------------------------------------------------------
     const latestDate = transactions.map((t) => t.date).sort().slice(-1)[0];
 
     let newBalance = null;
@@ -206,7 +260,7 @@ exports.handler = async (event) => {
       const all = await supabase
         .from('bank_transactions')
         .select('amount')
-        .eq('account_id', account_id);
+        .eq('account_id', resolvedId);
       if (all.data) {
         newBalance = all.data.reduce((s, r) => s + (Number(r.amount) || 0), 0);
         balanceSource = 'sum of all imported transactions';
@@ -217,21 +271,22 @@ exports.handler = async (event) => {
     let balanceError = null;
 
     if (newBalance !== null && !isNaN(newBalance)) {
-      const write = await supabase.from('bank_accounts').upsert(
+      const row = onlyRealColumns(
         {
-          account_id,
+          account_id: resolvedId,
           store_id,
-          label: account_label || 'Operating',
+          label,
+          name: label,
+          account_name: label,
           current_balance: newBalance,
           balance_as_of: latestDate || new Date().toISOString().split('T')[0],
         },
-        { onConflict: 'account_id' }
+        acctCols
       );
+      const write = await supabase.from('bank_accounts').upsert(row, { onConflict: 'account_id' });
       balanceWritten = !write.error;
       if (write.error) balanceError = write.error.message;
     }
-
-    const clearedChecks = matches.map((m) => m.check_number);
 
     return {
       statusCode: 200,
@@ -240,7 +295,8 @@ exports.handler = async (event) => {
         summary: {
           batch_id: batchId,
           store_id,
-          account_id,
+          account_id: resolvedId,
+          account_created: accountCreated,
           import_date: new Date().toISOString(),
           total_transactions: transactions.length,
           imported_count: insertedRows.length,
@@ -253,7 +309,7 @@ exports.handler = async (event) => {
           balance_as_of: latestDate,
           balance_error: balanceError,
         },
-        cleared_checks: clearedChecks,
+        cleared_checks: matches.map((m) => m.check_number),
         duplicates: duplicates.slice(0, 50),
         next_steps: [
           `${insertedRows.length} transactions imported, ${duplicates.length} duplicates skipped`,
