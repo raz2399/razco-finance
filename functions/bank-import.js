@@ -49,11 +49,15 @@ function fillRequired(row, def, text, today) {
   required.forEach((key) => {
     if (row[key] !== undefined && row[key] !== null && row[key] !== '') return;
     const p = props[key] || {};
+
+    // The database already fills this one (gen_random_uuid(), now(), nextval...).
+    // Sending the default TEXT would be written as a literal string, so leave it out.
+    if (p.default !== undefined) return;
+
     const kind = String(p.format || p.type || '').toLowerCase();
     let value;
 
-    if (p.default !== undefined) value = p.default;
-    else if (kind.includes('uuid')) value = crypto.randomUUID();
+    if (kind.includes('uuid')) value = crypto.randomUUID();
     else if (/int|numeric|double|real|float|money|decimal/.test(kind)) value = 0;
     else if (/timestamp|date/.test(kind)) value = today;
     else if (kind.includes('bool')) value = true;
