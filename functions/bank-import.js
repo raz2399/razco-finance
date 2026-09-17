@@ -38,6 +38,33 @@ function onlyRealColumns(row, columns) {
   Object.keys(row).forEach((k) => { if (columns[k]) out[k] = row[k]; });
   return out;
 }
+
+// Fill every NOT NULL column the table demands, whatever it happens to be
+// called. Stops the import dying one column at a time on schemas we cannot see.
+function fillRequired(row, def, text, today) {
+  const required = def.required || [];
+  const props = def.properties || {};
+  const filled = [];
+
+  required.forEach((key) => {
+    if (row[key] !== undefined && row[key] !== null && row[key] !== '') return;
+    const p = props[key] || {};
+    const kind = String(p.format || p.type || '').toLowerCase();
+    let value;
+
+    if (p.default !== undefined) value = p.default;
+    else if (kind.includes('uuid')) value = crypto.randomUUID();
+    else if (/int|numeric|double|real|float|money|decimal/.test(kind)) value = 0;
+    else if (/timestamp|date/.test(kind)) value = today;
+    else if (kind.includes('bool')) value = true;
+    else value = text;
+
+    row[key] = value;
+    filled.push(key);
+  });
+
+  return filled;
+}
 const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(
@@ -239,19 +266,25 @@ exports.handler = async (event) => {
 
     // The account row must exist first — bank_transactions.account_id is a
     // foreign key pointing at it. Create it now, set the real balance later.
+    const autoFilled = [];
     const writeAccount = async (balance, asOf) => {
       const row = onlyRealColumns(
         {
           account_id: resolvedId,
           store_id,
+          // every plausible name for "what do you call this account"
           label,
+          nickname: label,
           name: label,
           account_name: label,
+          display_name: label,
           current_balance: balance,
           balance_as_of: asOf,
         },
         acctCols
       );
+      const added = fillRequired(row, defs.bank_accounts || {}, label, asOf);
+      added.forEach((c) => { if (autoFilled.indexOf(c) < 0) autoFilled.push(c); });
       return supabase.from('bank_accounts').upsert(row, { onConflict: 'account_id' });
     };
 
@@ -297,21 +330,26 @@ exports.handler = async (event) => {
     let insertedRows = [];
     let insertError = null;
     for (let i = 0; i < fresh.length; i += CHUNK) {
-      const payload = fresh.slice(i, i + CHUNK).map((t) =>
-        onlyRealColumns(
+      const payload = fresh.slice(i, i + CHUNK).map((t) => {
+        const row = onlyRealColumns(
           {
             account_id: resolvedId,
             store_id,
             posted_date: t.date,
+            transaction_date: t.date,
             description: t.description,
+            memo: t.description,
             amount: t.amount,
             import_batch: batchId,
             import_hash: t.hash,
             match_status: 'unmatched',
           },
           txnCols
-        )
-      );
+        );
+        const added = fillRequired(row, defs.bank_transactions || {}, t.description, t.date);
+        added.forEach((c) => { if (autoFilled.indexOf(c) < 0) autoFilled.push(c); });
+        return row;
+      });
       const res = await supabase
         .from('bank_transactions')
         .insert(payload)
@@ -416,6 +454,7 @@ exports.handler = async (event) => {
           balance_source: balanceSource,
           balance_as_of: latestDate,
           balance_error: balanceError,
+          auto_filled_columns: autoFilled,
         },
         cleared_checks: matches.map((m) => m.check_number),
         duplicates: duplicates.slice(0, 50),
