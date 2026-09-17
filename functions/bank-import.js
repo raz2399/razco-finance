@@ -46,6 +46,10 @@ const supabase = createClient(
 );
 
 // --- CSV ------------------------------------------------------------------
+// Reads the header row and finds columns by NAME. Falls back to sniffing the
+// data when there is no usable header. Rows without a real date (bank preamble,
+// account name, totals lines) are skipped instead of being treated as data.
+
 function splitLine(line) {
   const out = [];
   let cur = '';
@@ -64,39 +68,124 @@ function toAmount(raw) {
   if (raw == null) return NaN;
   let s = String(raw).trim();
   if (!s) return NaN;
-  const paren = /^\(.*\)$/.test(s);          // (123.45) means negative
+  const paren = /^\(.*\)$/.test(s);
   s = s.replace(/[()$\s,]/g, '');
+  if (!/^-?\d*\.?\d+$/.test(s)) return NaN;
   const n = parseFloat(s);
   if (isNaN(n)) return NaN;
   return paren ? -n : n;
 }
 
-function parseCSV(text) {
-  const lines = String(text).trim().split(/\r\n|\n|\r/);
-  const data = [];
+const MONTHS = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
 
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i] || !lines[i].replace(/[\s,]/g, '')) continue;
-    const cols = splitLine(lines[i]);
-    if (cols.length < 3) continue;
+// Returns YYYY-MM-DD, or null if this is not a date.
+function toDate(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim().replace(/^["']|["']$/g, '');
+  if (!s) return null;
 
-    // Amount is the last column that parses as a number.
-    let amount = NaN;
-    let amountIdx = -1;
-    for (let j = cols.length - 1; j >= 1; j--) {
-      const n = toAmount(cols[j]);
-      if (!isNaN(n) && /\d/.test(cols[j])) { amount = n; amountIdx = j; break; }
-    }
-    // No numeric column means this is the header row, not a transaction.
-    if (amountIdx < 0) continue;
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);            // 2026-09-14
+  if (m) return `${m[1]}-${String(+m[2]).padStart(2,'0')}-${String(+m[3]).padStart(2,'0')}`;
 
-    const description = cols
-      .filter((c, idx) => idx !== 0 && idx !== amountIdx)
-      .sort((a, b) => b.length - a.length)[0] || 'Transaction';
-
-    data.push({ date: cols[0], description, amount, raw: lines[i] });
+  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);   // 09/14/2026 or 9-14-26
+  if (m) {
+    let y = +m[3];
+    if (y < 100) y += 2000;
+    return `${y}-${String(+m[1]).padStart(2,'0')}-${String(+m[2]).padStart(2,'0')}`;
   }
 
+  m = s.match(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})/); // Sep 14, 2026
+  if (m && MONTHS[m[1].toLowerCase()]) {
+    return `${m[3]}-${String(MONTHS[m[1].toLowerCase()]).padStart(2,'0')}-${String(+m[2]).padStart(2,'0')}`;
+  }
+
+  return null;
+}
+
+function findHeader(rows) {
+  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+    const low = rows[i].map((c) => c.toLowerCase());
+    const hasDate = low.some((c) => /date|posted|posting/.test(c));
+    const hasMoney = low.some((c) => /amount|debit|credit|withdraw|deposit/.test(c));
+    if (hasDate && hasMoney) {
+      const idx = { date: -1, desc: -1, amount: -1, debit: -1, credit: -1, balance: -1 };
+      low.forEach((c, j) => {
+        if (idx.date < 0 && /date|posted|posting/.test(c)) idx.date = j;
+        else if (idx.desc < 0 && /desc|memo|payee|detail|narrat|transaction/.test(c)) idx.desc = j;
+        if (/^bal|balance/.test(c)) idx.balance = j;
+        else if (/debit|withdraw/.test(c)) idx.debit = j;
+        else if (/credit|deposit/.test(c)) idx.credit = j;
+        else if (idx.amount < 0 && /amount|amt/.test(c)) idx.amount = j;
+      });
+      return { row: i, idx };
+    }
+  }
+  return null;
+}
+
+function parseCSV(text) {
+  const rows = String(text).trim().split(/\r\n|\n|\r/)
+    .filter((l) => l && l.replace(/[\s,]/g, ''))
+    .map(splitLine);
+
+  const header = findHeader(rows);
+  const startAt = header ? header.row + 1 : 0;
+  const data = [];
+  const skipped = [];
+
+  for (let i = startAt; i < rows.length; i++) {
+    const cols = rows[i];
+    if (cols.length < 2) { skipped.push(rows[i].join(',')); continue; }
+
+    // --- date: named column first, otherwise the first cell that is a date
+    let date = header && header.idx.date >= 0 ? toDate(cols[header.idx.date]) : null;
+    let dateIdx = header && header.idx.date >= 0 ? header.idx.date : -1;
+    if (!date) {
+      for (let j = 0; j < cols.length; j++) {
+        const d = toDate(cols[j]);
+        if (d) { date = d; dateIdx = j; break; }
+      }
+    }
+    if (!date) { skipped.push(cols.join(',')); continue; }  // preamble, totals, blank
+
+    // --- amount
+    let amount = NaN;
+    let amountIdx = -1;
+    if (header && (header.idx.debit >= 0 || header.idx.credit >= 0)) {
+      const debit = toAmount(cols[header.idx.debit]);
+      const credit = toAmount(cols[header.idx.credit]);
+      const d = isNaN(debit) ? 0 : Math.abs(debit);
+      const c = isNaN(credit) ? 0 : Math.abs(credit);
+      if (d || c) { amount = c - d; amountIdx = c ? header.idx.credit : header.idx.debit; }
+    }
+    if (isNaN(amount) && header && header.idx.amount >= 0) {
+      amount = toAmount(cols[header.idx.amount]);
+      amountIdx = header.idx.amount;
+    }
+    if (isNaN(amount)) {
+      // last numeric cell that is not the date and not the balance column
+      for (let j = cols.length - 1; j >= 0; j--) {
+        if (j === dateIdx) continue;
+        if (header && j === header.idx.balance) continue;
+        const n = toAmount(cols[j]);
+        if (!isNaN(n)) { amount = n; amountIdx = j; break; }
+      }
+    }
+    if (isNaN(amount)) { skipped.push(cols.join(',')); continue; }
+
+    // --- description
+    let description = '';
+    if (header && header.idx.desc >= 0) description = cols[header.idx.desc];
+    if (!description) {
+      description = cols
+        .filter((c, j) => j !== dateIdx && j !== amountIdx && !/^[\d.,$()-]+$/.test(c))
+        .sort((a, b) => b.length - a.length)[0] || 'Transaction';
+    }
+
+    data.push({ date, description, amount, raw: cols.join(',') });
+  }
+
+  data.skipped = skipped;
   return data;
 }
 
