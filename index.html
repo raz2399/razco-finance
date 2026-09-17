@@ -590,9 +590,39 @@
 
     <!-- CHECKS TAB -->
     <div class="tab-content" id="checks-tab">
-      <h2 style="margin-bottom: 16px;">Check Run</h2>
+      <h2 style="margin-bottom: 16px;">Checks</h2>
+
+      <div class="card" style="margin-bottom:16px">
+        <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:.5px">REAL AVAILABLE CASH</div>
+        <div id="chk-cash" style="font-size:32px;font-weight:800;letter-spacing:-1px;margin:4px 0">&mdash;</div>
+        <div id="chk-cash-note" style="font-size:12px;color:#666;line-height:1.5">Loading&hellip;</div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h3 style="margin:0 0 14px;font-size:15px">Log a check</h3>
+        <div id="chk-msg" style="display:none;border-radius:8px;padding:12px;font-size:13px;margin-bottom:12px;line-height:1.5"></div>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">CHECK NUMBER</label>
+            <input id="chk-num" type="text" inputmode="numeric" placeholder="9801">
+          </div>
+          <div style="flex:1">
+            <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">AMOUNT</label>
+            <input id="chk-amt" type="text" inputmode="decimal" placeholder="1450.00">
+          </div>
+        </div>
+        <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">PAID TO</label>
+        <input id="chk-payee" type="text" placeholder="C&amp;S Wholesale">
+        <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">DATE WRITTEN</label>
+        <input id="chk-date" type="date">
+        <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">NOTE (OPTIONAL)</label>
+        <input id="chk-memo" type="text" placeholder="invoice 4471">
+        <button id="chk-save" class="btn" style="width:100%">Log check</button>
+      </div>
+
       <div class="card">
-        <p>No pending checks.</p>
+        <h3 style="margin:0 0 14px;font-size:15px">Checks on file</h3>
+        <div id="chk-list"><p>Loading&hellip;</p></div>
       </div>
     </div>
 
@@ -624,12 +654,17 @@
     <div class="tab-content" id="bank-tab">
       <h2 style="margin-bottom: 16px;">Bank Import</h2>
       <div class="card">
-        <p>Upload bank CSV to reconcile deposits.</p>
+        <p style="margin-bottom:14px">Import a statement to set your bank balance and clear matching checks.</p>
+        <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">ENDING BALANCE ON THE STATEMENT</label>
+        <input id="bank-balance" type="text" inputmode="decimal" placeholder="24692.69">
+        <div style="font-size:11px;color:#888;margin:-6px 0 14px">Leave blank to add up every transaction imported instead.</div>
         <div class="file-upload-area" id="bank-upload-area">
-          <div style="font-size: 40px; margin-bottom: 10px;">🏦</div>
-          <p><strong>Tap to upload CSV</strong></p>
+          <div style="font-size: 40px; margin-bottom: 10px;">&#127974;</div>
+          <p><strong id="bank-file-label">Tap to choose your bank CSV</strong></p>
           <input type="file" id="bank-file" class="file-input" accept=".csv,.txt">
         </div>
+        <button id="bank-import-btn" class="btn" style="width:100%;margin-top:14px" disabled>Import statement</button>
+        <div id="bank-result" style="display:none;border-radius:8px;padding:14px;font-size:13px;margin-top:14px;line-height:1.6"></div>
       </div>
     </div>
 
@@ -658,6 +693,7 @@ var APP = {
   user_role: 'owner',
   cash_floor: 3000,
   auth_token: null,
+  bank_csv_text: null,
   api_url: '/.netlify/functions',
   
   init: function() {
@@ -667,6 +703,44 @@ var APP = {
 
   setupEventListeners: function() {
     var self = this;
+
+    var chkSave = document.getElementById('chk-save');
+    if (chkSave) chkSave.addEventListener('click', function() { self.saveCheck(false); });
+
+    document.body.addEventListener('click', function(e) {
+      var el = e.target || e.srcElement;
+      if (!el.getAttribute) return;
+      var clearId = el.getAttribute('data-chk-clear');
+      var voidId = el.getAttribute('data-chk-void');
+      if (clearId) {
+        self.post('/checks', { store_id: self.store_id, payment_id: clearId, action: 'clear' },
+          function(st) { if (st === 200) { self.loadChecks(); self.loadCashPosition(); } });
+      } else if (voidId) {
+        if (!window.confirm('Void this check?')) return;
+        self.post('/checks', { store_id: self.store_id, payment_id: voidId, action: 'void' },
+          function(st) { if (st === 200) { self.loadChecks(); self.loadCashPosition(); } });
+      }
+    });
+
+    var bankFile = document.getElementById('bank-file');
+    var bankArea = document.getElementById('bank-upload-area');
+    if (bankArea && bankFile) {
+      bankArea.addEventListener('click', function() { bankFile.click(); });
+      bankFile.addEventListener('change', function() {
+        var f = bankFile.files && bankFile.files[0];
+        if (!f) return;
+        var reader = new FileReader();
+        reader.onload = function() {
+          self.bank_csv_text = String(reader.result || '');
+          document.getElementById('bank-file-label').innerHTML =
+            self.escHtml(f.name) + ' &mdash; ' + self.bank_csv_text.split(/\r\n|\n|\r/).length + ' lines';
+          document.getElementById('bank-import-btn').disabled = false;
+        };
+        reader.readAsText(f);
+      });
+    }
+    var bankBtn = document.getElementById('bank-import-btn');
+    if (bankBtn) bankBtn.addEventListener('click', function() { self.runBankImport(); });
 
     document.getElementById('login-form').addEventListener('submit', function(e) {
       e.preventDefault();
@@ -763,6 +837,211 @@ var APP = {
     if (tabName === 'calendar') this.loadAPCalendar();
     if (tabName === 'cash') this.loadCashPosition();
     if (tabName === 'pl') this.loadPL();
+    if (tabName === 'checks') this.loadChecks();
+  },
+
+  // ---------- shared helpers ----------
+  money: function(n) {
+    var v = Number(n) || 0, neg = v < 0;
+    var parts = Math.abs(v).toFixed(2).split('.');
+    var out = '', c = 0;
+    for (var i = parts[0].length - 1; i >= 0; i--) {
+      out = parts[0].charAt(i) + out; c++;
+      if (c % 3 === 0 && i > 0) out = ',' + out;
+    }
+    return (neg ? '-$' : '$') + out + '.' + parts[1];
+  },
+
+  escHtml: function(x) {
+    return String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  },
+
+  todayISO: function() {
+    var d = new Date(), p = function(n) { return n < 10 ? '0' + n : '' + n; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  },
+
+  post: function(path, body, cb) {
+    var x = new XMLHttpRequest();
+    x.open('POST', this.api_url + path, true);
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.onreadystatechange = function() {
+      if (x.readyState !== 4) return;
+      var d = null;
+      try { d = JSON.parse(x.responseText); } catch (e) {}
+      cb(x.status, d);
+    };
+    x.onerror = function() { cb(0, null); };
+    x.send(JSON.stringify(body));
+  },
+
+  // ---------- checks ----------
+  chkMsg: function(kind, text) {
+    var m = document.getElementById('chk-msg');
+    if (!m) return;
+    m.style.display = 'block';
+    m.innerHTML = this.escHtml(text);
+    if (kind === 'ok') {
+      m.style.background = '#E8F5E9'; m.style.border = '1px solid #A5D6A7'; m.style.color = '#1B5E20';
+      window.setTimeout(function() { m.style.display = 'none'; }, 6000);
+    } else {
+      m.style.background = '#FDECEA'; m.style.border = '1px solid #F5B7B1'; m.style.color = '#922B21';
+    }
+  },
+
+  paintChecksCash: function(d) {
+    var cash = Number(d.real_available_cash) || 0;
+    var el = document.getElementById('chk-cash');
+    if (!el) return;
+    el.innerHTML = this.money(cash);
+    el.style.color = cash < 5000 ? '#DC3545' : cash < 15000 ? '#8D6E00' : '#1A472A';
+    document.getElementById('chk-cash-note').innerHTML =
+      'Bank ' + this.money(d.bank_balance) + ' less ' + this.money(d.outstanding_total) +
+      ' in ' + d.outstanding_count + (d.outstanding_count === 1 ? ' check' : ' checks') +
+      ' not yet cleared' +
+      (d.bank_balance_as_of ? ' &middot; bank as of ' + this.escHtml(d.bank_balance_as_of) : '');
+  },
+
+  loadChecks: function() {
+    var self = this;
+    var dateEl = document.getElementById('chk-date');
+    if (dateEl && !dateEl.value) dateEl.value = this.todayISO();
+
+    var x = new XMLHttpRequest();
+    x.open('GET', this.api_url + '/checks?store_id=' + encodeURIComponent(this.store_id), true);
+    x.onreadystatechange = function() {
+      if (x.readyState !== 4) return;
+      var d = null;
+      try { d = JSON.parse(x.responseText); } catch (e) {}
+      if (x.status !== 200 || !d) {
+        document.getElementById('chk-list').innerHTML =
+          '<p>Could not load checks. ' + self.escHtml((d && d.error) || '') + '</p>';
+        return;
+      }
+      self.paintChecksCash(d);
+      self.paintChecksList(d.checks);
+    };
+    x.send();
+  },
+
+  paintChecksList: function(checks) {
+    var box = document.getElementById('chk-list');
+    if (!box) return;
+    if (!checks || !checks.length) { box.innerHTML = '<p>No checks logged yet.</p>'; return; }
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:14px">' +
+      '<tr><th style="text-align:left;font-size:11px;color:#666;padding-bottom:8px">No.</th>' +
+      '<th style="text-align:left;font-size:11px;color:#666;padding-bottom:8px">Paid to</th>' +
+      '<th style="text-align:right;font-size:11px;color:#666;padding-bottom:8px">Amount</th><th></th></tr>';
+    for (var i = 0; i < checks.length; i++) {
+      var c = checks[i];
+      var label = c.status === 'cleared' ? 'Cleared' : c.status === 'void' ? 'Void' : 'Not cleared';
+      var color = c.status === 'cleared' ? '#1B5E20' : c.status === 'void' ? '#868E96' : '#8D6E00';
+      h += '<tr style="border-top:1px solid #F1F3F5">' +
+        '<td style="padding:11px 8px 11px 0"><strong>' + this.escHtml(c.check_number) + '</strong>' +
+        '<div style="font-size:11px;color:#888">' + this.escHtml(c.payment_date || '') + '</div></td>' +
+        '<td style="padding:11px 8px 11px 0">' + this.escHtml(c.memo || '') +
+        '<div style="font-size:11px;color:' + color + ';font-weight:700">' + label + '</div></td>' +
+        '<td style="padding:11px 8px 11px 0;text-align:right;font-weight:700;white-space:nowrap">' +
+        this.money(c.amount) + '</td>' +
+        '<td style="padding:11px 0;text-align:right">' +
+        (c.status === 'outstanding'
+          ? '<button class="btn-small" data-chk-clear="' + this.escHtml(c.payment_id) + '">Cleared</button>' +
+            '<div style="height:6px"></div>' +
+            '<button class="btn-small" data-chk-void="' + this.escHtml(c.payment_id) + '" style="color:#DC3545">Void</button>'
+          : '') +
+        '</td></tr>';
+    }
+    box.innerHTML = h + '</table>';
+  },
+
+  saveCheck: function(allowDuplicate) {
+    var self = this;
+    var payload = {
+      store_id: this.store_id,
+      check_number: document.getElementById('chk-num').value,
+      payee: document.getElementById('chk-payee').value,
+      amount: document.getElementById('chk-amt').value,
+      payment_date: document.getElementById('chk-date').value,
+      memo: document.getElementById('chk-memo').value
+    };
+    if (allowDuplicate) payload.allow_duplicate = true;
+
+    if (!payload.check_number || !payload.payee || !payload.amount) {
+      this.chkMsg('bad', 'Check number, payee and amount are all needed.');
+      return;
+    }
+
+    var btn = document.getElementById('chk-save');
+    btn.disabled = true; btn.innerHTML = 'Saving...';
+
+    this.post('/checks', payload, function(status, d) {
+      btn.disabled = false; btn.innerHTML = 'Log check';
+      if (status === 409 && d) {
+        if (window.confirm(d.error + '\n\nLog it anyway?')) self.saveCheck(true);
+        return;
+      }
+      if (status !== 200 || !d) {
+        self.chkMsg('bad', (d && d.error) || 'Could not save the check.');
+        return;
+      }
+      self.chkMsg('ok', 'Check ' + payload.check_number + ' logged. Real available cash is now ' +
+        self.money(d.real_available_cash) + '.');
+      document.getElementById('chk-num').value = '';
+      document.getElementById('chk-amt').value = '';
+      document.getElementById('chk-payee').value = '';
+      document.getElementById('chk-memo').value = '';
+      document.getElementById('chk-date').value = self.todayISO();
+      self.paintChecksCash(d);
+      self.loadChecks();
+      self.loadCashPosition();
+    });
+  },
+
+  // ---------- bank import ----------
+  bankResult: function(kind, html) {
+    var r = document.getElementById('bank-result');
+    r.style.display = 'block';
+    r.innerHTML = html;
+    if (kind === 'ok') {
+      r.style.background = '#E8F5E9'; r.style.border = '1px solid #A5D6A7'; r.style.color = '#1B5E20';
+    } else {
+      r.style.background = '#FDECEA'; r.style.border = '1px solid #F5B7B1'; r.style.color = '#922B21';
+    }
+  },
+
+  runBankImport: function() {
+    var self = this;
+    if (!this.bank_csv_text) { this.bankResult('bad', 'Choose a CSV file first.'); return; }
+
+    var btn = document.getElementById('bank-import-btn');
+    btn.disabled = true; btn.innerHTML = 'Importing...';
+
+    var payload = { store_id: this.store_id, account_id: 'operating', csv_text: this.bank_csv_text };
+    var bal = document.getElementById('bank-balance').value.replace(/[$,\s]/g, '');
+    if (bal) payload.ending_balance = parseFloat(bal);
+
+    this.post('/bank-import', payload, function(status, d) {
+      btn.disabled = false; btn.innerHTML = 'Import statement';
+      if (status !== 200 || !d || d.error) {
+        self.bankResult('bad', 'Import failed: ' + self.escHtml((d && d.error) || ('HTTP ' + status)));
+        return;
+      }
+      var s = d.summary || {};
+      var h = '';
+      if (s.balance_written) {
+        h += '<div>Bank balance now</div><div style="font-size:24px;font-weight:800;margin:4px 0">' +
+          self.money(s.new_balance) + '</div>';
+      } else {
+        h += '<div><strong>Balance was not written:</strong> ' +
+          self.escHtml(s.balance_error || 'no balance available') + '</div>';
+      }
+      h += '<div>' + s.imported_count + ' transactions imported, ' + s.duplicate_count + ' duplicates skipped</div>';
+      h += '<div>' + s.auto_matched + ' checks cleared automatically' +
+        (d.cleared_checks && d.cleared_checks.length ? ' (no. ' + d.cleared_checks.join(', no. ') + ')' : '') + '</div>';
+      self.bankResult('ok', h);
+      self.loadCashPosition();
+    });
   },
 
   loadHome: function() {
