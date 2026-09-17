@@ -80,6 +80,12 @@ function hashTransaction(date, desc, amount) {
 }
 
 // --- handler ---------------------------------------------------------------
+// Batched: the whole file is processed in a handful of queries instead of
+// several per row. A 150-line statement used to mean ~400 round trips and a
+// gateway timeout; it is now about 6 regardless of file size.
+
+const CHUNK = 200;
+
 exports.handler = async (event) => {
   try {
     const { store_id, account_id, csv_text, ending_balance, account_label } =
@@ -95,92 +101,100 @@ exports.handler = async (event) => {
     }
 
     const batchId = crypto.randomUUID();
-    const imported = [];
-    const duplicates = [];
-    const clearedChecks = [];
+    transactions.forEach((t) => {
+      t.hash = hashTransaction(t.date, t.description, Math.abs(t.amount));
+    });
 
-    for (const txn of transactions) {
-      const hash = hashTransaction(txn.date, txn.description, Math.abs(txn.amount));
-
-      const existing = await supabase
+    // 1. Which of these have we already imported? One query per 200 rows.
+    const seen = new Set();
+    for (let i = 0; i < transactions.length; i += CHUNK) {
+      const hashes = transactions.slice(i, i + CHUNK).map((t) => t.hash);
+      const found = await supabase
         .from('bank_transactions')
-        .select('bank_txn_id')
-        .eq('import_hash', hash)
-        .limit(1)
-        .maybeSingle();
-
-      if (existing.data) {
-        duplicates.push({ date: txn.date, description: txn.description, amount: txn.amount });
-        continue;
-      }
-
-      const result = await supabase
-        .from('bank_transactions')
-        .insert({
-          account_id,
-          store_id,
-          posted_date: txn.date,
-          description: txn.description,
-          amount: txn.amount,
-          import_batch: batchId,
-          import_hash: hash,
-          match_status: 'unmatched',
-        })
-        .select('bank_txn_id');
-
-      if (!result.data || !result.data[0]) continue;
-
-      const row = {
-        bank_txn_id: result.data[0].bank_txn_id,
-        date: txn.date,
-        description: txn.description,
-        amount: txn.amount,
-        matched: false,
-      };
-
-      // Money out — try to clear an outstanding check of the same amount.
-      if (txn.amount < 0) {
-        const check = await supabase
-          .from('payments')
-          .select('payment_id, check_number')
-          .eq('store_id', store_id)
-          .eq('method', 'check')
-          .eq('status', 'outstanding')
-          .eq('amount', Math.abs(txn.amount))
-          .limit(1)
-          .maybeSingle();
-
-        if (check.data) {
-          await supabase
-            .from('bank_transactions')
-            .update({
-              match_status: 'matched',
-              matched_type: 'payment',
-              matched_id: check.data.payment_id,
-            })
-            .eq('bank_txn_id', row.bank_txn_id);
-
-          await supabase
-            .from('payments')
-            .update({ status: 'cleared', cleared_date: txn.date })
-            .eq('payment_id', check.data.payment_id);
-
-          row.matched = true;
-          row.matched_check = check.data.check_number;
-          clearedChecks.push(check.data.check_number);
-        }
-      }
-
-      imported.push(row);
+        .select('import_hash')
+        .in('import_hash', hashes);
+      (found.data || []).forEach((r) => seen.add(r.import_hash));
     }
 
-    // --- update the account balance ---------------------------------------
-    // This is the step that was missing entirely. Without it, bank_accounts
-    // stays empty and cash-position has no balance to report.
-    const latestDate = transactions
-      .map((t) => t.date)
-      .sort()
-      .slice(-1)[0];
+    // Same file can also contain the same row twice — dedupe within the batch.
+    const batchSeen = new Set();
+    const fresh = [];
+    const duplicates = [];
+    for (const t of transactions) {
+      if (seen.has(t.hash) || batchSeen.has(t.hash)) {
+        duplicates.push({ date: t.date, description: t.description, amount: t.amount });
+        continue;
+      }
+      batchSeen.add(t.hash);
+      fresh.push(t);
+    }
+
+    // 2. Insert everything new in bulk.
+    let insertedRows = [];
+    let insertError = null;
+    for (let i = 0; i < fresh.length; i += CHUNK) {
+      const payload = fresh.slice(i, i + CHUNK).map((t) => ({
+        account_id,
+        store_id,
+        posted_date: t.date,
+        description: t.description,
+        amount: t.amount,
+        import_batch: batchId,
+        import_hash: t.hash,
+        match_status: 'unmatched',
+      }));
+      const res = await supabase.from('bank_transactions').insert(payload).select('bank_txn_id, import_hash, amount');
+      if (res.error) { insertError = res.error.message; break; }
+      insertedRows = insertedRows.concat(res.data || []);
+    }
+
+    if (insertError) {
+      return { statusCode: 500, body: JSON.stringify({ error: 'Insert failed: ' + insertError }) };
+    }
+
+    // 3. All outstanding checks for this store, in one query.
+    const checksRes = await supabase
+      .from('payments')
+      .select('payment_id, check_number, amount')
+      .eq('store_id', store_id)
+      .eq('method', 'check')
+      .eq('status', 'outstanding');
+
+    const openChecks = checksRes.data || [];
+    const usedCheck = new Set();
+
+    // 4. Match in memory — no queries at all.
+    const hashToTxn = {};
+    fresh.forEach((t) => { hashToTxn[t.hash] = t; });
+
+    const matches = [];
+    for (const row of insertedRows) {
+      const txn = hashToTxn[row.import_hash];
+      if (!txn || txn.amount >= 0) continue;
+      const target = Math.abs(txn.amount);
+      const hit = openChecks.find(
+        (c) => !usedCheck.has(c.payment_id) && Math.abs(Number(c.amount) - target) < 0.005
+      );
+      if (hit) {
+        usedCheck.add(hit.payment_id);
+        matches.push({ txn_id: row.bank_txn_id, payment_id: hit.payment_id, check_number: hit.check_number, date: txn.date });
+      }
+    }
+
+    // 5. Write the matches. One pair of updates per matched check only.
+    for (const m of matches) {
+      await supabase
+        .from('bank_transactions')
+        .update({ match_status: 'matched', matched_type: 'payment', matched_id: m.payment_id })
+        .eq('bank_txn_id', m.txn_id);
+      await supabase
+        .from('payments')
+        .update({ status: 'cleared', cleared_date: m.date })
+        .eq('payment_id', m.payment_id);
+    }
+
+    // 6. Update the account balance — the step that was missing entirely.
+    const latestDate = transactions.map((t) => t.date).sort().slice(-1)[0];
 
     let newBalance = null;
     let balanceSource = null;
@@ -189,7 +203,6 @@ exports.handler = async (event) => {
       newBalance = Number(ending_balance);
       balanceSource = 'statement ending balance';
     } else {
-      // Fall back to the running total of every transaction ever imported.
       const all = await supabase
         .from('bank_transactions')
         .select('amount')
@@ -204,23 +217,21 @@ exports.handler = async (event) => {
     let balanceError = null;
 
     if (newBalance !== null && !isNaN(newBalance)) {
-      const write = await supabase
-        .from('bank_accounts')
-        .upsert(
-          {
-            account_id,
-            store_id,
-            label: account_label || 'Operating',
-            current_balance: newBalance,
-            balance_as_of: latestDate || new Date().toISOString().split('T')[0],
-          },
-          { onConflict: 'account_id' }
-        );
+      const write = await supabase.from('bank_accounts').upsert(
+        {
+          account_id,
+          store_id,
+          label: account_label || 'Operating',
+          current_balance: newBalance,
+          balance_as_of: latestDate || new Date().toISOString().split('T')[0],
+        },
+        { onConflict: 'account_id' }
+      );
       balanceWritten = !write.error;
       if (write.error) balanceError = write.error.message;
     }
 
-    const autoMatched = imported.filter((i) => i.matched).length;
+    const clearedChecks = matches.map((m) => m.check_number);
 
     return {
       statusCode: 200,
@@ -232,10 +243,10 @@ exports.handler = async (event) => {
           account_id,
           import_date: new Date().toISOString(),
           total_transactions: transactions.length,
-          imported_count: imported.length,
+          imported_count: insertedRows.length,
           duplicate_count: duplicates.length,
-          auto_matched: autoMatched,
-          unmatched_count: imported.length - autoMatched,
+          auto_matched: matches.length,
+          unmatched_count: insertedRows.length - matches.length,
           balance_written: balanceWritten,
           new_balance: newBalance,
           balance_source: balanceSource,
@@ -243,12 +254,11 @@ exports.handler = async (event) => {
           balance_error: balanceError,
         },
         cleared_checks: clearedChecks,
-        imported,
-        duplicates,
+        duplicates: duplicates.slice(0, 50),
         next_steps: [
-          `${imported.length} transactions imported, ${duplicates.length} duplicates skipped`,
-          autoMatched
-            ? `${autoMatched} check${autoMatched > 1 ? 's' : ''} cleared automatically`
+          `${insertedRows.length} transactions imported, ${duplicates.length} duplicates skipped`,
+          matches.length
+            ? `${matches.length} check${matches.length > 1 ? 's' : ''} cleared automatically`
             : 'No checks matched automatically',
           balanceWritten
             ? `Bank balance set to $${Number(newBalance).toFixed(2)} (${balanceSource})`
