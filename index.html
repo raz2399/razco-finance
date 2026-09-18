@@ -628,13 +628,109 @@
 
     <!-- CHARGES TAB -->
     <div class="tab-content" id="charges-tab">
-      <h2 style="margin-bottom: 16px;">Charge Accounts</h2>
+
+      <!-- 1. RECEIVING: what happens when a truck shows up -->
+      <div class="card" style="margin-bottom:16px;border-left:4px solid #1a472a">
+        <h3 style="margin:0 0 4px;font-size:16px">Delivery received</h3>
+        <p style="font-size:12px;color:#666;margin:0 0 14px">Enter the invoice. The system tells you what to do with it.</p>
+        <div id="inv-msg" style="display:none;border-radius:8px;padding:12px;font-size:13px;margin-bottom:12px;line-height:1.5"></div>
+
+        <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">VENDOR</label>
+        <input id="inv-vendor" type="text" placeholder="Start typing&hellip;" list="inv-vendor-list" autocomplete="off">
+        <datalist id="inv-vendor-list"></datalist>
+        <div id="inv-vendor-known" style="display:none;font-size:12px;margin:-6px 0 12px;padding:8px 10px;border-radius:6px"></div>
+
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">INVOICE NUMBER</label>
+            <input id="inv-num" type="text" placeholder="884412">
+          </div>
+          <div style="flex:1">
+            <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">AMOUNT</label>
+            <input id="inv-amt" type="text" inputmode="decimal" placeholder="14822.50">
+          </div>
+        </div>
+        <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">INVOICE DATE</label>
+        <input id="inv-date" type="date">
+
+        <!-- only shown for a COD vendor -->
+        <div id="inv-cod-box" style="display:none">
+          <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">CHECK NUMBER YOU ARE HANDING OVER</label>
+          <input id="inv-cod-check" type="text" inputmode="numeric" placeholder="9788">
+        </div>
+
+        <!-- only shown the first time a vendor appears -->
+        <div id="inv-setup" style="display:none;background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:14px;margin-bottom:12px">
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px" id="inv-setup-title">New vendor</div>
+          <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">HOW DOES THIS VENDOR GET PAID?</label>
+          <select id="inv-method" style="width:100%;border:1px solid #dee2e6;border-radius:8px;padding:12px;font-size:16px;margin-bottom:12px;background:#fff">
+            <option value="check">Charge account &mdash; we write a check on terms</option>
+            <option value="cod">COD &mdash; check at the door</option>
+            <option value="auto_debit">Auto-draft &mdash; bank takes it automatically</option>
+          </select>
+          <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">TERMS</label>
+          <select id="inv-terms" style="width:100%;border:1px solid #dee2e6;border-radius:8px;padding:12px;font-size:16px;margin-bottom:6px;background:#fff">
+            <option value="net30">Net 30</option>
+            <option value="net15">Net 15</option>
+            <option value="net10">Net 10</option>
+            <option value="net7">Net 7</option>
+            <option value="eom">End of month</option>
+            <option value="prox10">10th of next month</option>
+            <option value="weekly">Weekly statement</option>
+          </select>
+          <div style="font-size:11px;color:#8D6E00">Asked once. After this the vendor is remembered.</div>
+        </div>
+
+        <button id="inv-save" class="btn" style="width:100%">Record delivery</button>
+      </div>
+
+      <!-- 2. WRITE CHECKS FOR -->
+      <div class="card" style="margin-bottom:16px">
+        <h3 style="margin:0 0 4px;font-size:15px">Write checks for</h3>
+        <p style="font-size:12px;color:#666;margin:0 0 10px">Charge accounts coming due. Tick a vendor's invoices, write one check.</p>
+        <label style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:#666;margin-bottom:10px;cursor:pointer">
+          <input type="checkbox" id="inv-show-all" style="width:18px;height:18px"> Show everything open, not just the next 7 days
+        </label>
+        <div id="inv-list"><p>Loading&hellip;</p></div>
+        <div id="inv-pay-box" style="display:none;border-top:1px solid #dee2e6;margin-top:14px;padding-top:14px">
+          <div style="font-size:13px;margin-bottom:10px">Selected: <strong id="inv-sel-total">$0.00</strong> <span id="inv-sel-count" style="color:#666"></span></div>
+          <div style="display:flex;gap:10px">
+            <div style="flex:1">
+              <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">CHECK NUMBER</label>
+              <input id="inv-check-num" type="text" inputmode="numeric" placeholder="9801">
+            </div>
+            <div style="flex:1">
+              <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">DATE</label>
+              <input id="inv-check-date" type="date">
+            </div>
+          </div>
+          <button id="inv-pay" class="btn" style="width:100%">Write the check</button>
+        </div>
+      </div>
+
+      <!-- 3. THE BANK IS TAKING -->
+      <div class="card" style="margin-bottom:16px;border-left:4px solid #dc3545">
+        <h3 style="margin:0 0 4px;font-size:15px">The bank is taking</h3>
+        <p style="font-size:12px;color:#666;margin:0 0 12px">Auto-drafts. You write no check for these &mdash; they leave on their own.</p>
+        <div id="inv-drafts"><p>Loading&hellip;</p></div>
+      </div>
+
+      <!-- 4. QUICKBOOKS -->
+      <div class="card" style="margin-bottom:16px">
+        <h3 style="margin:0 0 4px;font-size:15px">Still to enter in QuickBooks</h3>
+        <p style="font-size:12px;color:#666;margin:0 0 12px">Tick each one off as you enter the bill.</p>
+        <div id="inv-qb"><p>Loading&hellip;</p></div>
+      </div>
+
+      <!-- 5. OWED BY VENDOR -->
       <div class="card">
-        <p>Auto-debit and charge account payments.</p>
+        <h3 style="margin:0 0 4px;font-size:15px">Owed, by vendor</h3>
+        <div id="inv-owed" style="font-size:26px;font-weight:800;letter-spacing:-.5px;margin:8px 0 2px">&mdash;</div>
+        <div id="inv-owed-note" style="font-size:12px;color:#666;line-height:1.5;margin-bottom:12px">Loading&hellip;</div>
+        <div id="inv-vendors"></div>
       </div>
     </div>
 
-    <!-- CASH TAB -->
     <div class="tab-content" id="cash-tab">
       <h2 style="margin-bottom: 16px;">Cash Position</h2>
       <div id="cash-data">
@@ -694,6 +790,8 @@ var APP = {
   cash_floor: 3000,
   auth_token: null,
   bank_csv_text: null,
+  invoice_data: null,
+  pending_method: null,
   api_url: '/.netlify/functions',
   
   init: function() {
@@ -704,12 +802,36 @@ var APP = {
   setupEventListeners: function() {
     var self = this;
 
+    var invVendor = document.getElementById('inv-vendor');
+    if (invVendor) {
+      invVendor.addEventListener('input', function() { self.onVendorTyped(); });
+      invVendor.addEventListener('change', function() { self.onVendorTyped(); });
+    }
+    var invMethod = document.getElementById('inv-method');
+    if (invMethod) invMethod.addEventListener('change', function() {
+      document.getElementById('inv-cod-box').style.display = invMethod.value === 'cod' ? 'block' : 'none';
+    });
+
+    var showAll = document.getElementById('inv-show-all');
+    if (showAll) showAll.addEventListener('change', function() { self.paintToPay(); self.updateInvoiceSelection(); });
+
+    var invSave = document.getElementById('inv-save');
+    if (invSave) invSave.addEventListener('click', function() { self.saveInvoice(false); });
+    var invPay = document.getElementById('inv-pay');
+    if (invPay) invPay.addEventListener('click', function() { self.payInvoices(); });
+    document.body.addEventListener('change', function(e) {
+      var el = e.target || e.srcElement;
+      if (el && el.className === 'inv-pick') self.updateInvoiceSelection();
+    });
+
     var chkSave = document.getElementById('chk-save');
     if (chkSave) chkSave.addEventListener('click', function() { self.saveCheck(false); });
 
     document.body.addEventListener('click', function(e) {
       var el = e.target || e.srcElement;
       if (!el.getAttribute) return;
+      var qbId = el.getAttribute('data-qb');
+      if (qbId) { self.markQB(qbId); return; }
       var clearId = el.getAttribute('data-chk-clear');
       var voidId = el.getAttribute('data-chk-void');
       if (clearId) {
@@ -838,6 +960,7 @@ var APP = {
     if (tabName === 'cash') this.loadCashPosition();
     if (tabName === 'pl') this.loadPL();
     if (tabName === 'checks') this.loadChecks();
+    if (tabName === 'charges') this.loadInvoices();
   },
 
   // ---------- shared helpers ----------
@@ -993,6 +1116,333 @@ var APP = {
       document.getElementById('chk-memo').value = '';
       document.getElementById('chk-date').value = self.todayISO();
       self.paintChecksCash(d);
+      self.loadChecks();
+      self.loadCashPosition();
+    });
+  },
+
+  // ---------- charge accounts / receiving ----------
+  invMsg: function(kind, text) {
+    var m = document.getElementById('inv-msg');
+    if (!m) return;
+    m.style.display = 'block';
+    m.innerHTML = text;
+    if (kind === 'ok') {
+      m.style.background = '#E8F5E9'; m.style.border = '1px solid #A5D6A7'; m.style.color = '#1B5E20';
+    } else if (kind === 'warn') {
+      m.style.background = '#FFF8E1'; m.style.border = '1px solid #FFE082'; m.style.color = '#8D6E00';
+    } else {
+      m.style.background = '#FDECEA'; m.style.border = '1px solid #F5B7B1'; m.style.color = '#922B21';
+    }
+  },
+
+  methodLabel: function(m) {
+    if (m === 'cod') return 'COD — check at the door';
+    if (m === 'auto_debit') return 'Auto-draft — bank takes it';
+    return 'Charge account — we write a check';
+  },
+
+  loadInvoices: function() {
+    var self = this;
+    var d0 = document.getElementById('inv-date');
+    if (d0 && !d0.value) d0.value = this.todayISO();
+    var d1 = document.getElementById('inv-check-date');
+    if (d1 && !d1.value) d1.value = this.todayISO();
+
+    var x = new XMLHttpRequest();
+    x.open('GET', this.api_url + '/invoices?store_id=' + encodeURIComponent(this.store_id), true);
+    x.onreadystatechange = function() {
+      if (x.readyState !== 4) return;
+      var d = null;
+      try { d = JSON.parse(x.responseText); } catch (e) {}
+      if (x.status !== 200 || !d) {
+        document.getElementById('inv-list').innerHTML =
+          '<p>Could not load. ' + self.escHtml((d && d.error) || '') + '</p>';
+        return;
+      }
+      self.invoice_data = d;
+      self.paintInvoiceTotals(d);
+      self.paintVendors(d.vendors);
+      self.paintToPay();
+      self.paintDrafts(d);
+      self.paintQB(d.needs_qb);
+      self.updateInvoiceSelection();
+    };
+    x.send();
+  },
+
+  // vendor typed in: show what we already know, and reveal the right fields
+  onVendorTyped: function() {
+    var name = String(document.getElementById('inv-vendor').value || '').trim().toLowerCase();
+    var known = null;
+    var d = this.invoice_data;
+    if (d && d.vendors) {
+      for (var i = 0; i < d.vendors.length; i++) {
+        if (String(d.vendors[i].vendor_name).trim().toLowerCase() === name) { known = d.vendors[i]; break; }
+      }
+    }
+    if (!known && d && d.invoices) {
+      for (var j = 0; j < d.invoices.length; j++) {
+        if (String(d.invoices[j].vendor_name).trim().toLowerCase() === name) {
+          known = { vendor_name: d.invoices[j].vendor_name, pay_method: d.invoices[j].pay_method, terms: d.invoices[j].terms, balance: 0 };
+          break;
+        }
+      }
+    }
+
+    var badge = document.getElementById('inv-vendor-known');
+    var setup = document.getElementById('inv-setup');
+    var cod = document.getElementById('inv-cod-box');
+
+    if (!name) { badge.style.display = 'none'; setup.style.display = 'none'; cod.style.display = 'none'; return; }
+
+    if (known) {
+      setup.style.display = 'none';
+      badge.style.display = 'block';
+      var m = known.pay_method;
+      badge.style.background = m === 'auto_debit' ? '#FDECEA' : m === 'cod' ? '#FFF8E1' : '#E8F5E9';
+      badge.style.color = m === 'auto_debit' ? '#922B21' : m === 'cod' ? '#8D6E00' : '#1B5E20';
+      badge.innerHTML = '<strong>' + this.escHtml(this.methodLabel(m)) + '</strong>' +
+        (known.terms ? ' &middot; ' + this.escHtml(known.terms) : '') +
+        (known.balance ? ' &middot; already owed ' + this.money(known.balance) : '');
+      cod.style.display = m === 'cod' ? 'block' : 'none';
+      this.pending_method = m;
+    } else {
+      badge.style.display = 'none';
+      setup.style.display = 'block';
+      document.getElementById('inv-setup-title').innerHTML =
+        this.escHtml(document.getElementById('inv-vendor').value) + ' is new';
+      cod.style.display = document.getElementById('inv-method').value === 'cod' ? 'block' : 'none';
+      this.pending_method = null;
+    }
+  },
+
+  paintInvoiceTotals: function(d) {
+    document.getElementById('inv-owed').innerHTML = this.money(d.total_owed);
+    document.getElementById('inv-owed').style.color = d.overdue_count > 0 ? '#DC3545' : '#1A472A';
+    var note = d.open_count + (d.open_count === 1 ? ' open invoice' : ' open invoices');
+    if (d.overdue_count) note += ' &middot; <strong style="color:#DC3545">' + d.overdue_count + ' overdue</strong>';
+    document.getElementById('inv-owed-note').innerHTML = note;
+  },
+
+  paintVendors: function(vendors) {
+    var box = document.getElementById('inv-vendors');
+    var list = document.getElementById('inv-vendor-list');
+    var opts = '';
+    var all = this.invoice_data && this.invoice_data.invoices ? this.invoice_data.invoices : [];
+    var seen = {};
+    for (var k = 0; k < all.length; k++) {
+      if (!seen[all[k].vendor_name]) { seen[all[k].vendor_name] = 1; opts += '<option value="' + this.escHtml(all[k].vendor_name) + '">'; }
+    }
+    if (list) list.innerHTML = opts;
+
+    if (!vendors || !vendors.length) { box.innerHTML = '<p style="color:#666;font-size:13px">Nothing owed right now.</p>'; return; }
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:14px">';
+    for (var i = 0; i < vendors.length; i++) {
+      var v = vendors[i];
+      h += '<tr style="border-top:1px solid #F1F3F5">' +
+        '<td style="padding:11px 8px 11px 0"><strong>' + this.escHtml(v.vendor_name) + '</strong>' +
+        '<div style="font-size:11px;color:#888">' + this.escHtml(this.methodLabel(v.pay_method)) +
+        (v.overdue ? ' &middot; <span style="color:#DC3545;font-weight:700">' + v.overdue + ' overdue</span>' : '') +
+        '</div></td>' +
+        '<td style="padding:11px 0;text-align:right;font-weight:700;white-space:nowrap">' + this.money(v.balance) +
+        '<div style="font-size:11px;color:#888;font-weight:400">due ' + this.escHtml(v.oldest_due || '') + '</div></td></tr>';
+    }
+    box.innerHTML = h + '</table>';
+  },
+
+  paintToPay: function() {
+    var box = document.getElementById('inv-list');
+    var d = this.invoice_data;
+    if (!d) return;
+    var showAll = document.getElementById('inv-show-all') && document.getElementById('inv-show-all').checked;
+    var rows;
+    if (showAll) {
+      rows = [];
+      for (var q = 0; q < d.invoices.length; q++) {
+        var iv = d.invoices[q];
+        if (iv.pay_method === 'check' && iv.balance_due > 0 &&
+            (iv.status === 'approved' || iv.status === 'partially_paid')) rows.push(iv);
+      }
+      rows.sort(function(a, b) { return String(a.due_date).localeCompare(String(b.due_date)); });
+    } else {
+      rows = d.to_pay || [];
+    }
+    if (!rows.length) {
+      box.innerHTML = '<p style="color:#666;font-size:13px">' +
+        (showAll ? 'No open charge-account invoices.' : 'Nothing due in the next 7 days. Tick the box above to pay something early.') + '</p>';
+      return;
+    }
+    var h = '';
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      h += '<label style="display:flex;align-items:flex-start;gap:10px;padding:11px 0;border-top:1px solid #F1F3F5;cursor:pointer">' +
+        '<input type="checkbox" class="inv-pick" data-id="' + this.escHtml(r.invoice_id) + '" ' +
+        'data-vendor="' + this.escHtml(r.vendor_name) + '" data-amt="' + r.balance_due + '" ' +
+        'style="width:20px;height:20px;margin-top:2px;flex:0 0 auto">' +
+        '<span style="flex:1">' + this.escHtml(r.vendor_name) +
+        '<div style="font-size:11px;color:#888">No. ' + this.escHtml(r.invoice_number) +
+        ' &middot; due ' + this.escHtml(r.due_date || '') +
+        (r.overdue ? ' <span style="color:#DC3545;font-weight:700">OVERDUE</span>' : '') + '</div></span>' +
+        '<span style="font-weight:700;white-space:nowrap">' + this.money(r.balance_due) + '</span></label>';
+    }
+    box.innerHTML = h;
+  },
+
+  paintDrafts: function(d) {
+    var box = document.getElementById('inv-drafts');
+    var rows = d.auto_drafts || [];
+    if (!rows.length) { box.innerHTML = '<p style="color:#666;font-size:13px">No auto-drafts scheduled.</p>'; return; }
+    var h = '<div style="font-size:13px;margin-bottom:10px">' +
+      '<strong>' + this.money(d.auto_drafts_this_week_total) + '</strong> leaving in the next 7 days &middot; ' +
+      this.money(d.auto_drafts_total) + ' scheduled in total</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:14px">';
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      h += '<tr style="border-top:1px solid #F1F3F5">' +
+        '<td style="padding:11px 8px 11px 0">' + this.escHtml(r.vendor_name) +
+        '<div style="font-size:11px;color:#888">No. ' + this.escHtml(r.invoice_number) + '</div></td>' +
+        '<td style="padding:11px 0;text-align:right;font-weight:700;white-space:nowrap">' + this.money(r.balance_due) +
+        '<div style="font-size:11px;color:#DC3545;font-weight:700">' + this.escHtml(r.due_date || '') + '</div></td></tr>';
+    }
+    box.innerHTML = h + '</table>';
+  },
+
+  paintQB: function(rows) {
+    var box = document.getElementById('inv-qb');
+    if (!rows || !rows.length) { box.innerHTML = '<p style="color:#666;font-size:13px">All caught up.</p>'; return; }
+    var h = '';
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      h += '<div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid #F1F3F5">' +
+        '<span style="flex:1">' + this.escHtml(r.vendor_name) +
+        '<div style="font-size:11px;color:#888">No. ' + this.escHtml(r.invoice_number) + ' &middot; ' +
+        this.escHtml(r.invoice_date) + ' &middot; ' + this.escHtml(this.methodLabel(r.pay_method)) + '</div></span>' +
+        '<span style="font-weight:700;white-space:nowrap">' + this.money(r.total_amount) + '</span>' +
+        '<button class="btn-small" data-qb="' + this.escHtml(r.invoice_id) + '">Entered</button></div>';
+    }
+    box.innerHTML = h;
+  },
+
+  updateInvoiceSelection: function() {
+    var picks = document.querySelectorAll('.inv-pick');
+    var total = 0, count = 0, vendors = {};
+    for (var i = 0; i < picks.length; i++) {
+      if (!picks[i].checked) continue;
+      count++;
+      total += Number(picks[i].getAttribute('data-amt')) || 0;
+      vendors[picks[i].getAttribute('data-vendor')] = 1;
+    }
+    var box = document.getElementById('inv-pay-box');
+    if (!box) return;
+    box.style.display = count ? 'block' : 'none';
+    if (!count) return;
+    document.getElementById('inv-sel-total').innerHTML = this.money(total);
+    var names = [];
+    for (var k in vendors) { if (vendors.hasOwnProperty(k)) names.push(k); }
+    document.getElementById('inv-sel-count').innerHTML = names.length > 1
+      ? '&mdash; one check pays one vendor, you have ' + names.length + ' selected'
+      : '&mdash; ' + count + (count === 1 ? ' invoice from ' : ' invoices from ') + this.escHtml(names[0]);
+  },
+
+  saveInvoice: function(allowDuplicate) {
+    var self = this;
+    var setupVisible = document.getElementById('inv-setup').style.display === 'block';
+    var payload = {
+      store_id: this.store_id,
+      vendor: document.getElementById('inv-vendor').value,
+      invoice_number: document.getElementById('inv-num').value,
+      total_amount: document.getElementById('inv-amt').value,
+      invoice_date: document.getElementById('inv-date').value
+    };
+    if (setupVisible) {
+      payload.pay_method = document.getElementById('inv-method').value;
+      payload.terms_code = document.getElementById('inv-terms').value;
+    }
+    var codVal = document.getElementById('inv-cod-check').value;
+    if (codVal) payload.check_number = codVal;
+    if (allowDuplicate) payload.allow_duplicate = true;
+
+    if (!payload.vendor || !payload.invoice_number || !payload.total_amount) {
+      this.invMsg('bad', 'Vendor, invoice number and amount are all needed.');
+      return;
+    }
+
+    var btn = document.getElementById('inv-save');
+    btn.disabled = true; btn.innerHTML = 'Recording...';
+
+    this.post('/invoices', payload, function(status, d) {
+      btn.disabled = false; btn.innerHTML = 'Record delivery';
+
+      if (status === 428) {
+        document.getElementById('inv-setup').style.display = 'block';
+        document.getElementById('inv-setup-title').innerHTML = self.escHtml(payload.vendor) + ' is new';
+        self.invMsg('warn', 'Tell me how this vendor gets paid, then press Record again. Asked once only.');
+        return;
+      }
+      if (status === 409 && d) {
+        if (window.confirm(d.error + '\n\nRecord it anyway?')) self.saveInvoice(true);
+        return;
+      }
+      if (status !== 200 || !d) {
+        self.invMsg('bad', self.escHtml((d && d.error) || 'Could not record it.'));
+        return;
+      }
+
+      self.invMsg(d.pay_method === 'auto_debit' ? 'warn' : 'ok',
+        '<strong>' + self.escHtml(d.vendor_name) + '</strong> &mdash; ' + self.escHtml(d.instruction));
+
+      // clear the whole form so the next truck starts clean
+      document.getElementById('inv-vendor').value = '';
+      document.getElementById('inv-num').value = '';
+      document.getElementById('inv-amt').value = '';
+      document.getElementById('inv-cod-check').value = '';
+      document.getElementById('inv-date').value = self.todayISO();
+      document.getElementById('inv-setup').style.display = 'none';
+      document.getElementById('inv-vendor-known').style.display = 'none';
+      document.getElementById('inv-cod-box').style.display = 'none';
+      document.getElementById('inv-method').value = 'check';
+      self.loadInvoices();
+      self.loadCashPosition();
+    });
+  },
+
+  markQB: function(id) {
+    var self = this;
+    this.post('/invoices', { store_id: this.store_id, action: 'qb', invoice_id: id }, function(st) {
+      if (st === 200) self.loadInvoices();
+    });
+  },
+
+  payInvoices: function() {
+    var self = this;
+    var picks = document.querySelectorAll('.inv-pick');
+    var ids = [], vendors = {};
+    for (var i = 0; i < picks.length; i++) {
+      if (!picks[i].checked) continue;
+      ids.push(picks[i].getAttribute('data-id'));
+      vendors[picks[i].getAttribute('data-vendor')] = 1;
+    }
+    var names = [];
+    for (var k in vendors) { if (vendors.hasOwnProperty(k)) names.push(k); }
+    if (names.length > 1) { window.alert('One check pays one vendor. Unselect the others first.'); return; }
+    var num = document.getElementById('inv-check-num').value;
+    if (!num) { window.alert('Enter the check number you are writing.'); return; }
+
+    var btn = document.getElementById('inv-pay');
+    btn.disabled = true; btn.innerHTML = 'Writing...';
+
+    this.post('/invoices', {
+      store_id: this.store_id, action: 'pay', invoice_ids: ids, check_number: num,
+      payment_date: document.getElementById('inv-check-date').value
+    }, function(status, d) {
+      btn.disabled = false; btn.innerHTML = 'Write the check';
+      if (status !== 200 || !d || d.error) { window.alert((d && d.error) || 'Could not write the check.'); return; }
+      document.getElementById('inv-check-num').value = '';
+      self.invMsg('ok', 'Check ' + self.escHtml(num) + ' for ' + self.money(d.amount) + ' to ' +
+        self.escHtml(d.vendor_name) + ' covering ' + d.invoices_paid +
+        (d.invoices_paid === 1 ? ' invoice.' : ' invoices.') + ' It clears itself on the next bank import.');
+      self.loadInvoices();
       self.loadChecks();
       self.loadCashPosition();
     });
