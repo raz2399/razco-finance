@@ -482,6 +482,153 @@
         padding: 12px;
       }
     }
+
+    /* ===================== RAZI-NOVA DASHBOARD ===================== */
+    :root{
+      --rn-red:#c0282d; --rn-blue:#4a7fc1; --rn-cyan:#29a8e0; --rn-grey:#a8a8a8;
+      --rn-ink:#1a1c21; --rn-bg:#f4f6f9; --rn-green:#168a5a; --rn-amber:#bf7b0a;
+      --rn-line:#e4e8ef; --rn-mute:#6b7280;
+    }
+    #home-tab{background:var(--rn-bg);margin:-16px;padding:16px;min-height:100%}
+    .rn-wrap{max-width:1640px;margin:0 auto}
+
+    .rn-weekbar{display:flex;align-items:center;justify-content:space-between;
+      gap:12px;margin-bottom:14px;flex-wrap:wrap}
+    .rn-weektitle{font-size:19px;font-weight:800;color:var(--rn-ink);letter-spacing:-.3px}
+    .rn-weeksub{font-size:12px;color:var(--rn-mute);font-weight:500}
+    .rn-weeknav{display:flex;gap:6px}
+    .rn-wbtn{border:1px solid var(--rn-line);background:#fff;border-radius:8px;
+      padding:7px 13px;font-size:13px;font-weight:600;color:var(--rn-ink);cursor:pointer}
+    .rn-wbtn:hover{border-color:var(--rn-blue);color:var(--rn-blue)}
+
+    .rn-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
+    .rn-kpi{background:#fff;border:1px solid var(--rn-line);border-radius:12px;
+      padding:16px 18px;border-top:3px solid var(--rn-grey)}
+    .rn-kpi.hero{border-top-color:var(--rn-red)}
+    .rn-kpi.bank{border-top-color:var(--rn-blue)}
+    .rn-kpi.out{border-top-color:var(--rn-amber)}
+    .rn-kpi.ap{border-top-color:var(--rn-cyan)}
+    .rn-kpi-l{font-size:10.5px;font-weight:800;letter-spacing:.9px;
+      text-transform:uppercase;color:var(--rn-mute)}
+    .rn-kpi-v{font-size:31px;font-weight:800;letter-spacing:-1.2px;
+      color:var(--rn-ink);margin:5px 0 2px;line-height:1.05}
+    .rn-kpi-v.neg{color:var(--rn-red)}
+    .rn-kpi-n{font-size:11.5px;color:var(--rn-mute);line-height:1.45}
+
+    .rn-main{display:grid;grid-template-columns:1fr 340px;gap:12px;align-items:start}
+    .rn-col{display:flex;flex-direction:column;gap:12px}
+
+    .rn-card{background:#fff;border:1px solid var(--rn-line);border-radius:12px;padding:16px 18px}
+    .rn-h{font-size:11px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;
+      color:var(--rn-mute);margin-bottom:11px;display:flex;justify-content:space-between;align-items:center}
+
+    table.rn-week{width:100%;border-collapse:collapse;font-size:13.5px}
+    table.rn-week th{text-align:right;font-size:10px;font-weight:800;letter-spacing:.7px;
+      text-transform:uppercase;color:var(--rn-mute);padding:0 0 8px;border-bottom:1px solid var(--rn-line)}
+    table.rn-week th:first-child{text-align:left}
+    table.rn-week td{text-align:right;padding:8px 0;border-bottom:1px solid #f1f3f7;
+      font-variant-numeric:tabular-nums;color:var(--rn-ink)}
+    table.rn-week td:first-child{text-align:left;font-weight:600}
+    table.rn-week tr.today td{background:#fffbe9}
+    table.rn-week tr.blank td{color:#c3c8d2}
+    table.rn-week tr.tot td{font-weight:800;border-top:2px solid var(--rn-ink);
+      border-bottom:none;padding-top:10px;font-size:15px}
+    .rn-exp{color:var(--rn-red)}
+    .rn-formula{margin-top:12px;background:#f7f9fc;border:1px solid var(--rn-line);
+      border-radius:9px;padding:11px 14px;font-size:13px;color:var(--rn-ink);
+      display:flex;flex-wrap:wrap;gap:7px;align-items:center;font-variant-numeric:tabular-nums}
+    .rn-formula b{font-weight:800}
+    .rn-formula .op{color:var(--rn-mute);font-weight:700}
+    .rn-formula .res{color:var(--rn-green);font-weight:800}
+
+    .rn-needs{display:flex;flex-direction:column;gap:7px}
+    .rn-need{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;
+      border-radius:9px;background:#f7f9fc;border-left:3px solid var(--rn-grey)}
+    .rn-need.critical{background:#fdf1f1;border-left-color:var(--rn-red)}
+    .rn-need.warn{background:#fdf8ec;border-left-color:var(--rn-amber)}
+    .rn-need-t{font-size:13.5px;font-weight:700;color:var(--rn-ink);line-height:1.3}
+    .rn-need-d{font-size:12px;color:var(--rn-mute);margin-top:2px;line-height:1.4}
+    .rn-need-a{margin-left:auto;font-size:11.5px;font-weight:700;color:var(--rn-blue);
+      white-space:nowrap;padding-top:2px}
+    .rn-ok{font-size:13.5px;color:var(--rn-green);font-weight:600;padding:6px 0}
+
+    .rn-spark{display:flex;align-items:flex-end;gap:5px;height:72px;margin-top:4px}
+    .rn-bar{flex:1;background:var(--rn-cyan);border-radius:3px 3px 0 0;min-height:3px;
+      position:relative;opacity:.85}
+    .rn-bar.now{background:var(--rn-blue);opacity:1}
+    .rn-sparkx{display:flex;gap:5px;margin-top:5px}
+    .rn-sparkx span{flex:1;text-align:center;font-size:9.5px;color:var(--rn-mute)}
+
+    .rn-rows{display:flex;flex-direction:column}
+    .rn-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+      padding:9px 0;border-bottom:1px solid #f1f3f7;font-size:13.5px}
+    .rn-row:last-child{border-bottom:none}
+    .rn-row .nm{font-weight:600;color:var(--rn-ink)}
+    .rn-row .sub{font-size:11px;color:var(--rn-mute);font-weight:500}
+    .rn-row .amt{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .rn-row .amt.due{color:var(--rn-red)}
+
+    .rn-dock{background:#fff;border:2px dashed var(--rn-blue);border-radius:12px;
+      padding:18px;text-align:center}
+    .rn-dock-t{font-size:13px;font-weight:800;color:var(--rn-ink);letter-spacing:-.2px}
+    .rn-dock-s{font-size:11.5px;color:var(--rn-mute);margin:5px 0 12px;line-height:1.45}
+    .rn-big{display:block;width:100%;background:var(--rn-red);color:#fff;border:none;
+      border-radius:10px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;
+      letter-spacing:-.2px}
+    .rn-big:active{background:#a32226}
+    .rn-ghost{display:block;width:100%;background:#fff;color:var(--rn-blue);
+      border:1px solid var(--rn-blue);border-radius:10px;padding:11px;font-size:13.5px;
+      font-weight:700;cursor:pointer;margin-top:8px}
+
+    .rn-stale{background:#fdf8ec;border:1px solid #f0dcae;border-radius:9px;
+      padding:9px 12px;font-size:12px;color:#8a6414;margin-bottom:12px;font-weight:600}
+
+    /* ---- mobile: the on-the-go screen ---- */
+    .rn-mobile{display:none}
+    @media (max-width:860px){
+      #home-tab{margin:-12px;padding:12px 12px 88px}
+      .rn-desktop{display:none}
+      /* the hero already says this; the desktop KPI row would scroll sideways */
+      .rn-kpis{display:none}
+      .rn-weekbar{margin-bottom:11px}
+      .rn-weektitle{font-size:17px}
+      .rn-wbtn{padding:6px 10px;font-size:12px}
+      .rn-weeknav{width:100%}
+      .rn-weeknav .rn-wbtn{flex:1}
+      .rn-mobile{display:block}
+      .rn-hero{background:var(--rn-ink);color:#fff;border-radius:14px;padding:20px;
+        text-align:center;margin-bottom:11px}
+      .rn-hero-l{font-size:10.5px;font-weight:800;letter-spacing:1px;
+        text-transform:uppercase;color:#9aa3b2}
+      .rn-hero-v{font-size:42px;font-weight:800;letter-spacing:-2px;margin:6px 0 3px;line-height:1}
+      .rn-hero-v.neg{color:#ff6b70}
+      .rn-hero-n{font-size:11.5px;color:#9aa3b2;line-height:1.4}
+      .rn-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:11px}
+      .rn-pair .rn-card{padding:14px}
+      .rn-pv{font-size:23px;font-weight:800;letter-spacing:-.8px;margin-top:3px}
+      .rn-pv.in{color:var(--rn-green)}
+      .rn-pv.out{color:var(--rn-red)}
+      .rn-card{margin-bottom:11px}
+      .rn-big{padding:17px;font-size:16px}
+    }
+    @media (min-width:861px){ .rn-mobile{display:none} .rn-desktop{display:block} }
+
+    /* A global `button { width:100% }` was stretching every tab to the full
+       window, pushing 8 of the 9 tabs off-screen. These opt back out. */
+    .tab, .rn-wbtn { width: auto; }
+
+    /* ---- Razi-Tech header ---- */
+    .header{background:#fff !important;border-bottom:1px solid var(--rn-line);
+      display:flex;align-items:center;gap:12px;padding:10px 18px !important}
+    .header .rn-logo{height:34px;width:auto;display:block}
+    .header h1{font-size:17px !important;font-weight:800;color:var(--rn-ink) !important;
+      letter-spacing:-.4px;margin:0}
+    .header h1 span{color:var(--rn-red)}
+    .header .user-badge{margin-left:auto;background:#f4f6f9 !important;color:var(--rn-mute) !important;
+      border:1px solid var(--rn-line);font-size:12px;font-weight:700;padding:5px 11px;border-radius:7px}
+    .tabs{padding:0 10px}
+    .tab.active{color:var(--rn-red) !important;border-bottom-color:var(--rn-red) !important}
+    .tab:hover{color:var(--rn-ink)}
   </style>
 </head>
 <body>
@@ -516,7 +663,8 @@
 
 <div id="app">
   <div class="header">
-    <h1>Razi-Nova Finance</h1>
+    <img class="rn-logo" alt="Razi-Tech" src="data:image/png;base64,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">
+    <h1>Razi-Nova <span>Finance</span></h1>
     <div class="user-badge" id="user-display">Owner</div>
   </div>
 
@@ -536,40 +684,139 @@
 
     <!-- HOME TAB -->
     <div class="tab-content active" id="home-tab">
-      <div class="card">
-        <h2>Weekly Summary</h2>
-        <div class="summary-grid">
-          <div class="summary-item">
-            <div class="summary-item-label">Sales</div>
-            <div class="summary-item-value" id="home-sales">$0</div>
+     <div class="rn-wrap">
+
+      <div id="rn-stale" class="rn-stale" style="display:none"></div>
+
+      <div class="rn-weekbar">
+        <div>
+          <div class="rn-weektitle" id="rn-weektitle">This week</div>
+          <div class="rn-weeksub" id="rn-weeksub">Monday through Sunday night</div>
+        </div>
+        <div class="rn-weeknav">
+          <button class="rn-wbtn" id="rn-prev">&larr; Last week</button>
+          <button class="rn-wbtn" id="rn-this">This week</button>
+          <button class="rn-wbtn" id="rn-next">Next week &rarr;</button>
+        </div>
+      </div>
+
+      <div class="rn-kpis">
+        <div class="rn-kpi hero">
+          <div class="rn-kpi-l">Left after everything clears</div>
+          <div class="rn-kpi-v" id="k-left">&mdash;</div>
+          <div class="rn-kpi-n" id="k-left-n">&nbsp;</div>
+        </div>
+        <div class="rn-kpi bank">
+          <div class="rn-kpi-l">In the bank</div>
+          <div class="rn-kpi-v" id="k-bank">&mdash;</div>
+          <div class="rn-kpi-n" id="k-bank-n">&nbsp;</div>
+        </div>
+        <div class="rn-kpi out">
+          <div class="rn-kpi-l">Checks not cleared</div>
+          <div class="rn-kpi-v" id="k-out">&mdash;</div>
+          <div class="rn-kpi-n" id="k-out-n">&nbsp;</div>
+        </div>
+        <div class="rn-kpi ap">
+          <div class="rn-kpi-l">I owe vendors</div>
+          <div class="rn-kpi-v" id="k-ap">&mdash;</div>
+          <div class="rn-kpi-n" id="k-ap-n">&nbsp;</div>
+        </div>
+      </div>
+
+      <!-- ============ DESKTOP: everything at a glance ============ -->
+      <div class="rn-desktop">
+        <div class="rn-main">
+          <div class="rn-col">
+
+            <div class="rn-card">
+              <div class="rn-h"><span>The week</span><span id="rn-weekrange"></span></div>
+              <table class="rn-week">
+                <thead>
+                  <tr>
+                    <th>Day</th><th>Cash</th><th>Card</th>
+                    <th id="th-check" style="display:none">Check</th>
+                    <th>Income</th><th>Expense</th><th>Net</th>
+                  </tr>
+                </thead>
+                <tbody id="rn-weekbody"></tbody>
+              </table>
+              <div class="rn-formula" id="rn-formula"></div>
+            </div>
+
+            <div class="rn-card">
+              <div class="rn-h">Needs you</div>
+              <div class="rn-needs" id="rn-needs"></div>
+            </div>
+
+            <div class="rn-card">
+              <div class="rn-h"><span>Sales, last 8 weeks</span><span id="rn-trendnote"></span></div>
+              <div class="rn-spark" id="rn-spark"></div>
+              <div class="rn-sparkx" id="rn-sparkx"></div>
+            </div>
+
           </div>
-          <div class="summary-item">
-            <div class="summary-item-label">Customers</div>
-            <div class="summary-item-value" id="home-customers">0</div>
-          </div>
-          <div class="summary-item">
-            <div class="summary-item-label">Expenses</div>
-            <div class="summary-item-value" id="home-expenses">$0</div>
-          </div>
-          <div class="summary-item">
-            <div class="summary-item-label">Profit</div>
-            <div class="summary-item-value" id="home-profit">$0</div>
+
+          <div class="rn-col">
+
+            <div class="rn-dock">
+              <div class="rn-dock-t">Delivery just came in?</div>
+              <div class="rn-dock-s">Snap the invoice now so it never ends up in the pile.</div>
+              <button class="rn-big" id="rn-record">Record a delivery</button>
+              <button class="rn-ghost" id="rn-paysome">Write checks that are due</button>
+            </div>
+
+            <div class="rn-card">
+              <div class="rn-h"><span>Checks still out</span><span id="rn-chkcount"></span></div>
+              <div class="rn-rows" id="rn-checks"></div>
+            </div>
+
+            <div class="rn-card">
+              <div class="rn-h"><span>Owed by vendor</span><span id="rn-vcount"></span></div>
+              <div class="rn-rows" id="rn-vendors"></div>
+            </div>
+
           </div>
         </div>
       </div>
 
-      <div class="card">
-        <h3>Cash Position</h3>
-        <p>Available: <strong id="home-available">$0</strong></p>
-        <p>True Position: <strong id="home-true">$0</strong></p>
-      </div>
+      <!-- ============ MOBILE: what you do on the floor ============ -->
+      <div class="rn-mobile">
+        <div class="rn-hero">
+          <div class="rn-hero-l">Left after everything clears</div>
+          <div class="rn-hero-v" id="m-left">&mdash;</div>
+          <div class="rn-hero-n" id="m-left-n">&nbsp;</div>
+        </div>
 
-      <div class="card">
-        <h3>Action Items</h3>
-        <div id="home-actions">
-          <p>Loading...</p>
+        <div class="rn-pair">
+          <div class="rn-card">
+            <div class="rn-kpi-l">Income this week</div>
+            <div class="rn-pv in" id="m-in">&mdash;</div>
+          </div>
+          <div class="rn-card">
+            <div class="rn-kpi-l">Expense this week</div>
+            <div class="rn-pv out" id="m-out">&mdash;</div>
+          </div>
+        </div>
+
+        <button class="rn-big" id="rn-record-m">Record a delivery</button>
+
+        <div class="rn-card" style="margin-top:11px">
+          <div class="rn-h">Needs you</div>
+          <div class="rn-needs" id="rn-needs-m"></div>
+        </div>
+
+        <div class="rn-card">
+          <div class="rn-h"><span>I owe vendors</span><span id="m-vcount"></span></div>
+          <div class="rn-rows" id="rn-vendors-m"></div>
+        </div>
+
+        <div class="rn-card">
+          <div class="rn-h"><span>Checks still out</span><span id="m-chkcount"></span></div>
+          <div class="rn-rows" id="rn-checks-m"></div>
         </div>
       </div>
+
+     </div>
     </div>
 
     <!-- SALES TAB -->
@@ -824,6 +1071,17 @@ var APP = {
       if (el && el.className === 'inv-pick') self.updateInvoiceSelection();
     });
 
+    var bind = function(id, fn) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('click', fn);
+    };
+    bind('rn-prev', function() { self.shiftWeek(-7); });
+    bind('rn-next', function() { self.shiftWeek(7); });
+    bind('rn-this', function() { self.week_start = null; self.loadHome(); });
+    bind('rn-record',   function() { self.switchTab('charges'); });
+    bind('rn-record-m', function() { self.switchTab('charges'); });
+    bind('rn-paysome',  function() { self.switchTab('checks'); });
+
     var chkSave = document.getElementById('chk-save');
     if (chkSave) chkSave.addEventListener('click', function() { self.saveCheck(false); });
 
@@ -869,12 +1127,12 @@ var APP = {
       self.login();
     });
 
-    var tabs = document.querySelectorAll('.tab');
-    tabs.forEach(function(tab) {
-      tab.addEventListener('click', function() {
+    var tabEls = document.querySelectorAll('.tab');
+    for (var tk = 0; tk < tabEls.length; tk++) {
+      tabEls[tk].addEventListener('click', function() {
         self.switchTab(this.getAttribute('data-tab'));
       });
-    });
+    }
 
     document.getElementById('save-floor').addEventListener('click', function() {
       self.saveCashFloor();
@@ -943,14 +1201,10 @@ var APP = {
 
   switchTab: function(tabName) {
     var tabs = document.querySelectorAll('.tab-content');
-    tabs.forEach(function(tab) {
-      tab.classList.remove('active');
-    });
+    for (var ti = 0; ti < tabs.length; ti++) tabs[ti].classList.remove('active');
 
     var buttons = document.querySelectorAll('.tab');
-    buttons.forEach(function(btn) {
-      btn.classList.remove('active');
-    });
+    for (var bi = 0; bi < buttons.length; bi++) buttons[bi].classList.remove('active');
 
     document.getElementById(tabName + '-tab').classList.add('active');
     document.querySelector('[data-tab="' + tabName + '"]').classList.add('active');
@@ -961,6 +1215,7 @@ var APP = {
     if (tabName === 'pl') this.loadPL();
     if (tabName === 'checks') this.loadChecks();
     if (tabName === 'charges') this.loadInvoices();
+    if (tabName === 'home') this.loadHome();
   },
 
   // ---------- shared helpers ----------
@@ -1494,20 +1749,246 @@ var APP = {
     });
   },
 
+  // fetch() does not exist on the iOS Safari in the office. Everything goes through this.
+  getJSON: function(path, onOk, onErr) {
+    var x = new XMLHttpRequest();
+    x.open('GET', this.api_url + path, true);
+    if (this.auth_token) x.setRequestHeader('Authorization', 'Bearer ' + this.auth_token);
+    x.onreadystatechange = function() {
+      if (x.readyState !== 4) return;
+      var data = null;
+      try { data = JSON.parse(x.responseText); } catch (e) { data = null; }
+      if (x.status === 200 && data && !data.error) { onOk(data); }
+      else { onErr(new Error((data && data.error) ? data.error : ('HTTP ' + x.status))); }
+    };
+    x.send();
+  },
+
+  // Write to an element only if it is actually on the page.
+  put: function(id, text) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = text;
+  },
+
+  // ============================ DASHBOARD ============================
+  // Strict ES5 throughout: no fetch, no arrow functions, no const/let.
+
+  week_start: null,
+
+  money: function(n, cents) {
+    n = Number(n) || 0;
+    var neg = n < 0;
+    var a = Math.abs(n);
+    var str = cents ? a.toFixed(2) : String(Math.round(a));
+    var parts = str.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return (neg ? '-$' : '$') + parts.join('.');
+  },
+
+  shortDay: function(iso) {
+    var names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var p = iso.split('-');
+    var d = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
+    return names[d.getUTCDay()] + ' ' + Number(p[2]);
+  },
+
+  shiftWeek: function(days) {
+    var base = this.week_start ? this.week_start : null;
+    var d;
+    if (base) {
+      var p = base.split('-');
+      d = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
+    } else {
+      d = new Date();
+      var dow = d.getUTCDay();
+      d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+    }
+    d.setUTCDate(d.getUTCDate() + days);
+    this.week_start = d.toISOString().split('T')[0];
+    this.loadHome();
+  },
+
   loadHome: function() {
     var self = this;
-    this.loadPL();
-    this.loadCashPosition();
+    var url = this.api_url + '/overview?store_id=' + encodeURIComponent(this.store_id);
+    if (this.week_start) url += '&week_start=' + this.week_start;
+
+    var x = new XMLHttpRequest();
+    x.open('GET', url, true);
+    if (this.auth_token) x.setRequestHeader('Authorization', 'Bearer ' + this.auth_token);
+    x.onreadystatechange = function() {
+      if (x.readyState !== 4) return;
+      var data;
+      try { data = JSON.parse(x.responseText); } catch (e) { data = null; }
+      if (x.status !== 200 || !data || data.error) {
+        var msg = (data && data.error) ? data.error : ('HTTP ' + x.status);
+        var box = document.getElementById('rn-stale');
+        box.style.display = 'block';
+        box.innerHTML = 'Could not load the dashboard: ' + msg;
+        return;
+      }
+      self.paintHome(data);
+    };
+    x.send();
+  },
+
+  paintHome: function(d) {
+    var self = this;
+    var pos = d.position || {};
+    var tot = d.week_totals || {};
+
+    // ---- freshness banner ----
+    var stale = document.getElementById('rn-stale');
+    if (d.freshness && d.freshness.sales_days_behind > 1) {
+      stale.style.display = 'block';
+      stale.innerHTML = 'Register sales are ' + d.freshness.sales_days_behind +
+        ' days behind. Last day received was ' + d.freshness.last_sales_day + '.';
+    } else {
+      stale.style.display = 'none';
+    }
+
+    // ---- week heading ----
+    var isThisWeek = d.today >= d.week_start && d.today <= d.week_end;
+    document.getElementById('rn-weektitle').innerHTML =
+      isThisWeek ? 'This week' : 'Week of ' + d.week_start;
+    document.getElementById('rn-weeksub').innerHTML =
+      isThisWeek ? 'Monday through Sunday night' : 'Closed week';
+    document.getElementById('rn-weekrange').innerHTML = d.week_start + ' to ' + d.week_end;
+
+    // ---- KPI cards ----
+    this.setKpi('k-left', pos.after_everything, 'After checks clear and vendors are paid');
+    this.setKpi('k-bank', pos.in_bank,
+      pos.bank_label ? (pos.bank_label + (pos.balance_as_of ? ' as of ' + pos.balance_as_of : '')) : 'No account on file');
+    this.setKpi('k-out', pos.checks_outstanding,
+      (pos.checks_outstanding_count || 0) + ' check' + (pos.checks_outstanding_count === 1 ? '' : 's') + ' written, not cashed yet');
+    this.setKpi('k-ap', pos.ap_open,
+      (pos.ap_open_count || 0) + ' invoice' + (pos.ap_open_count === 1 ? '' : 's') + ' still open');
+
+    document.getElementById('m-left').innerHTML = this.money(pos.after_everything);
+    document.getElementById('m-left').className = 'rn-hero-v' + (pos.after_everything < 0 ? ' neg' : '');
+    document.getElementById('m-left-n').innerHTML =
+      this.money(pos.in_bank) + ' in the bank, ' + this.money(pos.checks_outstanding) + ' in checks not cashed';
+    document.getElementById('m-in').innerHTML = this.money(tot.income);
+    document.getElementById('m-out').innerHTML = this.money(tot.expense);
+
+    // ---- week table ----
+    var anyCheck = false, i;
+    for (i = 0; i < d.week.length; i++) { if (d.week[i].check > 0) anyCheck = true; }
+    document.getElementById('th-check').style.display = anyCheck ? '' : 'none';
+
+    var html = '';
+    for (i = 0; i < d.week.length; i++) {
+      var r = d.week[i];
+      var cls = [];
+      if (r.date === d.today) cls.push('today');
+      if (!r.has_data) cls.push('blank');
+      html += '<tr class="' + cls.join(' ') + '">';
+      html += '<td>' + this.shortDay(r.date) + '</td>';
+      html += '<td>' + (r.has_data ? this.money(r.cash) : '&mdash;') + '</td>';
+      html += '<td>' + (r.has_data ? this.money(r.card) : '&mdash;') + '</td>';
+      if (anyCheck) html += '<td>' + (r.check ? this.money(r.check) : '&mdash;') + '</td>';
+      html += '<td>' + (r.has_data ? this.money(r.income) : '&mdash;') + '</td>';
+      html += '<td class="rn-exp">' + (r.expense ? this.money(r.expense) : '&mdash;') + '</td>';
+      html += '<td>' + (r.has_data ? this.money(r.net) : '&mdash;') + '</td>';
+      html += '</tr>';
+    }
+    html += '<tr class="tot"><td>Total</td>';
+    html += '<td>' + this.money(tot.cash) + '</td>';
+    html += '<td>' + this.money(tot.card) + '</td>';
+    if (anyCheck) html += '<td>' + this.money(tot.check) + '</td>';
+    html += '<td>' + this.money(tot.income) + '</td>';
+    html += '<td class="rn-exp">' + this.money(tot.expense) + '</td>';
+    html += '<td>' + this.money(tot.left_on_hand) + '</td></tr>';
+    document.getElementById('rn-weekbody').innerHTML = html;
+
+    document.getElementById('rn-formula').innerHTML =
+      '<b>' + this.money(tot.income) + '</b> <span class="op">income</span>' +
+      ' <span class="op">&minus;</span> <b>' + this.money(tot.expense) + '</b> <span class="op">expense</span>' +
+      ' <span class="op">=</span> <span class="res">' + this.money(tot.left_on_hand) + '</span>' +
+      ' <span class="op">left on hand this week</span>';
+
+    // ---- needs you ----
+    var needs = '';
+    if (!d.alerts || d.alerts.length === 0) {
+      needs = '<div class="rn-ok">Nothing needs you right now.</div>';
+    } else {
+      for (i = 0; i < d.alerts.length; i++) {
+        var a = d.alerts[i];
+        needs += '<div class="rn-need ' + (a.level || '') + '">' +
+                 '<div><div class="rn-need-t">' + a.title + '</div>' +
+                 '<div class="rn-need-d">' + (a.detail || '') + '</div></div>' +
+                 '<div class="rn-need-a">' + (a.action || '') + '</div></div>';
+      }
+    }
+    document.getElementById('rn-needs').innerHTML = needs;
+    document.getElementById('rn-needs-m').innerHTML = needs;
+
+    // ---- checks still out ----
+    var ch = '';
+    if (!d.checks || d.checks.length === 0) {
+      ch = '<div class="rn-ok">Every check you wrote has cleared.</div>';
+    } else {
+      for (i = 0; i < d.checks.length; i++) {
+        var c = d.checks[i];
+        ch += '<div class="rn-row"><div><div class="nm">#' + (c.check_number || '?') + ' ' + c.payee + '</div>' +
+              '<div class="sub">Written ' + c.payment_date +
+              (c.days_out !== null ? ' &middot; ' + c.days_out + ' days ago' : '') + '</div></div>' +
+              '<div class="amt">' + this.money(c.amount) + '</div></div>';
+      }
+    }
+    document.getElementById('rn-checks').innerHTML = ch;
+    document.getElementById('rn-checks-m').innerHTML = ch;
+    var cc = d.checks ? d.checks.length : 0;
+    document.getElementById('rn-chkcount').innerHTML = cc ? this.money(pos.checks_outstanding) : '';
+    document.getElementById('m-chkcount').innerHTML = cc ? this.money(pos.checks_outstanding) : '';
+
+    // ---- owed by vendor ----
+    var vh = '';
+    if (!d.vendors || d.vendors.length === 0) {
+      vh = '<div class="rn-ok">You do not owe any vendor right now.</div>';
+    } else {
+      for (i = 0; i < d.vendors.length; i++) {
+        var v = d.vendors[i];
+        var overdue = v.next_due && v.next_due < d.today;
+        vh += '<div class="rn-row"><div><div class="nm">' + v.name + '</div>' +
+              '<div class="sub">' + v.count + ' invoice' + (v.count === 1 ? '' : 's') +
+              (v.next_due ? ' &middot; ' + (overdue ? 'was due ' : 'due ') + v.next_due : '') + '</div></div>' +
+              '<div class="amt' + (overdue ? ' due' : '') + '">' + this.money(v.amount) + '</div></div>';
+      }
+    }
+    document.getElementById('rn-vendors').innerHTML = vh;
+    document.getElementById('rn-vendors-m').innerHTML = vh;
+    document.getElementById('rn-vcount').innerHTML = d.vendors.length ? this.money(pos.ap_open) : '';
+    document.getElementById('m-vcount').innerHTML = d.vendors.length ? this.money(pos.ap_open) : '';
+
+    // ---- 8 week trend ----
+    var trend = d.trend || [];
+    var max = 0;
+    for (i = 0; i < trend.length; i++) { if (trend[i].sales > max) max = trend[i].sales; }
+    var bars = '', labs = '';
+    for (i = 0; i < trend.length; i++) {
+      var h = max > 0 ? Math.round((trend[i].sales / max) * 100) : 0;
+      var isNow = trend[i].week_start === d.week_start;
+      bars += '<div class="rn-bar' + (isNow ? ' now' : '') + '" style="height:' + h + '%" title="' +
+              trend[i].week_start + ': ' + this.money(trend[i].sales) + '"></div>';
+      labs += '<span>' + trend[i].week_start.slice(5).replace('-', '/') + '</span>';
+    }
+    document.getElementById('rn-spark').innerHTML = bars;
+    document.getElementById('rn-sparkx').innerHTML = labs;
+    document.getElementById('rn-trendnote').innerHTML = max > 0 ? ('peak ' + this.money(max)) : '';
+  },
+
+  setKpi: function(id, value, note) {
+    var el = document.getElementById(id);
+    el.innerHTML = this.money(value);
+    el.className = 'rn-kpi-v' + (Number(value) < 0 ? ' neg' : '');
+    document.getElementById(id + '-n').innerHTML = note || '&nbsp;';
   },
 
   loadSales: function() {
     var self = this;
     
-    fetch(this.api_url + '/profit-and-loss?store_id=' + this.store_id, {
-      headers: { 'Authorization': 'Bearer ' + this.auth_token }
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    this.getJSON('/profit-and-loss?store_id=' + encodeURIComponent(this.store_id), function(data) {
       if (data.daily_detail) {
         var html = '<table><thead><tr><th>Date</th><th>Sales</th><th>Customers</th><th>Avg Sale</th></tr></thead><tbody>';
         data.daily_detail.forEach(function(day) {
@@ -1516,8 +1997,7 @@ var APP = {
         html += '</tbody></table>';
         document.getElementById('sales-data').innerHTML = html;
       }
-    })
-    .catch(function(err) {
+    }, function(err) {
       document.getElementById('sales-data').innerHTML = '<p>Error loading sales: ' + err.message + '</p>';
     });
   },
@@ -1525,11 +2005,7 @@ var APP = {
   loadAPCalendar: function() {
     var self = this;
     
-    fetch(this.api_url + '/ap-calendar?store_id=' + this.store_id, {
-      headers: { 'Authorization': 'Bearer ' + this.auth_token }
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    this.getJSON('/ap-calendar?store_id=' + encodeURIComponent(this.store_id), function(data) {
       if (data.summary) {
         var html = '<div class="card"><h3>Summary</h3>';
         html += '<p>Total Open AP: <strong>$' + data.summary.total_open_ap.toFixed(2) + '</strong></p>';
@@ -1547,8 +2023,7 @@ var APP = {
         }
         document.getElementById('calendar-data').innerHTML = html;
       }
-    })
-    .catch(function(err) {
+    }, function(err) {
       document.getElementById('calendar-data').innerHTML = '<p>Error: ' + err.message + '</p>';
     });
   },
@@ -1556,11 +2031,7 @@ var APP = {
   loadCashPosition: function() {
     var self = this;
     
-    fetch(this.api_url + '/cash-position?store_id=' + this.store_id + '&floor=' + this.cash_floor, {
-      headers: { 'Authorization': 'Bearer ' + this.auth_token }
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    this.getJSON('/cash-position?store_id=' + encodeURIComponent(this.store_id) + '&floor=' + this.cash_floor, function(data) {
       if (data.available_cash !== undefined) {
         var html = '';
         if (data.warnings && data.warnings.length > 0) {
@@ -1580,11 +2051,10 @@ var APP = {
         html += '</div>';
         
         document.getElementById('cash-data').innerHTML = html;
-        document.getElementById('home-available').textContent = '$' + data.available_cash.toFixed(2);
-        document.getElementById('home-true').textContent = '$' + data.true_cash_position.toFixed(2);
+        self.put('home-available', '$' + data.available_cash.toFixed(2));
+        self.put('home-true', '$' + data.true_cash_position.toFixed(2));
       }
-    })
-    .catch(function(err) {
+    }, function(err) {
       document.getElementById('cash-data').innerHTML = '<p>Error: ' + err.message + '</p>';
     });
   },
@@ -1592,16 +2062,12 @@ var APP = {
   loadPL: function() {
     var self = this;
     
-    fetch(this.api_url + '/profit-and-loss?store_id=' + this.store_id, {
-      headers: { 'Authorization': 'Bearer ' + this.auth_token }
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    this.getJSON('/profit-and-loss?store_id=' + encodeURIComponent(this.store_id), function(data) {
       if (data.summary) {
-        document.getElementById('home-sales').textContent = '$' + data.summary.total_sales.toFixed(2);
-        document.getElementById('home-customers').textContent = data.summary.total_customers;
-        document.getElementById('home-expenses').textContent = '$' + data.summary.operating_expenses.toFixed(2);
-        document.getElementById('home-profit').textContent = '$' + data.summary.operating_profit.toFixed(2);
+        self.put('home-sales', '$' + data.summary.total_sales.toFixed(2));
+        self.put('home-customers', String(data.summary.total_customers));
+        self.put('home-expenses', '$' + data.summary.operating_expenses.toFixed(2));
+        self.put('home-profit', '$' + data.summary.operating_profit.toFixed(2));
         
         var plHtml = '<div class="card"><h3>' + data.week_start + ' to ' + data.week_end + '</h3>';
         plHtml += '<table><tr><td>Sales</td><td style="text-align: right; font-weight: bold;">$' + data.summary.total_sales.toFixed(2) + '</td></tr>';
@@ -1613,8 +2079,7 @@ var APP = {
         
         document.getElementById('pl-data').innerHTML = plHtml;
       }
-    })
-    .catch(function(err) {
+    }, function(err) {
       document.getElementById('pl-data').innerHTML = '<p>Error: ' + err.message + '</p>';
     });
   },
