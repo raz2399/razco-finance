@@ -196,6 +196,10 @@ async function sendIt(brief) {
   }
 }
 
+// Shared with brief-preview so the on-demand view and the 6am message can
+// never be built from different code.
+exports.build = build;
+
 exports.handler = async (event) => {
   const q = (event && event.queryStringParameters) || {};
   const store_id = q.store_id || 'store1';
