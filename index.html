@@ -4,6 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Razi-Nova Finance</title>
+  <meta name="theme-color" content="#c0282d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Razi-Nova">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
   <style>
     :root {
       --primary: #1a472a;
@@ -2112,5 +2120,21 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
+<script>
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js').catch(function () {});
+  });
+  // A new worker taking control means a deploy landed. Reload once so the
+  // person is never looking at yesterday's app.
+  var reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (reloaded) return;
+    reloaded = true;
+    window.location.reload();
+  });
+}());
+</script>
 </body>
 </html>
