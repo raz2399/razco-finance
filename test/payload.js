@@ -40,10 +40,19 @@ const DATA = {
     { invoice_id: 'i3', vendor_id: 'v1', invoice_number: '8902', invoice_date: '2026-08-20',
       received_date: '2026-08-20', due_date: '2026-09-03', total_amount: 1500.00,
       balance_due: 1500.00, status: 'open', payment_type: 'terms' },
+    // COD that drafts: no check is ever written, money leaves next day
+    { invoice_id: 'i4', vendor_id: 'v3', invoice_number: 'CS-77', invoice_date: '2026-09-10',
+      received_date: '2026-09-10', due_date: '2026-09-11', total_amount: 3000.00,
+      balance_due: 3000.00, status: 'draft_pending', payment_type: 'cod_draft' },
+    // terms vendor the bank drafts on the due date
+    { invoice_id: 'i5', vendor_id: 'v3', invoice_number: 'CS-78', invoice_date: '2026-09-11',
+      received_date: '2026-09-11', due_date: '2026-09-25', total_amount: 700.00,
+      balance_due: 700.00, status: 'scheduled', payment_type: 'auto_debit' },
   ],
   vendors: [
     { vendor_id: 'v1', name: 'C&S Wholesale', payment_type: 'terms', terms_code: 'net14', terms_days: 14 },
     { vendor_id: 'v2', name: "Tony's Fine Foods", payment_type: 'cod', terms_code: 'cod', terms_days: 0 },
+    { vendor_id: 'v3', name: 'C&S Direct Draft', payment_type: 'cod_draft', terms_code: 'cod', terms_days: 1 },
   ],
   payments: [
     { payment_id: 'p1', method: 'check', payment_date: '2026-09-08', amount: 860.00,

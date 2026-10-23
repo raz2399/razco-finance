@@ -81,10 +81,22 @@ const TERMS_DAYS = { cod: 0, net7: 7, net10: 10, net15: 15, net30: 30 };
 
 // How a vendor takes its money. Set once per vendor, then the dock screen
 // tells whoever receives the delivery exactly what to do.
-//   cod        - write a check at the door
+//   cod        - delivery, write a check at the door
+//   cod_draft  - delivery, no check: they draft the account same day or next
 //   check      - charge account, we write a check when terms come due
 //   auto_debit - the bank drafts it on the due date, no check is ever written
-const PAY_METHODS = { cod: 1, check: 1, auto_debit: 1 };
+const PAY_METHODS = { cod: 1, cod_draft: 1, check: 1, auto_debit: 1 };
+
+// A COD draft hits the bank on delivery day or the day after. Which one is a
+// per-vendor fact, so it is stored on the vendor; this is only the fallback,
+// and it assumes next day because that is the safer read on cash.
+const DEFAULT_DRAFT_DELAY_DAYS = 1;
+
+function addDaysIso(iso, n) {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().split('T')[0];
+}
 
 const json = (status, body) => ({
   statusCode: status,
@@ -354,7 +366,7 @@ exports.handler = async (event) => {
     if (body.action === 'set_vendor') {
       if (!body.vendor) return json(400, { error: 'Missing vendor' });
       const method = PAY_METHODS[body.pay_method] ? body.pay_method : 'check';
-      const termsCode = method === 'cod' ? 'cod' : (body.terms_code || 'net30');
+      const termsCode = (method === 'cod' || method === 'cod_draft') ? 'cod' : (body.terms_code || 'net30');
       const r = await resolveVendor(store_id, body.vendor, termsCode,
         body.terms_days !== undefined && body.terms_days !== '' ? Number(body.terms_days) : TERMS_DAYS[termsCode],
         method, defs);
@@ -401,7 +413,7 @@ exports.handler = async (event) => {
       ? (PAY_METHODS[existing.payment_type] ? existing.payment_type : 'check')
       : (PAY_METHODS[body.pay_method] ? body.pay_method : 'check');
 
-    const termsCode = payMethod === 'cod'
+    const termsCode = (payMethod === 'cod' || payMethod === 'cod_draft')
       ? 'cod'
       : (existing && existing.terms_code ? existing.terms_code : (body.terms_code || 'net30'));
 
@@ -429,16 +441,38 @@ exports.handler = async (event) => {
     }
 
     // A COD delivery is not recorded at all unless the check is written.
-    // Nothing half-saved, ever.
+    // Nothing half-saved, ever. A COD draft writes no check, so it is exempt.
     if (payMethod === 'cod' && !body.check_number) {
       return json(400, { error: 'This is a COD vendor — enter the check number you are handing over.' });
     }
 
-    const dueDate = payMethod === 'cod' ? invoiceDate : dueDateFrom(invoiceDate, termsCode, termsDays);
+    // When the money actually leaves:
+    //   cod        the moment the check is handed over
+    //   cod_draft  delivery day or the next, per the vendor
+    //   otherwise  on terms
+    let dueDate;
+    if (payMethod === 'cod') {
+      dueDate = invoiceDate;
+    } else if (payMethod === 'cod_draft') {
+      const delay = (existing && typeof existing.terms_days === 'number' && existing.terms_days >= 0 && existing.terms_days <= 1)
+        ? existing.terms_days
+        : (typeof body.draft_delay_days === 'number' ? body.draft_delay_days : DEFAULT_DRAFT_DELAY_DAYS);
+      dueDate = addDaysIso(invoiceDate, delay);
+    } else {
+      dueDate = dueDateFrom(invoiceDate, termsCode, termsDays);
+    }
 
-    // COD is settled at the door. Auto-draft is scheduled, not open to pay.
-    // A charge account stays open until someone writes a check for it.
-    const status = payMethod === 'cod' ? 'paid' : payMethod === 'auto_debit' ? 'scheduled' : 'approved';
+    // COD by check is settled at the door, so it is paid.
+    // A COD draft is money already committed but not yet out of the bank —
+    // it stays open so the cash position subtracts it, and it clears when the
+    // bank import matches it.
+    // Auto-draft on terms is scheduled. A charge account stays open until
+    // someone writes a check for it.
+    const status = payMethod === 'cod'
+      ? 'paid'
+      : payMethod === 'cod_draft' ? 'draft_pending'
+      : payMethod === 'auto_debit' ? 'scheduled'
+      : 'approved';
 
     const invRow = onlyRealColumns(
       {

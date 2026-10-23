@@ -567,6 +567,9 @@
     .rn-row .sub{font-size:11px;color:var(--rn-mute);font-weight:500}
     .rn-row .amt{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
     .rn-row .amt.due{color:var(--rn-red)}
+    .rn-auto{font-size:9px;font-weight:800;letter-spacing:.6px;color:var(--rn-blue);
+      background:#eef4fb;border:1px solid #d4e3f5;border-radius:4px;padding:1px 4px;
+      vertical-align:1px;margin-left:4px}
 
     .rn-dock{background:#fff;border:2px dashed var(--rn-blue);border-radius:12px;
       padding:18px;text-align:center}
@@ -1861,8 +1864,12 @@ var APP = {
       pos.bank_label ? (pos.bank_label + (pos.balance_as_of ? ' as of ' + pos.balance_as_of : '')) : 'No account on file');
     this.setKpi('k-out', pos.checks_outstanding,
       (pos.checks_outstanding_count || 0) + ' check' + (pos.checks_outstanding_count === 1 ? '' : 's') + ' written, not cashed yet');
-    this.setKpi('k-ap', pos.ap_open,
-      (pos.ap_open_count || 0) + ' invoice' + (pos.ap_open_count === 1 ? '' : 's') + ' still open');
+    var apNote = (pos.ap_open_count || 0) + ' invoice' + (pos.ap_open_count === 1 ? '' : 's') + ' still open';
+    if (pos.drafts_pending) {
+      apNote += ' &middot; ' + this.money(pos.checks_to_write) + ' needs a check, ' +
+                this.money(pos.drafts_pending) + ' drafts itself';
+    }
+    this.setKpi('k-ap', pos.ap_open, apNote);
 
     document.getElementById('m-left').innerHTML = this.money(pos.after_everything);
     document.getElementById('m-left').className = 'rn-hero-v' + (pos.after_everything < 0 ? ' neg' : '');
@@ -1949,10 +1956,14 @@ var APP = {
     } else {
       for (i = 0; i < d.vendors.length; i++) {
         var v = d.vendors[i];
-        var overdue = v.next_due && v.next_due < d.today;
-        vh += '<div class="rn-row"><div><div class="nm">' + v.name + '</div>' +
+        // An automatic draft is owed but is not a job — it must not read
+        // like something he forgot to pay.
+        var overdue = v.next_due && v.next_due < d.today && !v.automatic;
+        var how = v.automatic ? 'drafts itself' : (v.next_due ? (overdue ? 'was due ' : 'due ') + v.next_due : '');
+        vh += '<div class="rn-row"><div><div class="nm">' + v.name +
+              (v.automatic ? ' <span class="rn-auto">AUTO</span>' : '') + '</div>' +
               '<div class="sub">' + v.count + ' invoice' + (v.count === 1 ? '' : 's') +
-              (v.next_due ? ' &middot; ' + (overdue ? 'was due ' : 'due ') + v.next_due : '') + '</div></div>' +
+              (how ? ' &middot; ' + how : '') + '</div></div>' +
               '<div class="amt' + (overdue ? ' due' : '') + '">' + this.money(v.amount) + '</div></div>';
       }
     }

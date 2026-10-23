@@ -9,11 +9,21 @@ const ROOT = path.join(__dirname, '..');
 
 // ---- build the payload from the real function, same mock as overtest ----
 function buildPayload() {
-  return new Promise((resolve) => {
-    const child = require('child_process');
-    const out = child.execSync('node ' + path.join(__dirname, 'payload.js'), { encoding: 'utf8' });
-    resolve(JSON.parse(out));
-  });
+  // Regenerated from the fixture every run. A checked-in snapshot silently
+  // goes stale the moment overtest.js changes, and the tests then pass
+  // against numbers the code no longer produces.
+  const child = require('child_process');
+  const src = fs.readFileSync(path.join(__dirname, 'overtest.js'), 'utf8');
+  const head = src.split('const { handler } = require')[0];
+  fs.writeFileSync(path.join(__dirname, 'payload.js'), head +
+    "const { handler } = require(require('path').join(__dirname, '..', 'functions', 'overview.js'));\n" +
+    "(async () => {\n" +
+    "  const res = await handler({ httpMethod: 'GET',\n" +
+    "    queryStringParameters: { store_id: 'store1', week_start: '2026-09-07' } });\n" +
+    "  process.stdout.write(res.body);\n" +
+    "})();\n");
+  return Promise.resolve(JSON.parse(
+    child.execSync('node ' + path.join(__dirname, 'payload.js'), { encoding: 'utf8' })));
 }
 
 let pass = 0, fail = 0;
@@ -66,10 +76,10 @@ function checkTrue(name, cond, note) {
   const txt = (id) => ($(id) ? $(id).textContent.trim() : '<<missing ' + id + '>>');
 
   console.log('\nKPI row');
-  check('left after everything clears', txt('k-left'), '$9,140');
+  check('left after everything clears', txt('k-left'), '$5,440');
   check('in the bank', txt('k-bank'), '$18,000');
   check('checks not cleared', txt('k-out'), '$3,160');
-  check('owed to vendors', txt('k-ap'), '$5,700');
+  check('owed to vendors', txt('k-ap'), '$9,400');
   checkTrue('bank note names the account', txt('k-bank-n').indexOf('5269') > -1, txt('k-bank-n'));
   checkTrue('check note counts them', txt('k-out-n').indexOf('2 checks') > -1, txt('k-out-n'));
 
@@ -89,8 +99,8 @@ function checkTrue(name, cond, note) {
   console.log('\nFormula strip');
   const f = txt('rn-formula');
   checkTrue('shows income', f.indexOf('$35,440') > -1, f);
-  checkTrue('shows expense', f.indexOf('$5,060') > -1, f);
-  checkTrue('shows the result', f.indexOf('$30,380') > -1, f);
+  checkTrue('shows expense', f.indexOf('$8,760') > -1, f);
+  checkTrue('shows the result', f.indexOf('$26,680') > -1, f);
   checkTrue('says left on hand', f.indexOf('left on hand') > -1);
 
   console.log('\nNeeds you');
@@ -107,15 +117,15 @@ function checkTrue(name, cond, note) {
 
   console.log('\nOwed by vendor');
   const ven = win.document.querySelectorAll('#rn-vendors .rn-row');
-  check('one vendor owed', ven.length, 1);
+  check('two vendors owed', ven.length, 2);
   checkTrue('vendor named', ven[0].textContent.indexOf('C&S') > -1, ven[0].textContent);
   checkTrue('overdue amount is marked red',
     ven[0].querySelector('.amt').className.indexOf('due') > -1);
 
   console.log('\nMobile screen');
-  check('hero number matches the KPI', txt('m-left'), '$9,140');
+  check('hero number matches the KPI', txt('m-left'), '$5,440');
   check('income', txt('m-in'), '$35,440');
-  check('expense', txt('m-out'), '$5,060');
+  check('expense', txt('m-out'), '$8,760');
 
   console.log('\nStale data banner');
   checkTrue('banner is shown when sales are behind', $('rn-stale').style.display === 'block');

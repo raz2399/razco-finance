@@ -161,6 +161,14 @@ exports.handler = async (event) => {
     );
     const apOpen = money(openInvoices.reduce((s, i) => s + money(i.balance_due), 0));
 
+    // Money that leaves on its own versus money that waits for Raz to write a
+    // check. Both are owed, but only one of them is a job.
+    const isAutomatic = (i) => i.payment_type === 'cod_draft' || i.payment_type === 'auto_debit';
+    const draftInvoices = openInvoices.filter(isAutomatic);
+    const checkInvoices = openInvoices.filter((i) => !isAutomatic(i));
+    const draftsPending = money(draftInvoices.reduce((s, i) => s + money(i.balance_due), 0));
+    const checksToWrite = money(checkInvoices.reduce((s, i) => s + money(i.balance_due), 0));
+
     const afterChecks = money(inBank - checksOut);
     const afterEverything = money(afterChecks - apOpen);
 
@@ -169,7 +177,8 @@ exports.handler = async (event) => {
     openInvoices.forEach((i) => {
       const key = i.vendor_id || 'unknown';
       if (!owedMap[key]) {
-        owedMap[key] = { vendor_id: i.vendor_id, name: vendorName[i.vendor_id] || 'Unassigned', amount: 0, count: 0, next_due: null };
+        owedMap[key] = { vendor_id: i.vendor_id, name: vendorName[i.vendor_id] || 'Unassigned',
+                         amount: 0, count: 0, next_due: null, automatic: isAutomatic(i) };
       }
       owedMap[key].amount = money(owedMap[key].amount + money(i.balance_due));
       owedMap[key].count += 1;
@@ -192,7 +201,8 @@ exports.handler = async (event) => {
       });
     }
 
-    openInvoices.forEach((i) => {
+    // Invoices you still have to write a check for.
+    checkInvoices.forEach((i) => {
       if (!i.due_date) return;
       const days = daysBetween(today, i.due_date);
       if (days < 0) {
@@ -212,6 +222,27 @@ exports.handler = async (event) => {
           invoice_id: i.invoice_id,
         });
       }
+    });
+
+    // Money that leaves on its own. Nothing to do except have it there — so
+    // this never says "write the check", and it goes critical when the bank
+    // would not cover it.
+    draftInvoices.forEach((i) => {
+      if (!i.due_date) return;
+      const days = daysBetween(today, i.due_date);
+      if (days > 2) return;
+      const amt = money(i.balance_due);
+      const when = days < 0 ? 'should have drafted ' + i.due_date
+                 : days === 0 ? 'drafts today'
+                 : days === 1 ? 'drafts tomorrow'
+                 : 'drafts ' + i.due_date;
+      alerts.push({
+        level: amt > inBank ? 'critical' : 'warn',
+        title: (vendorName[i.vendor_id] || 'A vendor') + ' ' + when,
+        detail: '$' + amt.toLocaleString() + ' comes straight out of the account. No check to write.',
+        action: amt > inBank ? 'Not enough in the bank' : 'Make sure it is there',
+        invoice_id: i.invoice_id,
+      });
     });
 
     const sync = (syncRes.data || [])[0] || null;
@@ -313,6 +344,10 @@ exports.handler = async (event) => {
           after_checks_clear: afterChecks,
           ap_open: apOpen,
           ap_open_count: openInvoices.length,
+          drafts_pending: draftsPending,
+          drafts_pending_count: draftInvoices.length,
+          checks_to_write: checksToWrite,
+          checks_to_write_count: checkInvoices.length,
           after_everything: afterEverything,
           next_check_number: acct ? acct.next_check_number : null,
         },

@@ -40,10 +40,19 @@ const DATA = {
     { invoice_id: 'i3', vendor_id: 'v1', invoice_number: '8902', invoice_date: '2026-08-20',
       received_date: '2026-08-20', due_date: '2026-09-03', total_amount: 1500.00,
       balance_due: 1500.00, status: 'open', payment_type: 'terms' },
+    // COD that drafts: no check is ever written, money leaves next day
+    { invoice_id: 'i4', vendor_id: 'v3', invoice_number: 'CS-77', invoice_date: '2026-09-10',
+      received_date: '2026-09-10', due_date: '2026-09-11', total_amount: 3000.00,
+      balance_due: 3000.00, status: 'draft_pending', payment_type: 'cod_draft' },
+    // terms vendor the bank drafts on the due date
+    { invoice_id: 'i5', vendor_id: 'v3', invoice_number: 'CS-78', invoice_date: '2026-09-11',
+      received_date: '2026-09-11', due_date: '2026-09-25', total_amount: 700.00,
+      balance_due: 700.00, status: 'scheduled', payment_type: 'auto_debit' },
   ],
   vendors: [
     { vendor_id: 'v1', name: 'C&S Wholesale', payment_type: 'terms', terms_code: 'net14', terms_days: 14 },
     { vendor_id: 'v2', name: "Tony's Fine Foods", payment_type: 'cod', terms_code: 'cod', terms_days: 0 },
+    { vendor_id: 'v3', name: 'C&S Direct Draft', payment_type: 'cod_draft', terms_code: 'cod', terms_days: 1 },
   ],
   payments: [
     { payment_id: 'p1', method: 'check', payment_date: '2026-09-08', amount: 860.00,
@@ -138,7 +147,7 @@ function checkTrue(name, cond, note) {
   console.log('\nWeek totals');
   check('cash total', b.week_totals.cash, 10752.44);
   check('income total', b.week_totals.income, 34320.36 + 1000.00 + 120.00);
-  check('expense total', b.week_totals.expense, 4200.00 + 860.00);
+  check('expense total', b.week_totals.expense, 4200.00 + 860.00 + 3000.00 + 700.00);
   check('left on hand = income - expense',
     b.week_totals.left_on_hand,
     Math.round((b.week_totals.income - b.week_totals.expense) * 100) / 100);
@@ -149,14 +158,27 @@ function checkTrue(name, cond, note) {
   check('checks outstanding excludes cleared and void', p.checks_outstanding, 860.00 + 2300.00);
   check('outstanding count', p.checks_outstanding_count, 2);
   check('after checks clear', p.after_checks_clear, 18000.00 - 3160.00);
-  check('open AP excludes paid', p.ap_open, 4200.00 + 1500.00);
-  check('after everything', p.after_everything, 18000.00 - 3160.00 - 5700.00);
+  check('open AP excludes paid', p.ap_open, 4200.00 + 1500.00 + 3000.00 + 700.00);
+  check('after everything', p.after_everything, 18000.00 - 3160.00 - 9400.00);
+
+  console.log('\nAutomatic drafts vs checks to write');
+  check('drafts pending', p.drafts_pending, 3000.00 + 700.00);
+  check('drafts counted', p.drafts_pending_count, 2);
+  check('checks still to write', p.checks_to_write, 4200.00 + 1500.00);
+  check('checks counted', p.checks_to_write_count, 2);
+  checkTrue('the two halves add up to open AP',
+    Math.round((p.drafts_pending + p.checks_to_write) * 100) === Math.round(p.ap_open * 100));
   check('next check number carried', p.next_check_number, 5105);
 
   console.log('\nOwed by vendor');
-  check('two vendors owed? only one has open invoices', b.vendors.length, 1);
-  check('C&S total', b.vendors[0].amount, 5700.00);
-  check('C&S soonest due date', b.vendors[0].next_due, '2026-09-03');
+  check('two vendors have open invoices', b.vendors.length, 2);
+  const cs = b.vendors.filter(function (v) { return v.name === 'C&S Wholesale'; })[0];
+  const dd = b.vendors.filter(function (v) { return v.name === 'C&S Direct Draft'; })[0];
+  check('C&S total', cs.amount, 5700.00);
+  check('C&S soonest due date', cs.next_due, '2026-09-03');
+  check('draft vendor total', dd.amount, 3700.00);
+  checkTrue('draft vendor is marked automatic', dd.automatic === true);
+  checkTrue('check vendor is not marked automatic', cs.automatic === false);
 
   if (process.env.DBG) console.log('ALERTS', JSON.stringify(b.alerts, null, 1), 'OPEN_INV', JSON.stringify(b.vendors));
   console.log('\nNeeds you');
@@ -167,6 +189,16 @@ function checkTrue(name, cond, note) {
     b.alerts.every((a, i) => i === 0 || !(b.alerts[i - 1].level === 'warn' && a.level === 'critical')));
   const stale = b.alerts.filter((a) => a.title.indexOf('have not come in') > -1);
   checkTrue('stale sales are flagged', stale.length === 1, 'sync is 2026-09-13, today is later');
+
+  const draftAlerts = b.alerts.filter(function (a) { return a.detail && a.detail.indexOf('straight out of the account') > -1; });
+  checkTrue('a draft that already passed is surfaced', draftAlerts.length >= 1);
+  checkTrue('a draft never tells him to write a check',
+    draftAlerts.every(function (a) { return a.action.indexOf('Write the check') === -1; }));
+  checkTrue('a draft bigger than the bank balance goes critical',
+    b.alerts.filter(function (a) { return a.action === 'Not enough in the bank'; }).length === 0,
+    'bank holds 18000, no single draft exceeds it');
+  const checkAlerts = b.alerts.filter(function (a) { return a.action === 'Pay now' || a.action === 'Write the check'; });
+  checkTrue('only real check work says Pay now / Write the check', checkAlerts.length === 2);
 
   console.log('\nLedger');
   checkTrue('ledger is newest first',
