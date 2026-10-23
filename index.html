@@ -591,6 +591,22 @@
       border:1px solid var(--rn-blue);border-radius:10px;padding:11px;font-size:13.5px;
       font-weight:700;cursor:pointer;margin-top:8px}
 
+    .rn-closed{background:#eef7f2;border:1px solid #c6e4d5;border-radius:9px;
+      padding:12px 14px;font-size:13px;color:#13654180;color:#136541}
+    .rn-closed b{font-size:20px;font-weight:800;display:block;margin:3px 0;
+      letter-spacing:-.6px;color:var(--rn-green)}
+    .rn-cashin{width:100%;padding:10px 12px;border:1px solid var(--rn-line);
+      border-radius:9px;font-size:16px;font-weight:700;margin:2px 0 8px;
+      font-variant-numeric:tabular-nums;-webkit-appearance:none}
+    .rn-lbl{font-size:12px;color:var(--rn-mute);line-height:1.45;margin-bottom:2px}
+    .rn-sum{font-size:12.5px;color:var(--rn-ink);background:#f7f9fc;
+      border:1px solid var(--rn-line);border-radius:8px;padding:9px 11px;margin-bottom:9px;
+      font-variant-numeric:tabular-nums;line-height:1.5}
+    .rn-sum .res{color:var(--rn-green);font-weight:800}
+    .rn-warn{font-size:11.5px;color:#8a6414;background:#fdf8ec;border:1px solid #f0dcae;
+      border-radius:7px;padding:7px 9px;margin-bottom:8px;line-height:1.4}
+    .rn-link{background:none;border:none;color:var(--rn-blue);font-size:12px;
+      font-weight:700;cursor:pointer;padding:6px 0;width:auto}
     .rn-stale{background:#fdf8ec;border:1px solid #f0dcae;border-radius:9px;
       padding:9px 12px;font-size:12px;color:#8a6414;margin-bottom:12px;font-weight:600}
 
@@ -776,6 +792,11 @@
               <button class="rn-ghost" id="rn-paysome">Write checks that are due</button>
             </div>
 
+            <div class="rn-card" id="rn-close-card">
+              <div class="rn-h"><span>Close the week</span><span id="rn-close-state"></span></div>
+              <div id="rn-close-body"></div>
+            </div>
+
             <div class="rn-card">
               <div class="rn-h"><span>Checks still out</span><span id="rn-chkcount"></span></div>
               <div class="rn-rows" id="rn-checks"></div>
@@ -824,6 +845,11 @@
         <div class="rn-card">
           <div class="rn-h"><span>Checks still out</span><span id="m-chkcount"></span></div>
           <div class="rn-rows" id="rn-checks-m"></div>
+        </div>
+
+        <div class="rn-card">
+          <div class="rn-h"><span>Close the week</span><span id="m-close-state"></span></div>
+          <div id="rn-close-body-m"></div>
         </div>
       </div>
 
@@ -1839,6 +1865,7 @@ var APP = {
         return;
       }
       self.paintHome(data);
+      self.loadClose();
     };
     x.send();
   },
@@ -1995,6 +2022,146 @@ var APP = {
     document.getElementById('rn-spark').innerHTML = bars;
     document.getElementById('rn-sparkx').innerHTML = labs;
     document.getElementById('rn-trendnote').innerHTML = max > 0 ? ('peak ' + this.money(max)) : '';
+  },
+
+  // ---------------------- Sunday close ----------------------
+
+  close_data: null,
+
+  loadClose: function() {
+    var self = this;
+    var path = '/weekly-close?store_id=' + encodeURIComponent(this.store_id) +
+               (this.week_start ? '&week_start=' + this.week_start : '');
+    this.getJSON(path, function(d) {
+      self.close_data = d;
+      self.paintClose(d);
+    }, function(err) {
+      self.setHtml('rn-close-body', '<div class="rn-lbl">Could not load: ' + err.message + '</div>');
+      self.setHtml('rn-close-body-m', '<div class="rn-lbl">Could not load: ' + err.message + '</div>');
+    });
+  },
+
+  setHtml: function(id, html) {
+    var el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  },
+
+  paintClose: function(d) {
+    var html, state;
+
+    if (d.closed && d.frozen) {
+      state = 'LOCKED';
+      html = '<div class="rn-closed">Closed ' + String(d.closed_at).slice(0, 10) +
+             '<b>' + this.money(d.frozen.cash_position, true) + '</b>' +
+             'left on hand for ' + d.week_start + ' to ' + d.week_end + '.</div>' +
+             '<button class="rn-link" id="rn-reopen">Reopen this week</button>';
+    } else {
+      state = d.week_is_over ? 'READY' : 'IN PROGRESS';
+      var w = '';
+      for (var i = 0; i < (d.warnings || []).length; i++) {
+        w += '<div class="rn-warn">' + d.warnings[i] + '</div>';
+      }
+      html = w +
+        '<div class="rn-sum">' +
+          this.money(d.live.income, true) + ' income &minus; ' + this.money(d.live.expense, true) +
+          ' expense = <span class="res">' + this.money(d.live.net, true) + '</span>' +
+        '</div>' +
+        '<div class="rn-lbl">Cash counted in the drawer and safe</div>' +
+        '<input class="rn-cashin" id="rn-cash-on-hand" type="text" inputmode="decimal" ' +
+               'placeholder="0.00" autocomplete="off">' +
+        '<div class="rn-sum" id="rn-close-preview">Enter the cash on hand to see the week total.</div>' +
+        '<button class="rn-big" id="rn-do-close">Close the week</button>';
+    }
+
+    this.setHtml('rn-close-body', html);
+    this.setHtml('rn-close-body-m', html.replace(/id="rn-/g, 'id="m2-'));
+    this.setHtml('rn-close-state', state);
+    this.setHtml('m-close-state', state);
+    this.wireClose();
+  },
+
+  wireClose: function() {
+    var self = this;
+    var pairs = [['rn-cash-on-hand', 'rn-close-preview', 'rn-do-close', 'rn-reopen'],
+                 ['m2-cash-on-hand', 'm2-close-preview', 'm2-do-close', 'm2-reopen']];
+    for (var i = 0; i < pairs.length; i++) {
+      (function(ids) {
+        var input = document.getElementById(ids[0]);
+        var prev = document.getElementById(ids[1]);
+        var btn = document.getElementById(ids[2]);
+        var re = document.getElementById(ids[3]);
+        if (input && prev) {
+          input.addEventListener('input', function() { self.previewClose(input, prev); });
+        }
+        if (btn) btn.addEventListener('click', function() { self.doClose(input); });
+        if (re) re.addEventListener('click', function() { self.reopenWeek(); });
+      }(pairs[i]));
+    }
+  },
+
+  // Accepts "4,000", "$4000", "4000." — people type money the way they
+  // write it, not the way a parser wants it.
+  readMoney: function(text) {
+    var cleaned = String(text || '').replace(/[^0-9.\-]/g, '');
+    if (cleaned === '' || cleaned === '.' || cleaned === '-') return null;
+    var n = parseFloat(cleaned);
+    return isNaN(n) ? null : n;
+  },
+
+  previewClose: function(input, prev) {
+    var d = this.close_data;
+    if (!d || !prev) return;
+    var cash = this.readMoney(input.value);
+    if (cash === null) {
+      prev.innerHTML = 'Enter the cash on hand to see the week total.';
+      return;
+    }
+    var left = Math.round((cash + d.live.income - d.live.expense) * 100) / 100;
+    prev.innerHTML = this.money(cash, true) + ' on hand + ' + this.money(d.live.income, true) +
+      ' income &minus; ' + this.money(d.live.expense, true) + ' expense = ' +
+      '<span class="res">' + this.money(left, true) + '</span> left on hand';
+  },
+
+  doClose: function(input) {
+    var self = this;
+    var cash = this.readMoney(input ? input.value : '');
+    if (cash === null) {
+      alert('Enter the cash counted in the drawer and safe first.');
+      return;
+    }
+    this.postJSON('/weekly-close', {
+      store_id: this.store_id,
+      week_start: this.close_data ? this.close_data.week_start : null,
+      cash_on_hand: cash
+    }, function() {
+      self.loadClose();
+      self.loadHome();
+    }, function(err) { alert('Could not close the week: ' + err.message); });
+  },
+
+  reopenWeek: function() {
+    var self = this;
+    this.postJSON('/weekly-close', {
+      store_id: this.store_id,
+      week_start: this.close_data ? this.close_data.week_start : null,
+      action: 'reopen'
+    }, function() { self.loadClose(); },
+       function(err) { alert('Could not reopen: ' + err.message); });
+  },
+
+  postJSON: function(path, body, onOk, onErr) {
+    var x = new XMLHttpRequest();
+    x.open('POST', this.api_url + path, true);
+    x.setRequestHeader('Content-Type', 'application/json');
+    if (this.auth_token) x.setRequestHeader('Authorization', 'Bearer ' + this.auth_token);
+    x.onreadystatechange = function() {
+      if (x.readyState !== 4) return;
+      var data = null;
+      try { data = JSON.parse(x.responseText); } catch (e) { data = null; }
+      if (x.status >= 200 && x.status < 300 && data && !data.error) onOk(data);
+      else onErr(new Error((data && data.error) ? data.error : ('HTTP ' + x.status)));
+    };
+    x.send(JSON.stringify(body));
   },
 
   setKpi: function(id, value, note) {

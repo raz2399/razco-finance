@@ -57,6 +57,15 @@ function checkTrue(name, cond, note) {
       if (self._url.indexOf('/overview') > -1) {
         self.status = 200;
         self.responseText = JSON.stringify(payload);
+      } else if (self._url.indexOf('/weekly-close') > -1) {
+        self.status = 200;
+        self.responseText = JSON.stringify({
+          week_start: '2026-09-07', week_end: '2026-09-13', today: '2026-09-14',
+          week_is_over: true, closed: false, frozen: null,
+          live: { income: 35440, expense: 8760, net: 26680, cash: 10752, card: 24568, check: 120,
+                  in_bank: 18000, outstanding_checks: 3160, open_ap: 9400, days_with_sales: 3 },
+          warnings: ['Only 3 of 7 days have register sales.'],
+        });
       } else {
         self.status = 200;
         self.responseText = '{}';
@@ -160,14 +169,56 @@ function checkTrue(name, cond, note) {
   console.log('\nWeek navigation');
   calls.length = 0;
   APP.shiftWeek(-7);
+  const overviewCalls = calls.filter((u) => u.indexOf('/overview') > -1);
   checkTrue('going back asks for the previous Monday',
-    calls.length === 1 && calls[0].indexOf('week_start=') > -1, calls[0]);
-  const wk = calls[0].split('week_start=')[1];
+    overviewCalls.length === 1 && overviewCalls[0].indexOf('week_start=') > -1, calls.join(' | '));
+  const wk = overviewCalls[0].split('week_start=')[1].split('&')[0];
   checkTrue('that Monday is 7 days earlier', /^\d{4}-\d{2}-\d{2}$/.test(wk), wk);
   calls.length = 0;
   APP.week_start = null;
   APP.loadHome();
-  checkTrue('"this week" sends no week_start', calls[0].indexOf('week_start') === -1, calls[0]);
+  const fresh = calls.filter((u) => u.indexOf('/overview') > -1);
+  checkTrue('"this week" sends no week_start', fresh[0].indexOf('week_start') === -1, fresh[0]);
+
+  console.log('\nSunday close');
+  APP.paintHome(payload);
+  APP.loadClose();
+  check('the card says the week is ready', txt('rn-close-state'), 'READY');
+  checkTrue('the warning is shown', txt('rn-close-body').indexOf('3 of 7 days') > -1, txt('rn-close-body'));
+  checkTrue('income and expense are stated',
+    txt('rn-close-body').indexOf('$35,440') > -1 && txt('rn-close-body').indexOf('$8,760') > -1);
+
+  const cashIn = $('rn-cash-on-hand');
+  checkTrue('there is somewhere to type the cash count', !!cashIn);
+  cashIn.value = '4,000';
+  cashIn.dispatchEvent(new win.Event('input'));
+  const prevTxt = txt('rn-close-preview');
+  checkTrue('a comma in the number does not break it', prevTxt.indexOf('$4,000.00') > -1, prevTxt);
+  checkTrue('the week total is 4000 + 35440 - 8760', prevTxt.indexOf('$30,680.00') > -1, prevTxt);
+
+  cashIn.value = '$2500.50';
+  cashIn.dispatchEvent(new win.Event('input'));
+  checkTrue('a dollar sign is fine too', txt('rn-close-preview').indexOf('$29,180.50') > -1,
+    txt('rn-close-preview'));
+
+  cashIn.value = 'abc';
+  cashIn.dispatchEvent(new win.Event('input'));
+  checkTrue('nonsense shows no total, rather than a wrong one',
+    txt('rn-close-preview').indexOf('Enter the cash') > -1, txt('rn-close-preview'));
+
+  console.log('\nA locked week');
+  APP.paintClose({
+    week_start: '2026-09-07', week_end: '2026-09-13', closed: true,
+    closed_at: '2026-09-14T06:10:00Z',
+    frozen: { cash_position: 30680, operating_exp: 8760, net_sales: 35440,
+              operating_profit: 26680, outstanding_checks: 3160, open_ap: 9400 },
+    live: { income: 1, expense: 1, net: 0 }, warnings: [],
+  });
+  check('it says locked', txt('rn-close-state'), 'LOCKED');
+  checkTrue('and shows the number that was written down',
+    txt('rn-close-body').indexOf('$30,680.00') > -1, txt('rn-close-body'));
+  checkTrue('there is no way to type a new cash count', !$('rn-cash-on-hand'));
+  checkTrue('reopening is offered', !!$('rn-reopen'));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
