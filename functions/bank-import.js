@@ -71,6 +71,32 @@ function fillRequired(row, def, text, today) {
 }
 const { createClient } = require('@supabase/supabase-js');
 
+
+// Banks write a check line a dozen ways: "CHECK 5101", "CHECK# 5101",
+// "CK 5101", "Check Paid #5101", or the bare number in its own column.
+// Anything that is not clearly a check reference is left alone — a wrong
+// number is worse than no number, because it would clear the wrong check.
+function checkNumberFrom(description, cols) {
+  const text = String(description || '');
+  const labelled = text.match(/\b(?:CHECK|CHK|CK)\s*(?:NO\.?|NUM(?:BER)?|#)?\s*0*(\d{2,7})\b/i);
+  if (labelled) return Number(labelled[1]);
+
+  // A column holding nothing but a plausible check number, on a line that
+  // calls itself a check.
+  if (cols && /\bCHECK\b|\bCHK\b/i.test(text)) {
+    for (const c of cols) {
+      const t = String(c || '').trim();
+      if (/^0*\d{2,7}$/.test(t)) return Number(t);
+    }
+  }
+  return null;
+}
+
+const round = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+const daysApart = (a, b) =>
+  Math.round((new Date(a + 'T00:00:00Z') - new Date(b + 'T00:00:00Z')) / 86400000);
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
@@ -213,7 +239,10 @@ function parseCSV(text) {
         .sort((a, b) => b.length - a.length)[0] || 'Transaction';
     }
 
-    data.push({ date, description, amount, raw: cols.join(',') });
+    data.push({
+      date, description, amount, raw: cols.join(','),
+      check_number: checkNumberFrom(description, cols),
+    });
   }
 
   data.skipped = skipped;
@@ -346,6 +375,7 @@ exports.handler = async (event) => {
             amount: t.amount,
             import_batch: batchId,
             import_hash: t.hash,
+            check_number: t.check_number,
             match_status: 'unmatched',
           },
           txnCols
@@ -366,35 +396,121 @@ exports.handler = async (event) => {
       return { statusCode: 500, body: JSON.stringify({ error: 'Insert failed: ' + insertError }) };
     }
 
-    // --- 3. outstanding checks, one query ---------------------------------
-    const checksRes = await supabase
-      .from('payments')
-      .select('payment_id, check_number, amount')
-      .eq('store_id', store_id)
-      .eq('method', 'check')
-      .eq('status', 'outstanding');
+    // --- 3. what is still waiting to clear, in two queries -----------------
+    const [checksRes, draftsRes] = await Promise.all([
+      supabase
+        .from('payments')
+        .select('payment_id, check_number, amount, vendor_id, payment_date')
+        .eq('store_id', store_id)
+        .eq('method', 'check')
+        .eq('status', 'outstanding'),
+      // COD drafts and terms the bank pulls on its own. No check is ever
+      // written for these, so nothing used to clear them.
+      supabase
+        .from('invoices')
+        .select('invoice_id, vendor_id, total_amount, balance_due, due_date, payment_type, status')
+        .eq('store_id', store_id)
+        .in('payment_type', ['cod_draft', 'auto_debit'])
+        .in('status', ['draft_pending', 'scheduled', 'approved']),
+    ]);
 
     const openChecks = checksRes.data || [];
-    const usedCheck = new Set();
+    const openDrafts = (draftsRes.data || []).filter((d) => Number(d.balance_due) > 0);
+    const usedCheck = {};
+    const usedDraft = {};
 
     // --- 4. match in memory ------------------------------------------------
     const hashToTxn = {};
     fresh.forEach((t) => { hashToTxn[t.hash] = t; });
 
-    const matches = [];
+    const sameMoney = (a, b) => Math.abs(Number(a) - Number(b)) < 0.005;
+
+    const matches = [];       // checks we are confident about
+    const draftMatches = [];  // drafts we are confident about
+    const ambiguous = [];     // more than one candidate: a human decides
+
+    // Debits only, biggest first, so a large unambiguous check is claimed
+    // before a small one can soak up an exact-amount collision.
+    const debits = [];
     for (const row of insertedRows) {
       const txn = hashToTxn[row.import_hash];
       if (!txn || txn.amount >= 0) continue;
-      const target = Math.abs(txn.amount);
-      const hit = openChecks.find(
-        (c) => !usedCheck.has(c.payment_id) && Math.abs(Number(c.amount) - target) < 0.005
-      );
+      debits.push({ row, txn, target: Math.abs(txn.amount) });
+    }
+    debits.sort((a, b) => b.target - a.target);
+
+    for (const d of debits) {
+      const { row, txn, target } = d;
+      const stmtNo = txn.check_number ? Number(txn.check_number) : null;
+
+      const free = openChecks.filter((c) => !usedCheck[c.payment_id]);
+
+      // Pass 1 — the statement names a check number and the amount agrees.
+      // This is the only match that is certain.
+      let hit = stmtNo
+        ? free.find((c) => Number(c.check_number) === stmtNo && sameMoney(c.amount, target))
+        : null;
+      let how = hit ? 'number and amount' : null;
+
+      // Pass 2 — the number agrees but the amount does not. The bank's number
+      // is authoritative, so clear it and say the amount differed.
+      if (!hit && stmtNo) {
+        const byNo = free.find((c) => Number(c.check_number) === stmtNo);
+        if (byNo) { hit = byNo; how = 'check number, amount differs'; }
+      }
+
+      // Pass 3 — no number on the statement. Amount alone is only safe when
+      // exactly one open check could be it. Two candidates and we stop:
+      // clearing the wrong check is worse than clearing nothing.
+      if (!hit && !stmtNo) {
+        const byAmt = free.filter((c) => sameMoney(c.amount, target));
+        if (byAmt.length === 1) { hit = byAmt[0]; how = 'amount only'; }
+        else if (byAmt.length > 1) {
+          ambiguous.push({
+            txn_id: row.bank_txn_id, date: txn.date, amount: target,
+            candidates: byAmt.map((c) => c.check_number),
+            why: byAmt.length + ' open checks are for this exact amount and the statement gives no check number',
+          });
+          continue;
+        }
+      }
+
       if (hit) {
-        usedCheck.add(hit.payment_id);
-        matches.push({ txn_id: row.bank_txn_id, payment_id: hit.payment_id, check_number: hit.check_number, date: txn.date });
+        usedCheck[hit.payment_id] = 1;
+        matches.push({
+          txn_id: row.bank_txn_id, payment_id: hit.payment_id,
+          check_number: hit.check_number, date: txn.date, how,
+          amount_differs: !sameMoney(hit.amount, target),
+        });
+        continue;
+      }
+
+      // Not a check. A draft carries no number, so it is amount plus a due
+      // date near the posting date — and again, only when it is unambiguous.
+      const freeDrafts = openDrafts.filter((x) => !usedDraft[x.invoice_id]);
+      const draftHits = freeDrafts.filter((x) => sameMoney(x.balance_due, target));
+      if (draftHits.length === 1) {
+        usedDraft[draftHits[0].invoice_id] = 1;
+        draftMatches.push({ txn_id: row.bank_txn_id, invoice: draftHits[0], date: txn.date });
+      } else if (draftHits.length > 1) {
+        // Narrow by which due date sits closest to when the bank posted it.
+        const near = draftHits
+          .map((x) => ({ x, gap: x.due_date ? Math.abs(daysApart(x.due_date, txn.date)) : 999 }))
+          .sort((a, b) => a.gap - b.gap);
+        if (near[0].gap <= 3 && (near.length === 1 || near[1].gap > near[0].gap)) {
+          usedDraft[near[0].x.invoice_id] = 1;
+          draftMatches.push({ txn_id: row.bank_txn_id, invoice: near[0].x, date: txn.date });
+        } else {
+          ambiguous.push({
+            txn_id: row.bank_txn_id, date: txn.date, amount: target,
+            candidates: draftHits.map((x) => x.invoice_id),
+            why: draftHits.length + ' vendor drafts are for this exact amount with no way to tell them apart',
+          });
+        }
       }
     }
 
+    // --- 4b. write the clears ---------------------------------------------
     for (const m of matches) {
       await supabase
         .from('bank_transactions')
@@ -404,6 +520,36 @@ exports.handler = async (event) => {
         .from('payments')
         .update({ status: 'cleared', cleared_date: m.date })
         .eq('payment_id', m.payment_id);
+    }
+
+    for (const m of draftMatches) {
+      await supabase
+        .from('bank_transactions')
+        .update({ match_status: 'matched', matched_type: 'invoice', matched_id: m.invoice.invoice_id })
+        .eq('bank_txn_id', m.txn_id);
+      await supabase
+        .from('invoices')
+        .update({
+          status: 'paid',
+          amount_paid: Number(m.invoice.total_amount),
+          balance_due: 0,
+        })
+        .eq('invoice_id', m.invoice.invoice_id);
+    }
+
+    // Anything we would not swear to goes on the exceptions list for a human.
+    for (const a of ambiguous) {
+      await supabase.from('exceptions').insert({
+        store_id,
+        raised_by: 'bank-import',
+        severity: 'warn',
+        code: 'AMBIGUOUS_MATCH',
+        entity_type: 'bank_transaction',
+        entity_id: a.txn_id,
+        message: 'A $' + a.amount.toFixed(2) + ' debit on ' + a.date + ' could not be matched with certainty.',
+        suggested_action: a.why + '. Match it by hand on the Bank tab.',
+        status: 'open',
+      });
     }
 
     // --- 5. balance --------------------------------------------------------
@@ -461,6 +607,12 @@ exports.handler = async (event) => {
           auto_filled_columns: autoFilled,
         },
         cleared_checks: matches.map((m) => m.check_number),
+        cleared_how: matches.map((m) => ({
+          check_number: m.check_number, matched_on: m.how, amount_differs: m.amount_differs,
+        })),
+        cleared_drafts: draftMatches.length,
+        cleared_drafts_total: round(draftMatches.reduce((t, m) => t + Number(m.invoice.balance_due), 0)),
+        needs_a_human: ambiguous,
         duplicates: duplicates.slice(0, 50),
         next_steps: [
           `${insertedRows.length} transactions imported, ${duplicates.length} duplicates skipped`,
