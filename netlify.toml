@@ -1,0 +1,8 @@
+[build]
+  functions = "functions"
+  publish = "."
+
+# 13:00 UTC is 6am Pacific in summer, 5am in winter. Raz opens early;
+# a brief that lands before he gets in is the point.
+[functions."daily-brief"]
+  schedule = "0 13 * * *"

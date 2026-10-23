@@ -40,7 +40,13 @@ function checkTrue(name, cond, note) {
   const payload = await buildPayload();
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 
-  const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true });
+  const dom = new JSDOM(html, {
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    // without a real origin jsdom refuses localStorage, which the app uses
+    // to remember the session
+    url: 'https://famous-caramel-1cf571.netlify.app/',
+  });
   const win = dom.window;
 
   // Stub the network: every GET answers with the overview payload.
