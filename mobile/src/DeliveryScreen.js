@@ -9,7 +9,8 @@ import {
   View, Text, TextInput, TouchableOpacity, ScrollView, SafeAreaView,
   StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { saveInvoice, money } from './api';
+import * as ImagePicker from 'expo-image-picker';
+import { saveInvoice, readPaper, money } from './api';
 import { C, S } from './theme';
 
 const METHODS = [
@@ -34,6 +35,8 @@ export default function DeliveryScreen({ onDone, onCancel }) {
   const [terms, setTerms] = useState('net30');
   const [checkNo, setCheckNo] = useState('');
   const [saving, setSaving] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [readNote, setReadNote] = useState(null);
 
   const needsCheck = method === 'cod';
   const onTerms = method === 'check' || method === 'auto_debit';
@@ -49,6 +52,71 @@ export default function DeliveryScreen({ onDone, onCancel }) {
 
   const ready =
     method && vendor.trim() && parsed && parsed > 0 && (!needsCheck || checkNo.trim());
+
+  // The whole reason this is on a phone: the invoice is in your hand at the
+  // dock. Photograph it there and it never reaches the pile on the desk.
+  async function shoot() {
+    if (reading) return;
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert(
+        'Camera is off',
+        'Razi-Nova needs the camera to read invoices. Turn it on in Settings.'
+      );
+      return;
+    }
+
+    const shot = await ImagePicker.launchCameraAsync({
+      base64: true,
+      quality: 0.6,              // small enough to send over a store's signal
+      allowsEditing: false,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    });
+    if (shot.canceled || !shot.assets || !shot.assets[0]) return;
+
+    const shotAsset = shot.assets[0];
+    if (!shotAsset.base64) {
+      Alert.alert('Could not read that photo', 'Take it again.');
+      return;
+    }
+
+    setReading(true);
+    setReadNote(null);
+    try {
+      const res = await readPaper('invoice', shotAsset.base64, shotAsset.mimeType || 'image/jpeg');
+      const d = res.draft || {};
+
+      const got = [];
+      const missed = [];
+      if (d.vendor_name) { setVendor(d.vendor_name); got.push('vendor'); } else missed.push('vendor');
+      if (d.total !== null && d.total !== undefined) { setAmount(String(d.total)); got.push('amount'); }
+      else missed.push('amount');
+      if (d.invoice_number) { setInvoiceNo(d.invoice_number); got.push('invoice number'); }
+
+      // A vendor already on file has its payment method and terms recorded,
+      // so there is nothing to choose again.
+      if (res.vendor && res.vendor.known && res.vendor.pay_method) {
+        setMethod(res.vendor.pay_method);
+        if (res.vendor.terms_code) setTerms(res.vendor.terms_code);
+      }
+
+      const lines = [];
+      if (got.length) lines.push('Read ' + got.join(', ') + '.');
+      if (missed.length) lines.push('Could not read ' + missed.join(', ') + '.');
+      (d.unreadable || []).forEach((u) => lines.push(u));
+      if (res.duplicate) {
+        lines.push('This invoice is already recorded — ' +
+          (res.duplicate.invoice_date || '') + ', ' + money(res.duplicate.total_amount, true) + '.');
+      }
+      lines.push('Check the amount against the paper before saving.');
+
+      setReadNote({ tone: res.needs_eyes ? 'check' : 'good', text: lines.join('\n') });
+    } catch (e) {
+      setReadNote({ tone: 'bad', text: e.message });
+    } finally {
+      setReading(false);
+    }
+  }
 
   async function save() {
     if (!ready || saving) return;
@@ -84,6 +152,27 @@ export default function DeliveryScreen({ onDone, onCancel }) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+          <View style={st.shootBox}>
+            <TouchableOpacity
+              style={[st.shoot, reading && st.shootBusy]}
+              onPress={shoot}
+              disabled={reading}
+              activeOpacity={0.85}
+            >
+              {reading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={st.shootText}>Photograph the invoice</Text>
+              )}
+            </TouchableOpacity>
+            <Text style={st.shootNote}>or fill it in below</Text>
+            {readNote ? (
+              <View style={[st.readOut, st['readOut_' + readNote.tone]]}>
+                <Text style={[st.readText, st['readText_' + readNote.tone]]}>{readNote.text}</Text>
+              </View>
+            ) : null}
+          </View>
+
           <View style={S.card}>
             <Text style={S.label}>How does this vendor get paid?</Text>
             {METHODS.map((m) => (
@@ -233,4 +322,23 @@ const st = StyleSheet.create({
   termText: { fontSize: 13, fontWeight: '700', color: C.ink },
 
   disabled: { opacity: 0.4 },
+
+  shootBox: {
+    borderWidth: 2, borderColor: C.blue, borderStyle: 'dashed',
+    borderRadius: 12, padding: 14, marginBottom: 11, backgroundColor: '#f8fbff',
+  },
+  shoot: {
+    backgroundColor: C.blue, borderRadius: 10, paddingVertical: 15, alignItems: 'center',
+  },
+  shootBusy: { opacity: 0.7 },
+  shootText: { color: C.white, fontSize: 15.5, fontWeight: '800' },
+  shootNote: { fontSize: 12, color: C.mute, textAlign: 'center', marginTop: 8 },
+  readOut: { marginTop: 11, borderRadius: 9, padding: 11 },
+  readOut_good: { backgroundColor: '#eef7f2' },
+  readOut_check: { backgroundColor: '#fdf8ec' },
+  readOut_bad: { backgroundColor: '#fdf1f1' },
+  readText: { fontSize: 12.5, lineHeight: 18 },
+  readText_good: { color: '#136541' },
+  readText_check: { color: '#8a6414' },
+  readText_bad: { color: '#a32226' },
 });

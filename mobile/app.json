@@ -32,6 +32,15 @@
     },
     "extra": {
       "apiBase": "https://famous-caramel-1cf571.netlify.app/.netlify/functions"
-    }
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Razi-Nova can attach a photo of a vendor invoice you already took.",
+          "cameraPermission": "Razi-Nova uses the camera to read vendor invoices at the dock, so they never end up in a pile on the desk."
+        }
+      ]
+    ]
   }
 }

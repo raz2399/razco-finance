@@ -57,6 +57,14 @@ export const saveInvoice = (invoice) =>
 
 export const getChecks = () => call('/checks');
 
+// Read a photograph of paper. kind is 'invoice', 'check' or 'statement'.
+// It returns a draft to confirm — nothing is saved by this call.
+export const readPaper = (kind, base64, mime) =>
+  call('/invoice-extract', {
+    method: 'POST',
+    body: JSON.stringify({ store_id: STORE_ID, kind, base64_image: base64, mime_type: mime }),
+  });
+
 export const money = (n, cents = false) => {
   const v = Number(n) || 0;
   const sign = v < 0 ? '-' : '';
