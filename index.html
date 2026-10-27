@@ -607,6 +607,22 @@
       border-radius:7px;padding:7px 9px;margin-bottom:8px;line-height:1.4}
     .rn-link{background:none;border:none;color:var(--rn-blue);font-size:12px;
       font-weight:700;cursor:pointer;padding:6px 0;width:auto}
+    .rn-capture{border:2px dashed var(--rn-blue);border-radius:11px;
+      padding:13px;margin-bottom:14px;background:#f8fbff}
+    .rn-capture-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .rn-shoot{display:inline-flex;align-items:center;gap:8px;background:var(--rn-blue);
+      color:#fff;border-radius:9px;padding:11px 16px;font-size:14px;font-weight:700;
+      cursor:pointer;width:auto}
+    .rn-shoot:active{background:#3d6aa5}
+    .rn-shoot-icon{font-size:17px}
+    .rn-capture-or{font-size:12px;color:var(--rn-mute)}
+    .rn-capture-state{margin-top:10px;font-size:12.5px;line-height:1.5;
+      border-radius:8px;padding:9px 11px}
+    .rn-capture-state.working{background:#eef4fb;color:#2c5c96}
+    .rn-capture-state.good{background:#eef7f2;color:#136541}
+    .rn-capture-state.check{background:#fdf8ec;color:#8a6414}
+    .rn-capture-state.bad{background:#fdf1f1;color:#a32226}
+    .rn-thumb{margin-top:10px;max-height:120px;border-radius:8px;border:1px solid var(--rn-line)}
     .rn-stale{background:#fdf8ec;border:1px solid #f0dcae;border-radius:9px;
       padding:9px 12px;font-size:12px;color:#8a6414;margin-bottom:12px;font-weight:600}
 
@@ -919,6 +935,19 @@
         <p style="font-size:12px;color:#666;margin:0 0 14px">Enter the invoice. The system tells you what to do with it.</p>
         <div id="inv-msg" style="display:none;border-radius:8px;padding:12px;font-size:13px;margin-bottom:12px;line-height:1.5"></div>
 
+        <div class="rn-capture" id="inv-capture">
+          <div class="rn-capture-row">
+            <label class="rn-shoot" for="inv-photo">
+              <span class="rn-shoot-icon">&#128247;</span>
+              <span>Photograph the invoice</span>
+            </label>
+            <input id="inv-photo" type="file" accept="image/*" capture="environment" style="display:none">
+            <span class="rn-capture-or">or fill it in below</span>
+          </div>
+          <div id="inv-photo-state" class="rn-capture-state" style="display:none"></div>
+          <img id="inv-photo-thumb" class="rn-thumb" style="display:none" alt="">
+        </div>
+
         <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">VENDOR</label>
         <input id="inv-vendor" type="text" placeholder="Start typing&hellip;" list="inv-vendor-list" autocomplete="off">
         <datalist id="inv-vendor-list"></datalist>
@@ -950,7 +979,8 @@
           <select id="inv-method" style="width:100%;border:1px solid #dee2e6;border-radius:8px;padding:12px;font-size:16px;margin-bottom:12px;background:#fff">
             <option value="check">Charge account &mdash; we write a check on terms</option>
             <option value="cod">COD &mdash; check at the door</option>
-            <option value="auto_debit">Auto-draft &mdash; bank takes it automatically</option>
+            <option value="cod_draft">COD &mdash; they draft the account, no check</option>
+            <option value="auto_debit">Charge &mdash; bank drafts it on terms, no check</option>
           </select>
           <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">TERMS</label>
           <select id="inv-terms" style="width:100%;border:1px solid #dee2e6;border-radius:8px;padding:12px;font-size:16px;margin-bottom:6px;background:#fff">
@@ -1112,6 +1142,9 @@ var APP = {
       var el = document.getElementById(id);
       if (el) el.addEventListener('click', fn);
     };
+    var photo = document.getElementById('inv-photo');
+    if (photo) photo.addEventListener('change', function() { self.onPhotoPicked(photo); });
+
     bind('rn-prev', function() { self.shiftWeek(-7); });
     bind('rn-next', function() { self.shiftWeek(7); });
     bind('rn-this', function() { self.week_start = null; self.loadHome(); });
@@ -2022,6 +2055,100 @@ var APP = {
     document.getElementById('rn-spark').innerHTML = bars;
     document.getElementById('rn-sparkx').innerHTML = labs;
     document.getElementById('rn-trendnote').innerHTML = max > 0 ? ('peak ' + this.money(max)) : '';
+  },
+
+  // -------------------- Invoice capture --------------------
+  // Photograph the invoice instead of typing it. What comes back is a
+  // draft on the screen, never a saved record: a number read off a photo
+  // is shown for Raz to confirm, and he still chooses how it gets paid.
+
+  onPhotoPicked: function(input) {
+    var self = this;
+    var file = input.files && input.files[0];
+    if (!file) return;
+
+    if (file.size > 8 * 1024 * 1024) {
+      this.captureState('bad', 'That photo is very large. Take it again at normal quality.');
+      input.value = '';
+      return;
+    }
+
+    this.captureState('working', 'Reading the invoice&hellip;');
+
+    var reader = new FileReader();
+    reader.onerror = function() {
+      self.captureState('bad', 'Could not open that photo.');
+    };
+    reader.onload = function() {
+      var result = String(reader.result || '');
+      var comma = result.indexOf(',');
+      var b64 = comma > -1 ? result.substring(comma + 1) : '';
+      if (!b64) { self.captureState('bad', 'Could not read that photo.'); return; }
+
+      var thumb = document.getElementById('inv-photo-thumb');
+      if (thumb) { thumb.src = result; thumb.style.display = 'block'; }
+
+      self.postJSON('/invoice-extract', {
+        store_id: self.store_id,
+        base64_image: b64,
+        mime_type: file.type || 'image/jpeg'
+      }, function(res) { self.applyExtract(res); },
+         function(err) { self.captureState('bad', err.message); });
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
+  },
+
+  captureState: function(kind, html) {
+    var el = document.getElementById('inv-photo-state');
+    if (!el) return;
+    el.className = 'rn-capture-state ' + kind;
+    el.innerHTML = html;
+    el.style.display = 'block';
+  },
+
+  applyExtract: function(res) {
+    var d = res.draft || {};
+    var filled = [];
+    var missing = [];
+
+    function put(id, value, label) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      if (value === null || value === undefined || value === '') { missing.push(label); return; }
+      el.value = value;
+      filled.push(label);
+    }
+
+    put('inv-vendor', d.vendor_name, 'vendor');
+    put('inv-num', d.invoice_number, 'invoice number');
+    put('inv-amt', d.total === null ? '' : d.total, 'amount');
+    put('inv-date', d.invoice_date, 'date');
+
+    // Let the vendor-known logic run exactly as it does when typed.
+    this.onVendorTyped();
+
+    var msg = '';
+    if (filled.length) msg += '<b>Read:</b> ' + filled.join(', ') + '. ';
+    if (missing.length) msg += '<b>Could not read:</b> ' + missing.join(', ') + '. ';
+
+    var notes = d.unreadable || [];
+    for (var i = 0; i < notes.length; i++) msg += '<br>' + notes[i];
+
+    if (res.duplicate) {
+      msg += '<br><b>This invoice is already recorded</b> — ' +
+             (res.duplicate.invoice_date || '') + ', ' +
+             this.money(res.duplicate.total_amount, true) + '. Do not enter it twice.';
+    }
+    if (res.vendor && res.vendor.known) {
+      msg += '<br>' + res.vendor.name + ' is on file, so terms are already set.';
+    } else if (d.terms_text) {
+      msg += '<br>The invoice says terms are &ldquo;' + d.terms_text + '&rdquo;.';
+    }
+
+    msg += '<br><b>Check the amount against the paper before saving.</b>';
+
+    this.captureState(res.needs_eyes ? 'check' : 'good', msg);
   },
 
   // ---------------------- Sunday close ----------------------
