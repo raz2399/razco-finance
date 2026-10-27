@@ -45,7 +45,16 @@ function query(table) {
       });
       return api;
     },
-    update(patch) { pending = { op: 'update', patch }; return api; },
+    update(patch) {
+      // Postgres refuses any value for a generated column, even the right
+      // one. The mock refuses it too, so a write that would fail in
+      // production fails here instead of silently passing.
+      if (table === 'invoices' && 'balance_due' in patch) {
+        throw new Error('cannot insert a non-DEFAULT value into column "balance_due"');
+      }
+      pending = { op: 'update', patch };
+      return api;
+    },
     upsert(payload) {
       const list = Array.isArray(payload) ? payload : [payload];
       list.forEach((r) => {
@@ -61,7 +70,14 @@ function query(table) {
         const p = pending; pending = null;
         (DB[table] || []).forEach((r) => {
           const hit = Object.keys(p.where || {}).every((k) => r[k] === p.where[k]);
-          if (hit) { Object.assign(r, p.patch); WRITES[table].push({ op: 'update', where: p.where, patch: p.patch }); }
+          if (hit) {
+            Object.assign(r, p.patch);
+            // generated: balance_due = total_amount - amount_paid
+            if (table === 'invoices') {
+              r.balance_due = Number(r.total_amount || 0) - Number(r.amount_paid || 0);
+            }
+            WRITES[table].push({ op: 'update', where: p.where, patch: p.patch });
+          }
         });
         return Promise.resolve({ data: null, error: null }).then(res);
       }
@@ -173,8 +189,8 @@ const cleared = (n) => DB.payments.filter((p) => Number(p.check_number) === n)[0
   const inv1 = DB.invoices.filter((i) => i.invoice_id === 'inv-1')[0];
   const inv2 = DB.invoices.filter((i) => i.invoice_id === 'inv-2')[0];
   check('the COD draft is marked paid', inv1.status, 'paid');
-  check('its balance goes to zero', Number(inv1.balance_due), 0);
   check('amount paid is the full invoice', Number(inv1.amount_paid), 3000);
+  check('so the generated balance works out to zero', Number(inv1.balance_due), 0);
   check('the auto-debit is paid too', inv2.status, 'paid');
   check('two drafts cleared', out.cleared_drafts, 2);
 

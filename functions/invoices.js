@@ -31,9 +31,15 @@ async function schema() {
   return schemaCache;
 }
 
+// Columns Postgres computes itself. Sending any value for one — even the
+// correct value — fails with "cannot insert a non-DEFAULT value".
+const GENERATED = { balance_due: 1, net_sales: 1 };
+
 function onlyRealColumns(row, columns) {
   const out = {};
-  Object.keys(row).forEach((k) => { if (columns[k]) out[k] = row[k]; });
+  Object.keys(row).forEach((k) => {
+    if (columns[k] && !GENERATED[k]) out[k] = row[k];
+  });
   return out;
 }
 
@@ -272,7 +278,10 @@ exports.handler = async (event) => {
       if (!body.invoice_id) return json(400, { error: 'Missing invoice_id' });
       const res = await supabase
         .from('invoices')
-        .update({ status: 'void', balance_due: 0 })
+        // balance_due is generated (total_amount - amount_paid); the database
+        // computes it and rejects any value sent for it. A void invoice is
+        // excluded by its status, not by zeroing a column we cannot write.
+        .update({ status: 'void' })
         .eq('invoice_id', body.invoice_id)
         .eq('store_id', store_id);
       if (res.error) return json(500, { error: res.error.message });
@@ -289,7 +298,7 @@ exports.handler = async (event) => {
 
       const sel = await supabase
         .from('invoices')
-        .select('invoice_id, invoice_number, vendor_id, balance_due, status')
+        .select('invoice_id, invoice_number, vendor_id, total_amount, amount_paid, balance_due, status')
         .eq('store_id', store_id)
         .in('invoice_id', ids);
 
@@ -335,9 +344,16 @@ exports.handler = async (event) => {
       if (pay.error) return json(500, { error: 'Could not create the check: ' + pay.error.message });
 
       for (const p of picked) {
+        // Paid in full means amount_paid is the whole invoice, not the part
+        // that was still outstanding — otherwise a partly paid invoice would
+        // end up recorded as having been paid less than it was. balance_due
+        // is generated from these, so it must not be sent at all.
         await supabase
           .from('invoices')
-          .update({ status: 'paid', amount_paid: round(p.balance_due), balance_due: 0 })
+          .update({
+            status: 'paid',
+            amount_paid: round(p.total_amount !== undefined ? p.total_amount : p.balance_due),
+          })
           .eq('invoice_id', p.invoice_id);
       }
 
@@ -486,8 +502,9 @@ exports.handler = async (event) => {
         total_amount: total,
         payment_type: payMethod,
         status,
+        // Paying it in full is what makes balance_due zero, because the
+        // database derives balance_due from these two. Never send it.
         amount_paid: payMethod === 'cod' ? total : 0,
-        balance_due: payMethod === 'cod' ? 0 : total,
         notes: body.notes || '',
         approved_at: new Date().toISOString(),
         qb_synced: false,

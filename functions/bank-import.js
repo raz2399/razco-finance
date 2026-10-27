@@ -33,9 +33,14 @@ async function schema() {
 }
 
 // Drop any key the table does not have.
+// Columns Postgres computes itself; any value sent for one is rejected.
+const GENERATED = { balance_due: 1, net_sales: 1 };
+
 function onlyRealColumns(row, columns) {
   const out = {};
-  Object.keys(row).forEach((k) => { if (columns[k]) out[k] = row[k]; });
+  Object.keys(row).forEach((k) => {
+    if (columns[k] && !GENERATED[k]) out[k] = row[k];
+  });
   return out;
 }
 
@@ -529,10 +534,11 @@ exports.handler = async (event) => {
         .eq('bank_txn_id', m.txn_id);
       await supabase
         .from('invoices')
+        // balance_due is generated from total_amount - amount_paid, so paying
+        // it in full is what zeroes it. Sending the column is rejected.
         .update({
           status: 'paid',
           amount_paid: Number(m.invoice.total_amount),
-          balance_due: 0,
         })
         .eq('invoice_id', m.invoice.invoice_id);
     }
