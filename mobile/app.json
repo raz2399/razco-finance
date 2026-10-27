@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Razi-Nova Finance",
+    "slug": "razi-nova-finance",
+    "scheme": "razinovafinance",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#f4f6f9"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "net.razitech.razinovafinance",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Razi-Nova uses the camera to photograph vendor invoices when a delivery arrives, so they never end up in a pile on the desk.",
+        "NSPhotoLibraryUsageDescription": "Razi-Nova can attach a photo of a vendor invoice you have already taken."
+      }
+    },
+    "android": {
+      "package": "net.razitech.razinovafinance",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "extra": {
+      "apiBase": "https://famous-caramel-1cf571.netlify.app/.netlify/functions"
+    }
+  }
+}
