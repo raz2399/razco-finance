@@ -57,6 +57,9 @@ export const saveInvoice = (invoice) =>
 
 export const getChecks = () => call('/checks');
 
+// A day at the register: by tender, by department, by cashier.
+export const getDay = (date) => call('/day' + (date ? '?date=' + date : ''));
+
 // Read a photograph of paper. kind is 'invoice', 'check' or 'statement'.
 // It returns a draft to confirm — nothing is saved by this call.
 export const readPaper = (kind, base64, mime) =>

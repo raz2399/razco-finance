@@ -10,7 +10,7 @@ import {
 import { getOverview, money } from './api';
 import { C, S } from './theme';
 
-export default function HomeScreen({ onRecordDelivery, onOpenChecks }) {
+export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -96,6 +96,10 @@ export default function HomeScreen({ onRecordDelivery, onOpenChecks }) {
 
         <TouchableOpacity style={S.big} onPress={onRecordDelivery} activeOpacity={0.85}>
           <Text style={S.bigText}>Record a delivery</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={st.secondary} onPress={onOpenSales} activeOpacity={0.8}>
+          <Text style={st.secondaryText}>Sales by tender, department and cashier</Text>
         </TouchableOpacity>
 
         <View style={{ height: 11 }} />
@@ -195,6 +199,12 @@ const st = StyleSheet.create({
   heroLabel: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, color: '#9aa3b2', textTransform: 'uppercase' },
   heroValue: { fontSize: 44, fontWeight: '800', color: C.white, letterSpacing: -2, marginVertical: 6 },
   heroNote: { fontSize: 11.5, color: '#9aa3b2' },
+
+  secondary: {
+    marginTop: 9, borderRadius: 12, paddingVertical: 14, alignItems: 'center',
+    backgroundColor: C.white, borderWidth: 1, borderColor: C.blue,
+  },
+  secondaryText: { color: C.blue, fontSize: 14.5, fontWeight: '700' },
 
   pair: { flexDirection: 'row' },
   half: { flex: 1 },

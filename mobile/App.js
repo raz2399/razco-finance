@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { View, Text, Image, StyleSheet, SafeAreaView } from 'react-native';
 import HomeScreen from './src/HomeScreen';
 import DeliveryScreen from './src/DeliveryScreen';
+import SalesScreen from './src/SalesScreen';
 import { C } from './src/theme';
 
 export default function App() {
@@ -32,9 +33,12 @@ export default function App() {
           <HomeScreen
             key={version}
             onRecordDelivery={() => setScreen('delivery')}
+            onOpenSales={() => setScreen('sales')}
             onOpenChecks={() => {}}
           />
         </>
+      ) : screen === 'sales' ? (
+        <SalesScreen onBack={() => setScreen('home')} />
       ) : (
         <DeliveryScreen
           onCancel={() => setScreen('home')}
