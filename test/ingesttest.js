@@ -112,11 +112,13 @@ const totalTender = () => Math.round(
   checkTrue('net_sales_amount, not net_sales',
     d.net_sales_amount !== undefined && d.net_sales === undefined);
 
-  console.log('\nOver and short per cashier');
+  console.log('\nOver and short is never invented');
   const c101 = DB.tender_daily.filter((x) => x.employee_id === '101' && x.tender_id === '1')[0];
-  check('declared 4005 against 4000 counted is +5', c101.over_short_amount, 5);
-  const c103 = DB.tender_daily.filter((x) => x.employee_id === '103')[0];
-  check('declared 2995 against 3000 counted is -5', c103.over_short_amount, -5);
+  check('not derived from declared minus counted', c101.over_short_amount, null);
+  const card = DB.tender_daily.filter((x) => x.tender_id === '3')[0];
+  check('and certainly not for a card tender', card.over_short_amount, null);
+  // Encore reports DeclaredAmount against card and EBT too, so subtracting
+  // produces a cash-discrepancy figure where no cash was ever counted.
 
   console.log('\nSending the same day twice');
   await POST({ token: 'RAZINOVA-STORE1-2024', store_id: 'store1', days: [DAY] });

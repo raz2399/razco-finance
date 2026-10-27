@@ -80,12 +80,16 @@ exports.handler = async (event) => {
           pickup_amount: num(t.pickup_amount),
           pickup_qty: int(t.pickup_qty),
           declared_amount: num(t.declared_amount),
-          // Over/short is declared minus counted, and it only means
-          // anything where a drawer was actually declared. A card tender
-          // declares nothing, and -tender_amount would be nonsense.
+          // Over/short is NOT declared minus counted. Encore reports a
+          // DeclaredAmount against card and EBT tenders too, where nothing
+          // is counted into a drawer at all, so that subtraction produces
+          // a figure that looks like a cash discrepancy and is not one.
+          // Until the field Encore really uses for over/short is confirmed,
+          // nothing is stored here. A blank is honest; a wrong number about
+          // a cashier being short is not.
           over_short_amount: t.over_short_amount !== undefined && t.over_short_amount !== null
             ? num(t.over_short_amount)
-            : (num(t.declared_amount) !== 0 ? num(num(t.declared_amount) - num(t.tender_amount)) : 0),
+            : null,
           synced_at: now,
         }));
 
