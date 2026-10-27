@@ -24,7 +24,7 @@ const DB = {
       tender_amount: 1744.13, tender_qty: 80, pickup_amount: 0, pickup_qty: 0,
       declared_amount: 4562.48, open_float_amount: 0, over_short_amount: null },
     { store_id: 'store1', business_date: '2026-10-26', employee_id: '103', tender_id: '1',
-      tender_amount: 6470.13, tender_qty: 300, pickup_amount: -2850, pickup_qty: 2,
+      tender_amount: 6470.13, tender_qty: 300, pickup_amount: -2850, pickup_qty: 0,
       declared_amount: 4465.74, open_float_amount: 200, over_short_amount: null },
     { store_id: 'store1', business_date: '2026-10-26', employee_id: '103', tender_id: '7',
       tender_amount: 120.00, tender_qty: 1, pickup_amount: 0, pickup_qty: 0,
@@ -118,9 +118,16 @@ const GET = (date) => handler({
   check('what they took, coupons excluded', c103.taken, 6470.13 + 120);
   check('their cash', c103.cash, 6470.13);
   check('pickups', c103.pickups, -2850);
-  check('and how many', c103.pickup_count, 2);
-  check('what the drawer declared', c103.declared, 4465.74);
+  // Encore sends the value taken out but never a count of pickups.
+  check('no count, because the register does not send one', c103.pickup_count, 0);
   check('shown as a register number with no name on file', c103.name, 'Register 103');
+
+  console.log('\nWhat the drawer declared is not reported');
+  // Encore fills DeclaredAmount, but it runs 1.5 to 2.3 times the day's
+  // tender and is filled on days where nothing was rung. Whatever it is,
+  // it is not a count of this day's money.
+  check('not even though the POS sends a figure', c103.declared, null);
+  check('and the screen is told so', b.available.declared, false);
 
   console.log('\nOver and short is never invented');
   check('not reported', c103.over_short, null);
@@ -135,10 +142,30 @@ const GET = (date) => handler({
     b.staff.reduce((s, x) => s + x.taken, 0) === b.totals.taken,
     b.staff.reduce((s, x) => s + x.taken, 0) + ' vs ' + b.totals.taken);
 
+  console.log('\nA field the register leaves empty is not shown as zero');
+  check('floats are reported, because this day has one', b.available.float, true);
+  check('pickups are reported', b.available.pickups, true);
+  // Encore never fills PickupQty, so a count would always read as nought
+  // pickups on a day money was taken out of the drawer.
+  check('but the number of them is not', b.available.pickup_count, false);
+
   console.log('\nWhen no date is asked for');
   const latest = JSON.parse((await GET(null)).body);
   check('it uses the most recent day with sales', latest.date, '2026-10-26');
   check('and says so', latest.is_latest, true);
+
+  // Today's rows land before the store opens: a row per tender, nothing
+  // rung. Showing that day reads as a store that took nothing.
+  DB.tender_daily.push({
+    store_id: 'store1', business_date: '2026-10-27', employee_id: '101', tender_id: '1',
+    tender_amount: 0, tender_qty: 0, pickup_amount: 0, pickup_qty: 0,
+    declared_amount: 4066.34, open_float_amount: 0, over_short_amount: null,
+  });
+  const skipped = JSON.parse((await GET(null)).body);
+  check('an empty day at the top is stepped over', skipped.date, '2026-10-26');
+  check('and the money is yesterday\'s, not nought', skipped.totals.taken, b.totals.taken);
+  checkTrue('that day is still there if asked for by name',
+    JSON.parse((await GET('2026-10-27')).body).date === '2026-10-27');
 
   console.log('\nA nonsense date');
   const bad = JSON.parse((await GET('yesterday')).body);

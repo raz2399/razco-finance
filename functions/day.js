@@ -37,10 +37,21 @@ exports.handler = async (event) => {
   try {
     let date = /^\d{4}-\d{2}-\d{2}$/.test(q.date || '') ? q.date : null;
     if (!date) {
-      const latest = await supabase.from('tender_daily')
-        .select('business_date').eq('store_id', store_id)
-        .order('business_date', { ascending: false }).limit(1);
-      date = (latest.data || [])[0] ? latest.data[0].business_date : null;
+      const recent = await supabase.from('tender_daily')
+        .select('business_date, tender_amount').eq('store_id', store_id)
+        .order('business_date', { ascending: false }).limit(600);
+      const money_on = {};
+      (recent.data || []).forEach((r) => {
+        const d = r.business_date;
+        money_on[d] = (money_on[d] || 0) + Math.abs(Number(r.tender_amount) || 0);
+      });
+      const days = Object.keys(money_on).sort().reverse();
+      // The newest day with money on it, not simply the newest day. The
+      // register writes a row per tender before anyone has rung a sale, so
+      // today usually exists with nothing in it. Landing there shows a
+      // screen of zeros, which reads as a broken store rather than as a
+      // morning that has not happened yet.
+      date = days.filter((d) => money_on[d] > 0)[0] || days[0] || null;
       if (!date) return json(200, { store_id, date: null, empty: true, reason: 'No register data yet.' });
     }
 
@@ -121,7 +132,16 @@ exports.handler = async (event) => {
           name: staffName[id] || ('Register ' + id),
           named: !!staffName[id],
           taken: 0, cash: 0, pickups: 0, pickup_count: 0,
-          declared: 0, float: 0,
+          float: 0,
+          // What the drawer declared. Encore fills DeclaredAmount, but
+          // across fifty days it runs 1.5 to 2.3 times the day's tender
+          // with no steady relation to it, and it is filled on a day
+          // where nothing has been rung at all. So it is not a close-out
+          // count of this day's money, whatever it is. Until we know,
+          // nothing is reported: a figure beside "cash taken" would be
+          // read as an over or a short, which is the mistake that put a
+          // $2,818 surplus on a debit tender.
+          declared: null,
           over_short: null,
           tenders: [],
         };
@@ -133,7 +153,6 @@ exports.handler = async (event) => {
       if (t.bucket === 'cash') s.cash = money(s.cash + amt);
       s.pickups = money(s.pickups + money(r.pickup_amount));
       s.pickup_count += Number(r.pickup_qty) || 0;
-      s.declared = money(s.declared + money(r.declared_amount));
       s.float = money(s.float + money(r.open_float_amount));
       // Only reported when the POS gave us one. Nothing is derived here —
       // subtracting declared from counted produced a figure that looked
@@ -176,6 +195,19 @@ exports.handler = async (event) => {
       over_short_available: rows.some(
         (r) => r.over_short_amount !== null && r.over_short_amount !== undefined
       ),
+      // What the register actually gives us today. A field the POS leaves
+      // empty is not shown at all, rather than shown as zero: "Opening
+      // float $0.00" is a claim that every drawer started empty, and it
+      // would be believed.
+      available: {
+        over_short: rows.some(
+          (r) => r.over_short_amount !== null && r.over_short_amount !== undefined
+        ),
+        declared: false,
+        float: rows.some((r) => money(r.open_float_amount) !== 0),
+        pickups: rows.some((r) => money(r.pickup_amount) !== 0),
+        pickup_count: rows.some((r) => (Number(r.pickup_qty) || 0) !== 0),
+      },
       freshness: { last_sales_day: sync ? sync.business_date : null, synced_at: sync ? sync.synced_at : null },
     });
   } catch (err) {

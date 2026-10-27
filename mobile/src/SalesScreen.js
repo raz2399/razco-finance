@@ -168,11 +168,11 @@ export default function SalesScreen({ onBack }) {
 
         {tab === 'staff' ? (
           <View>
-            {!data.over_short_available ? (
+            {!(data.available || {}).over_short ? (
               <View style={st.noteBox}>
                 <Text style={st.noteText}>
                   Over and short is not coming from the register yet, so it is not shown.
-                  Pickups and what each drawer declared are real.
+                  What each cashier took and what was picked up from the drawer are real.
                 </Text>
               </View>
             ) : null}
@@ -187,7 +187,9 @@ export default function SalesScreen({ onBack }) {
                     <Text style={[st.staffName, !s.named && st.unnamed]}>{s.name}</Text>
                     <Text style={st.staffSub}>
                       Cash {money(s.cash)}
-                      {s.pickup_count ? ' · ' + s.pickup_count + ' pickup' + (s.pickup_count === 1 ? '' : 's') : ''}
+                      {/* The register does not count pickups, only their
+                          value, so the value is what is shown. */}
+                      {s.pickups ? ' · ' + money(Math.abs(s.pickups)) + ' picked up' : ''}
                     </Text>
                   </View>
                   <Text style={st.staffAmt}>{money(s.taken)}</Text>
@@ -195,10 +197,13 @@ export default function SalesScreen({ onBack }) {
 
                 {open === s.employee_id ? (
                   <View style={st.staffBody}>
-                    <Row label="Opening float" value={money(s.float)} />
+                    {(data.available || {}).float ? (
+                      <Row label="Opening float" value={money(s.float)} />
+                    ) : null}
                     <Row label="Cash taken" value={money(s.cash)} />
-                    <Row label="Picked up from the drawer" value={money(s.pickups)} />
-                    <Row label="Declared at close" value={money(s.declared)} />
+                    {(data.available || {}).pickups ? (
+                      <Row label="Picked up from the drawer" value={money(s.pickups)} />
+                    ) : null}
                     {s.over_short !== null && s.over_short !== undefined ? (
                       <Row
                         label={s.over_short < 0 ? 'Short' : 'Over'}
