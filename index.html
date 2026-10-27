@@ -14,16 +14,18 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
   <style>
     :root {
-      --primary: #1a472a;
-      --secondary: #d4af37;
-      --danger: #dc3545;
-      --warning: #ffc107;
-      --success: #28a745;
-      --info: #17a2b8;
-      --bg: #f8f9fa;
-      --border: #dee2e6;
-      --text: #333;
-      --text-light: #666;
+      /* Razi-Tech. Every screen reads from these, so the app is one product
+         rather than whichever week each screen happened to be built in. */
+      --primary: #c0282d;
+      --secondary: #4a7fc1;
+      --danger: #c0282d;
+      --warning: #bf7b0a;
+      --success: #168a5a;
+      --info: #29a8e0;
+      --bg: #f4f6f9;
+      --border: #e4e8ef;
+      --text: #1a1c21;
+      --text-light: #6b7280;
     }
 
     * {
@@ -672,6 +674,51 @@
     .tabs{padding:0 10px}
     .tab.active{color:var(--rn-red) !important;border-bottom-color:var(--rn-red) !important}
     .tab:hover{color:var(--rn-ink)}
+
+    /* ---- the older screens, brought onto the same furniture ---- */
+    .card{background:#fff;border:1px solid var(--border);border-radius:14px;
+      padding:16px 18px;margin-bottom:12px;box-shadow:none}
+    .card h2,.card h3{font-size:11px;font-weight:800;letter-spacing:.9px;
+      text-transform:uppercase;color:var(--text-light);margin:0 0 11px}
+    .content{background:var(--bg)}
+    table th{font-size:10px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;
+      color:var(--text-light);border-bottom:1px solid var(--border);padding:0 0 8px}
+    table td{padding:9px 0;border-bottom:1px solid #f1f3f7;font-variant-numeric:tabular-nums}
+    .number{font-size:28px;font-weight:800;letter-spacing:-1px}
+    .number.positive{color:var(--success)}
+    .number.negative{color:var(--danger)}
+    .alert{border-radius:9px;padding:11px 13px;font-size:13px;line-height:1.5;
+      margin-bottom:9px;border-left:3px solid var(--text-light);background:#f7f9fc}
+    .alert-critical{background:#fdf1f1;border-left-color:var(--danger);color:#8d2024}
+    .alert-warning{background:#fdf8ec;border-left-color:var(--warning);color:#8a6414}
+    input,select,textarea{border:1px solid var(--border)!important;border-radius:10px!important;
+      padding:12px 13px!important;font-size:16px!important;background:#fff!important;
+      color:var(--text)!important}
+    input:focus,select:focus{outline:none;border-color:var(--secondary)!important}
+    label:not(.rn-shoot){color:var(--text-light)!important}
+    /* a few cards carried the old green in an inline style */
+    [style*="#1a472a"]{border-left-color:var(--primary)!important}
+
+    .rn-screenhead{margin-bottom:14px}
+    .rn-screentitle{font-size:21px;font-weight:800;color:var(--rn-ink);
+      letter-spacing:-.5px;margin:0}
+    .rn-screensub{font-size:13px;color:var(--rn-mute);margin:3px 0 0;line-height:1.5}
+
+    .rn-capture{border:2px dashed var(--rn-blue);border-radius:11px;padding:13px;
+      margin-bottom:14px;background:#f8fbff}
+    .rn-capture-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .rn-shoot{display:inline-flex;align-items:center;gap:8px;background:var(--rn-blue);
+      color:#fff!important;border-radius:9px;padding:11px 16px;font-size:14px;
+      font-weight:700;cursor:pointer;width:auto}
+    .rn-shoot:active{background:#3d6aa5}
+    .rn-shoot-icon{font-size:17px}
+    .rn-capture-or{font-size:12px;color:var(--rn-mute)}
+    .rn-capture-state{margin-top:10px;font-size:12.5px;line-height:1.5;border-radius:8px;padding:9px 11px}
+    .rn-capture-state.working{background:#eef4fb;color:#2c5c96}
+    .rn-capture-state.good{background:#eef7f2;color:#136541}
+    .rn-capture-state.check{background:#fdf8ec;color:#8a6414}
+    .rn-capture-state.bad{background:#fdf1f1;color:#a32226}
+    .rn-thumb{margin-top:10px;max-height:120px;border-radius:8px;border:1px solid var(--rn-line)}
   </style>
 </head>
 <body>
@@ -712,14 +759,11 @@
   </div>
 
   <div class="tabs">
-    <button class="tab active" data-tab="home">Home</button>
-    <button class="tab" data-tab="sales">Sales</button>
-    <button class="tab" data-tab="calendar">AP Calendar</button>
-    <button class="tab" data-tab="checks">Checks</button>
-    <button class="tab" data-tab="charges">Charges</button>
-    <button class="tab" data-tab="cash">Cash</button>
-    <button class="tab" data-tab="pl">P&L</button>
-    <button class="tab" data-tab="bank">Bank</button>
+    <button class="tab active" data-tab="home">Today</button>
+    <button class="tab" data-tab="receive">Receive</button>
+    <button class="tab" data-tab="pay">Pay</button>
+    <button class="tab" data-tab="money">Money</button>
+    <button class="tab" data-tab="week">Week</button>
     <button class="tab" data-tab="settings">Settings</button>
   </div>
 
@@ -873,61 +917,26 @@
     </div>
 
     <!-- SALES TAB -->
-    <div class="tab-content" id="sales-tab">
-      <h2 style="margin-bottom: 16px;">Daily Sales</h2>
-      <div id="sales-data">
-        <p>Loading sales data...</p>
-      </div>
-    </div>
 
     <!-- AP CALENDAR TAB -->
-    <div class="tab-content" id="calendar-tab">
-      <h2 style="margin-bottom: 16px;">AP Calendar</h2>
-      <div id="calendar-data">
-        <p>Loading calendar...</p>
-      </div>
-    </div>
 
     <!-- CHECKS TAB -->
-    <div class="tab-content" id="checks-tab">
-      <h2 style="margin-bottom: 16px;">Checks</h2>
-
-      <div class="card" style="margin-bottom:16px">
-        <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:.5px">REAL AVAILABLE CASH</div>
-        <div id="chk-cash" style="font-size:32px;font-weight:800;letter-spacing:-1px;margin:4px 0">&mdash;</div>
-        <div id="chk-cash-note" style="font-size:12px;color:#666;line-height:1.5">Loading&hellip;</div>
-      </div>
-
-      <div class="card" style="margin-bottom:16px">
-        <h3 style="margin:0 0 14px;font-size:15px">Log a check</h3>
-        <div id="chk-msg" style="display:none;border-radius:8px;padding:12px;font-size:13px;margin-bottom:12px;line-height:1.5"></div>
-        <div style="display:flex;gap:10px">
-          <div style="flex:1">
-            <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">CHECK NUMBER</label>
-            <input id="chk-num" type="text" inputmode="numeric" placeholder="9801">
-          </div>
-          <div style="flex:1">
-            <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">AMOUNT</label>
-            <input id="chk-amt" type="text" inputmode="decimal" placeholder="1450.00">
-          </div>
-        </div>
-        <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">PAID TO</label>
-        <input id="chk-payee" type="text" placeholder="C&amp;S Wholesale">
-        <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">DATE WRITTEN</label>
-        <input id="chk-date" type="date">
-        <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">NOTE (OPTIONAL)</label>
-        <input id="chk-memo" type="text" placeholder="invoice 4471">
-        <button id="chk-save" class="btn" style="width:100%">Log check</button>
-      </div>
-
-      <div class="card">
-        <h3 style="margin:0 0 14px;font-size:15px">Checks on file</h3>
-        <div id="chk-list"><p>Loading&hellip;</p></div>
-      </div>
-    </div>
 
     <!-- CHARGES TAB -->
-    <div class="tab-content" id="charges-tab">
+
+
+    <!-- P&L TAB -->
+
+    <!-- BANK TAB -->
+
+    <!-- SETTINGS TAB -->
+
+    <div class="tab-content" id="receive-tab">
+      <div class="rn-wrap">
+        <div class="rn-screenhead">
+          <h2 class="rn-screentitle">Receive</h2>
+          <p class="rn-screensub">A delivery landed. Photograph the invoice and it is recorded before it reaches the desk.</p>
+        </div>
 
       <!-- 1. RECEIVING: what happens when a truck shows up -->
       <div class="card" style="margin-bottom:16px;border-left:4px solid #1a472a">
@@ -999,6 +1008,69 @@
       </div>
 
       <!-- 2. WRITE CHECKS FOR -->
+
+      <!-- 3. THE BANK IS TAKING -->
+
+      <!-- 4. QUICKBOOKS -->
+
+      <!-- 5. OWED BY VENDOR -->
+      <div class="card">
+        <h3 style="margin:0 0 4px;font-size:15px">Owed, by vendor</h3>
+        <div id="inv-owed" style="font-size:26px;font-weight:800;letter-spacing:-.5px;margin:8px 0 2px">&mdash;</div>
+        <div id="inv-owed-note" style="font-size:12px;color:#666;line-height:1.5;margin-bottom:12px">Loading&hellip;</div>
+        <div id="inv-vendors"></div>
+      </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="pay-tab">
+      <div class="rn-wrap">
+        <div class="rn-screenhead">
+          <h2 class="rn-screentitle">Pay</h2>
+          <p class="rn-screensub">What is owed, what you write a check for, and what the bank takes on its own.</p>
+        </div>
+      <div class="card" style="margin-bottom:16px">
+        <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:.5px">REAL AVAILABLE CASH</div>
+        <div id="chk-cash" style="font-size:32px;font-weight:800;letter-spacing:-1px;margin:4px 0">&mdash;</div>
+        <div id="chk-cash-note" style="font-size:12px;color:#666;line-height:1.5">Loading&hellip;</div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h3 style="margin:0 0 14px;font-size:15px">Log a check</h3>
+        <div class="rn-capture">
+          <div class="rn-capture-row">
+            <label class="rn-shoot" for="chk-photo"><span class="rn-shoot-icon">&#128247;</span><span>Photograph the check or stub</span></label>
+            <input id="chk-photo" type="file" accept="image/*" capture="environment" style="display:none">
+            <span class="rn-capture-or">or fill it in below</span>
+          </div>
+          <div id="chk-photo-state" class="rn-capture-state" style="display:none"></div>
+        </div>
+
+
+        <div id="chk-msg" style="display:none;border-radius:8px;padding:12px;font-size:13px;margin-bottom:12px;line-height:1.5"></div>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">CHECK NUMBER</label>
+            <input id="chk-num" type="text" inputmode="numeric" placeholder="9801">
+          </div>
+          <div style="flex:1">
+            <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">AMOUNT</label>
+            <input id="chk-amt" type="text" inputmode="decimal" placeholder="1450.00">
+          </div>
+        </div>
+        <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">PAID TO</label>
+        <input id="chk-payee" type="text" placeholder="C&amp;S Wholesale">
+        <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">DATE WRITTEN</label>
+        <input id="chk-date" type="date">
+        <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">NOTE (OPTIONAL)</label>
+        <input id="chk-memo" type="text" placeholder="invoice 4471">
+        <button id="chk-save" class="btn" style="width:100%">Log check</button>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 14px;font-size:15px">Checks on file</h3>
+        <div id="chk-list"><p>Loading&hellip;</p></div>
+      </div>
       <div class="card" style="margin-bottom:16px">
         <h3 style="margin:0 0 4px;font-size:15px">Write checks for</h3>
         <p style="font-size:12px;color:#666;margin:0 0 10px">Charge accounts coming due. Tick a vendor's invoices, write one check.</p>
@@ -1021,50 +1093,66 @@
           <button id="inv-pay" class="btn" style="width:100%">Write the check</button>
         </div>
       </div>
-
-      <!-- 3. THE BANK IS TAKING -->
       <div class="card" style="margin-bottom:16px;border-left:4px solid #dc3545">
         <h3 style="margin:0 0 4px;font-size:15px">The bank is taking</h3>
         <p style="font-size:12px;color:#666;margin:0 0 12px">Auto-drafts. You write no check for these &mdash; they leave on their own.</p>
         <div id="inv-drafts"><p>Loading&hellip;</p></div>
       </div>
-
-      <!-- 4. QUICKBOOKS -->
       <div class="card" style="margin-bottom:16px">
         <h3 style="margin:0 0 4px;font-size:15px">Still to enter in QuickBooks</h3>
         <p style="font-size:12px;color:#666;margin:0 0 12px">Tick each one off as you enter the bill.</p>
         <div id="inv-qb"><p>Loading&hellip;</p></div>
       </div>
-
-      <!-- 5. OWED BY VENDOR -->
-      <div class="card">
-        <h3 style="margin:0 0 4px;font-size:15px">Owed, by vendor</h3>
-        <div id="inv-owed" style="font-size:26px;font-weight:800;letter-spacing:-.5px;margin:8px 0 2px">&mdash;</div>
-        <div id="inv-owed-note" style="font-size:12px;color:#666;line-height:1.5;margin-bottom:12px">Loading&hellip;</div>
-        <div id="inv-vendors"></div>
+      <div id="calendar-data">
+        <p>Loading calendar...</p>
+      </div>
       </div>
     </div>
 
-    <div class="tab-content" id="cash-tab">
-      <h2 style="margin-bottom: 16px;">Cash Position</h2>
+    <div class="tab-content" id="money-tab">
+      <div class="rn-wrap">
+        <div class="rn-screenhead">
+          <h2 class="rn-screentitle">Money</h2>
+          <p class="rn-screensub">What is actually in the bank and the drawer. Correct anything the system has wrong.</p>
+        </div>
+        <div class="card" id="fix-card">
+          <h3>Correct a figure</h3>
+          <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+            Counted it and the system disagrees? Your figure wins. The change is written down with the reason.
+          </p>
+          <div id="fix-msg" style="display:none;border-radius:9px;padding:11px 13px;font-size:13px;margin-bottom:12px;line-height:1.5"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div style="flex:1;min-width:190px">
+              <label style="display:block;font-size:11px;font-weight:700;margin-bottom:5px">WHAT IS WRONG</label>
+              <select id="fix-target">
+                <option value="cash">Cash on hand &mdash; drawer and safe</option>
+                <option value="bank">Bank balance</option>
+              </select>
+            </div>
+            <div style="flex:1;min-width:190px">
+              <label style="display:block;font-size:11px;font-weight:700;margin-bottom:5px">WHAT IT SHOULD BE</label>
+              <input id="fix-amount" type="text" inputmode="decimal" placeholder="0.00">
+            </div>
+          </div>
+          <label style="display:block;font-size:11px;font-weight:700;margin:12px 0 5px">WHY (OPTIONAL)</label>
+          <input id="fix-note" type="text" placeholder="Counted the safe, we were short a deposit">
+          <div id="fix-current" style="font-size:12.5px;color:var(--text-light);margin:10px 0;line-height:1.6"></div>
+          <button class="rn-big" id="fix-save" style="margin-top:4px">Save the correct figure</button>
+        </div>
       <div id="cash-data">
         <p>Loading cash position...</p>
       </div>
-    </div>
-
-    <!-- P&L TAB -->
-    <div class="tab-content" id="pl-tab">
-      <h2 style="margin-bottom: 16px;">Profit & Loss</h2>
-      <div id="pl-data">
-        <p>Loading P&L...</p>
-      </div>
-    </div>
-
-    <!-- BANK TAB -->
-    <div class="tab-content" id="bank-tab">
-      <h2 style="margin-bottom: 16px;">Bank Import</h2>
       <div class="card">
         <p style="margin-bottom:14px">Import a statement to set your bank balance and clear matching checks.</p>
+                <div class="rn-capture">
+          <div class="rn-capture-row">
+            <label class="rn-shoot" for="stmt-photo"><span class="rn-shoot-icon">&#128247;</span><span>Photograph a statement page</span></label>
+            <input id="stmt-photo" type="file" accept="image/*" capture="environment" style="display:none">
+            <span class="rn-capture-or">or import the CSV below &mdash; better for a whole month</span>
+          </div>
+          <div id="stmt-photo-state" class="rn-capture-state" style="display:none"></div>
+        </div>
+
         <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">ENDING BALANCE ON THE STATEMENT</label>
         <input id="bank-balance" type="text" inputmode="decimal" placeholder="24692.69">
         <div style="font-size:11px;color:#888;margin:-6px 0 14px">Leave blank to add up every transaction imported instead.</div>
@@ -1076,10 +1164,34 @@
         <button id="bank-import-btn" class="btn" style="width:100%;margin-top:14px" disabled>Import statement</button>
         <div id="bank-result" style="display:none;border-radius:8px;padding:14px;font-size:13px;margin-top:14px;line-height:1.6"></div>
       </div>
+        <div class="card">
+          <h3>Corrections made</h3>
+          <div id="fix-log" class="rn-rows"><p style="font-size:13px;color:var(--text-light)">Loading&hellip;</p></div>
+        </div>
+      </div>
     </div>
 
-    <!-- SETTINGS TAB -->
+    <div class="tab-content" id="week-tab">
+      <div class="rn-wrap">
+        <div class="rn-screenhead">
+          <h2 class="rn-screentitle">Week</h2>
+          <p class="rn-screensub">Monday to Sunday night. Sales, profit, and the close.</p>
+        </div>
+      <div id="pl-data">
+        <p>Loading P&L...</p>
+      </div>
+      <div id="sales-data">
+        <p>Loading sales data...</p>
+      </div>
+      </div>
+    </div>
+
     <div class="tab-content" id="settings-tab">
+      <div class="rn-wrap">
+        <div class="rn-screenhead">
+          <h2 class="rn-screentitle">Settings</h2>
+          <p class="rn-screensub">How this store is set up.</p>
+        </div>
       <h2 style="margin-bottom: 16px;">Settings</h2>
       <div class="card">
         <h3>Cash Floor</h3>
@@ -1090,6 +1202,7 @@
       <div class="card">
         <h3>Account</h3>
         <button class="danger mt-4" id="logout-btn">Sign Out</button>
+      </div>
       </div>
     </div>
 
@@ -1142,8 +1255,15 @@ var APP = {
       var el = document.getElementById(id);
       if (el) el.addEventListener('click', fn);
     };
-    var photo = document.getElementById('inv-photo');
-    if (photo) photo.addEventListener('change', function() { self.onPhotoPicked(photo); });
+    var cams = ['invoice', 'check', 'statement'];
+    for (var ci = 0; ci < cams.length; ci++) {
+      (function(kind) {
+        var el = document.getElementById(self.CAPTURE[kind].input);
+        if (el) el.addEventListener('change', function() { self.onPhotoPicked(el, kind); });
+      }(cams[ci]));
+    }
+    var fixBtn = document.getElementById('fix-save');
+    if (fixBtn) fixBtn.addEventListener('click', function() { self.saveCorrection(); });
 
     bind('rn-prev', function() { self.shiftWeek(-7); });
     bind('rn-next', function() { self.shiftWeek(7); });
@@ -1279,12 +1399,12 @@ var APP = {
     document.getElementById(tabName + '-tab').classList.add('active');
     document.querySelector('[data-tab="' + tabName + '"]').classList.add('active');
 
-    if (tabName === 'sales') this.loadSales();
-    if (tabName === 'calendar') this.loadAPCalendar();
-    if (tabName === 'cash') this.loadCashPosition();
-    if (tabName === 'pl') this.loadPL();
-    if (tabName === 'checks') this.loadChecks();
-    if (tabName === 'charges') this.loadInvoices();
+    // Each screen is several of the old ones, so each loads all its parts.
+    if (tabName === 'home') this.loadHome();
+    if (tabName === 'receive') this.loadInvoices();
+    if (tabName === 'pay') { this.loadChecks(); this.loadAPCalendar(); this.loadInvoices(); }
+    if (tabName === 'money') { this.loadCashPosition(); this.loadCorrections(); }
+    if (tabName === 'week') { this.loadPL(); this.loadSales(); this.loadClose(); }
     if (tabName === 'home') this.loadHome();
   },
 
@@ -1346,7 +1466,7 @@ var APP = {
     el.style.color = cash < 5000 ? '#DC3545' : cash < 15000 ? '#8D6E00' : '#1A472A';
     document.getElementById('chk-cash-note').innerHTML =
       'Bank ' + this.money(d.bank_balance) + ' less ' + this.money(d.outstanding_total) +
-      ' in ' + d.outstanding_count + (d.outstanding_count === 1 ? ' check' : ' checks') +
+      ' in ' + this.countOf(d.outstanding_count, 'check', 'checks') +
       ' not yet cleared' +
       (d.bank_balance_as_of ? ' &middot; bank as of ' + this.escHtml(d.bank_balance_as_of) : '');
   },
@@ -1545,7 +1665,7 @@ var APP = {
   paintInvoiceTotals: function(d) {
     document.getElementById('inv-owed').innerHTML = this.money(d.total_owed);
     document.getElementById('inv-owed').style.color = d.overdue_count > 0 ? '#DC3545' : '#1A472A';
-    var note = d.open_count + (d.open_count === 1 ? ' open invoice' : ' open invoices');
+    var note = this.countOf(d.open_count, 'open invoice', 'open invoices');
     if (d.overdue_count) note += ' &middot; <strong style="color:#DC3545">' + d.overdue_count + ' overdue</strong>';
     document.getElementById('inv-owed-note').innerHTML = note;
   },
@@ -2030,7 +2150,7 @@ var APP = {
         var how = v.automatic ? 'drafts itself' : (v.next_due ? (overdue ? 'was due ' : 'due ') + v.next_due : '');
         vh += '<div class="rn-row"><div><div class="nm">' + v.name +
               (v.automatic ? ' <span class="rn-auto">AUTO</span>' : '') + '</div>' +
-              '<div class="sub">' + v.count + ' invoice' + (v.count === 1 ? '' : 's') +
+              '<div class="sub">' + this.countOf(v.count, 'invoice', 'invoices') +
               (how ? ' &middot; ' + how : '') + '</div></div>' +
               '<div class="amt' + (overdue ? ' due' : '') + '">' + this.money(v.amount) + '</div></div>';
       }
@@ -2062,94 +2182,6 @@ var APP = {
   // draft on the screen, never a saved record: a number read off a photo
   // is shown for Raz to confirm, and he still chooses how it gets paid.
 
-  onPhotoPicked: function(input) {
-    var self = this;
-    var file = input.files && input.files[0];
-    if (!file) return;
-
-    if (file.size > 8 * 1024 * 1024) {
-      this.captureState('bad', 'That photo is very large. Take it again at normal quality.');
-      input.value = '';
-      return;
-    }
-
-    this.captureState('working', 'Reading the invoice&hellip;');
-
-    var reader = new FileReader();
-    reader.onerror = function() {
-      self.captureState('bad', 'Could not open that photo.');
-    };
-    reader.onload = function() {
-      var result = String(reader.result || '');
-      var comma = result.indexOf(',');
-      var b64 = comma > -1 ? result.substring(comma + 1) : '';
-      if (!b64) { self.captureState('bad', 'Could not read that photo.'); return; }
-
-      var thumb = document.getElementById('inv-photo-thumb');
-      if (thumb) { thumb.src = result; thumb.style.display = 'block'; }
-
-      self.postJSON('/invoice-extract', {
-        store_id: self.store_id,
-        base64_image: b64,
-        mime_type: file.type || 'image/jpeg'
-      }, function(res) { self.applyExtract(res); },
-         function(err) { self.captureState('bad', err.message); });
-    };
-    reader.readAsDataURL(file);
-    input.value = '';
-  },
-
-  captureState: function(kind, html) {
-    var el = document.getElementById('inv-photo-state');
-    if (!el) return;
-    el.className = 'rn-capture-state ' + kind;
-    el.innerHTML = html;
-    el.style.display = 'block';
-  },
-
-  applyExtract: function(res) {
-    var d = res.draft || {};
-    var filled = [];
-    var missing = [];
-
-    function put(id, value, label) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      if (value === null || value === undefined || value === '') { missing.push(label); return; }
-      el.value = value;
-      filled.push(label);
-    }
-
-    put('inv-vendor', d.vendor_name, 'vendor');
-    put('inv-num', d.invoice_number, 'invoice number');
-    put('inv-amt', d.total === null ? '' : d.total, 'amount');
-    put('inv-date', d.invoice_date, 'date');
-
-    // Let the vendor-known logic run exactly as it does when typed.
-    this.onVendorTyped();
-
-    var msg = '';
-    if (filled.length) msg += '<b>Read:</b> ' + filled.join(', ') + '. ';
-    if (missing.length) msg += '<b>Could not read:</b> ' + missing.join(', ') + '. ';
-
-    var notes = d.unreadable || [];
-    for (var i = 0; i < notes.length; i++) msg += '<br>' + notes[i];
-
-    if (res.duplicate) {
-      msg += '<br><b>This invoice is already recorded</b> — ' +
-             (res.duplicate.invoice_date || '') + ', ' +
-             this.money(res.duplicate.total_amount, true) + '. Do not enter it twice.';
-    }
-    if (res.vendor && res.vendor.known) {
-      msg += '<br>' + res.vendor.name + ' is on file, so terms are already set.';
-    } else if (d.terms_text) {
-      msg += '<br>The invoice says terms are &ldquo;' + d.terms_text + '&rdquo;.';
-    }
-
-    msg += '<br><b>Check the amount against the paper before saving.</b>';
-
-    this.captureState(res.needs_eyes ? 'check' : 'good', msg);
-  },
 
   // ---------------------- Sunday close ----------------------
 
@@ -2289,6 +2321,227 @@ var APP = {
       else onErr(new Error((data && data.error) ? data.error : ('HTTP ' + x.status)));
     };
     x.send(JSON.stringify(body));
+  },
+
+  // ============ Reading paper ============
+  // One reader for three kinds: a vendor invoice, a check we wrote, a page
+  // of a bank statement. Wherever paper exists there is a camera on it.
+  //
+  // Nothing read from a photograph is saved on its own. It fills the form,
+  // says what it could not read, and waits for a person.
+
+  CAPTURE: {
+    invoice:   { input: 'inv-photo',  state: 'inv-photo-state',  verb: 'Reading the invoice' },
+    check:     { input: 'chk-photo',  state: 'chk-photo-state',  verb: 'Reading the check' },
+    statement: { input: 'stmt-photo', state: 'stmt-photo-state', verb: 'Reading the statement' }
+  },
+
+  onPhotoPicked: function(input, kind) {
+    var self = this;
+    kind = this.CAPTURE[kind] ? kind : 'invoice';
+    this.capture_kind = kind;
+
+    var file = input.files && input.files[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      this.captureState('bad', 'That photo is very large. Take it again at normal quality.');
+      input.value = '';
+      return;
+    }
+    this.captureState('working', this.CAPTURE[kind].verb + '&hellip;');
+
+    var reader = new FileReader();
+    reader.onerror = function() { self.captureState('bad', 'Could not open that photo.'); };
+    reader.onload = function() {
+      var result = String(reader.result || '');
+      var comma = result.indexOf(',');
+      var b64 = comma > -1 ? result.substring(comma + 1) : '';
+      if (!b64) { self.captureState('bad', 'Could not read that photo.'); return; }
+
+      self.postJSON('/invoice-extract', {
+        store_id: self.store_id, kind: kind,
+        base64_image: b64, mime_type: file.type || 'image/jpeg'
+      }, function(res) {
+        if (res.kind === 'check') self.applyCheckExtract(res);
+        else if (res.kind === 'statement') self.applyStatementExtract(res);
+        else self.applyInvoiceExtract(res);
+      }, function(err) { self.captureState('bad', err.message); });
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
+  },
+
+  captureState: function(tone, html) {
+    var el = document.getElementById(this.CAPTURE[this.capture_kind || 'invoice'].state);
+    if (!el) return;
+    el.className = 'rn-capture-state ' + tone;
+    el.innerHTML = html;
+    el.style.display = 'block';
+  },
+
+  fillFrom: function(pairs) {
+    var filled = [], missing = [];
+    for (var i = 0; i < pairs.length; i++) {
+      var el = document.getElementById(pairs[i][0]);
+      var value = pairs[i][1];
+      if (!el) continue;
+      if (value === null || value === undefined || value === '') { missing.push(pairs[i][2]); continue; }
+      el.value = value;
+      filled.push(pairs[i][2]);
+    }
+    var msg = '';
+    if (filled.length) msg += '<b>Read:</b> ' + filled.join(', ') + '. ';
+    if (missing.length) msg += '<b>Could not read:</b> ' + missing.join(', ') + '. ';
+    return msg;
+  },
+
+  applyInvoiceExtract: function(res) {
+    var d = res.draft || {};
+    var msg = this.fillFrom([
+      ['inv-vendor', d.vendor_name, 'vendor'],
+      ['inv-num', d.invoice_number, 'invoice number'],
+      ['inv-amt', d.total === null ? '' : d.total, 'amount'],
+      ['inv-date', d.invoice_date, 'date']
+    ]);
+    this.onVendorTyped();
+    var notes = d.unreadable || [];
+    for (var i = 0; i < notes.length; i++) msg += '<br>' + notes[i];
+    if (res.duplicate) {
+      msg += '<br><b>This invoice is already recorded</b> &mdash; ' +
+             (res.duplicate.invoice_date || '') + ', ' +
+             this.money(res.duplicate.total_amount, true) + '. Do not enter it twice.';
+    }
+    if (res.vendor && res.vendor.known) {
+      msg += '<br>' + res.vendor.name + ' is on file, so terms are already set.';
+    } else if (d.terms_text) {
+      msg += '<br>The invoice says terms are &ldquo;' + d.terms_text + '&rdquo;.';
+    }
+    msg += '<br><b>Check the amount against the paper before saving.</b>';
+    this.captureState(res.needs_eyes ? 'check' : 'good', msg);
+  },
+
+  applyCheckExtract: function(res) {
+    var d = res.draft || {};
+    var msg = this.fillFrom([
+      ['chk-num', d.check_number, 'check number'],
+      ['chk-amt', d.amount === null ? '' : d.amount, 'amount'],
+      ['chk-payee', d.payee, 'payee'],
+      ['chk-date', d.check_date, 'date'],
+      ['chk-memo', d.memo, 'memo']
+    ]);
+    var notes = d.unreadable || [];
+    for (var i = 0; i < notes.length; i++) msg += '<br>' + notes[i];
+    if (res.duplicate) {
+      msg += '<br><b>Check #' + res.duplicate.check_number + ' is already logged</b> for ' +
+             this.money(res.duplicate.amount, true) +
+             '. Logging it twice would overstate what is out.';
+    }
+    msg += '<br><b>Check the amount against the check before saving.</b>';
+    this.captureState(res.needs_eyes ? 'check' : 'good', msg);
+  },
+
+  applyStatementExtract: function(res) {
+    var d = res.draft || {};
+    var txns = d.transactions || [];
+    if (d.ending_balance !== null && d.ending_balance !== undefined) {
+      var bal = document.getElementById('bank-balance');
+      if (bal) bal.value = d.ending_balance;
+    }
+    var msg = '<b>Read ' + txns.length + ' line' + (txns.length === 1 ? '' : 's') + '</b>';
+    if (d.ending_balance !== null && d.ending_balance !== undefined) {
+      msg += ', ending balance ' + this.money(d.ending_balance, true);
+    }
+    msg += '.';
+    var notes = d.unreadable || [];
+    for (var i = 0; i < notes.length; i++) msg += '<br>' + notes[i];
+    if (res.advice) msg += '<br><b>' + res.advice + '</b>';
+    msg += '<br>A photo sets the balance only. Import the CSV to clear checks against it.';
+    this.captureState('check', msg);
+  },
+
+  // ============ Corrections ============
+  // When the system is wrong, the counted figure wins. The change is kept on
+  // the record with its reason, so a number can move without the history of
+  // it moving being lost.
+
+  loadCorrections: function() {
+    var self = this;
+    this.getJSON('/correct?store_id=' + encodeURIComponent(this.store_id),
+      function(d) { self.paintCorrections(d); },
+      function(err) {
+        self.setHtml('fix-log',
+          '<p style="font-size:13px;color:var(--rn-mute)">Could not load: ' + err.message + '</p>');
+      });
+  },
+
+  paintCorrections: function(d) {
+    var cur = d.bank
+      ? 'Bank now reads <b>' + this.money(d.bank.amount, true) + '</b>' +
+        (d.bank.as_of ? ' as of ' + d.bank.as_of : '') + '.'
+      : 'No bank account on file yet.';
+    cur += '<br>';
+    cur += d.cash
+      ? 'Cash on hand last counted at <b>' + this.money(d.cash.amount, true) + '</b>' +
+        (d.cash.as_of ? ' on ' + d.cash.as_of : '') + '.'
+      : 'Cash on hand has never been counted here.';
+    this.setHtml('fix-current', cur);
+
+    var rows = d.corrections || [];
+    if (!rows.length) {
+      this.setHtml('fix-log',
+        '<p style="font-size:13px;color:var(--rn-mute)">Nothing has been corrected yet.</p>');
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < rows.length; i++) {
+      html += '<div class="rn-row"><div style="flex:1">' +
+              '<div class="nm">' + rows[i].what + '</div>' +
+              '<div class="sub">' + String(rows[i].at).slice(0, 16).replace('T', ' ') +
+              ' &middot; ' + (rows[i].why || '') + '</div></div></div>';
+    }
+    this.setHtml('fix-log', html);
+  },
+
+  saveCorrection: function() {
+    var self = this;
+    var target = document.getElementById('fix-target').value;
+    var amount = this.readMoney(document.getElementById('fix-amount').value);
+    var note = document.getElementById('fix-note').value;
+    if (amount === null) { this.fixMsg('bad', 'Enter the figure you counted.'); return; }
+
+    this.fixMsg('working', 'Saving&hellip;');
+    this.postJSON('/correct', {
+      store_id: this.store_id, target: target, amount: amount, note: note
+    }, function(res) {
+      var what = target === 'cash' ? 'Cash on hand' : 'Bank balance';
+      var was = (res.was === null || res.was === undefined)
+        ? 'nothing on file' : self.money(res.was, true);
+      self.fixMsg('good', what + ' is now <b>' + self.money(res.now, true) +
+                  '</b>. It was ' + was + '.');
+      document.getElementById('fix-amount').value = '';
+      document.getElementById('fix-note').value = '';
+      self.loadCorrections();
+      self.loadCashPosition();
+      self.loadHome();
+    }, function(err) { self.fixMsg('bad', err.message); });
+  },
+
+  fixMsg: function(tone, html) {
+    var el = document.getElementById('fix-msg');
+    if (!el) return;
+    var bg = { good: '#eef7f2', bad: '#fdf1f1', working: '#eef4fb' };
+    var fg = { good: '#136541', bad: '#a32226', working: '#2c5c96' };
+    el.style.background = bg[tone] || '#f7f9fc';
+    el.style.color = fg[tone] || '#333';
+    el.innerHTML = html;
+    el.style.display = 'block';
+  },
+
+  // A count that has not arrived yet must never print as "undefined".
+  countOf: function(n, one, many) {
+    var v = Number(n);
+    if (!isFinite(v)) v = 0;
+    return v + ' ' + (v === 1 ? one : many);
   },
 
   setKpi: function(id, value, note) {

@@ -29,7 +29,8 @@ const json = (status, body) => ({
   body: JSON.stringify(body),
 });
 
-const PROMPT = `You are reading a photograph of a grocery wholesaler's delivery invoice.
+const PROMPTS = {
+  invoice: `You are reading a photograph of a grocery wholesaler's delivery invoice.
 
 Return ONLY a JSON object, no markdown, no commentary:
 
@@ -55,7 +56,60 @@ Rules:
 - "terms_text" is whatever the invoice literally says about payment terms
   ("NET 14", "COD", "2% 10 NET 30"). Do not translate or interpret it.
 - Dates: if the year is not shown, use null rather than assuming.
-- Numbers: digits only, no currency symbols, no thousands separators.`;
+- Numbers: digits only, no currency symbols, no thousands separators.`,
+
+  check: `You are reading a photograph of a business check, or its stub, that
+the store has written to a vendor.
+
+Return ONLY a JSON object, no markdown, no commentary:
+
+{
+  "check_number": string | null,
+  "payee": string | null,
+  "amount": number | null,
+  "check_date": "YYYY-MM-DD" | null,
+  "memo": string | null,
+  "handwritten": boolean,
+  "unreadable": string[]
+}
+
+Rules:
+- "amount" is the figure the check is written for. If the numeric box and the
+  written line disagree, report null and say so in "unreadable" — a check
+  whose two amounts differ is a problem a person must look at.
+- Set "handwritten" true if the amount or payee is handwritten rather than
+  printed, because handwriting is read less reliably and the person should
+  check it.
+- Never guess at a digit. A wrong check number means the bank match goes to
+  the wrong check later.
+- Numbers: digits only, no currency symbols, no thousands separators.`,
+
+  statement: `You are reading a photograph or scan of a bank statement page.
+
+Return ONLY a JSON object, no markdown, no commentary:
+
+{
+  "account_last_four": string | null,
+  "statement_date": "YYYY-MM-DD" | null,
+  "ending_balance": number | null,
+  "transactions": [
+    { "date": "YYYY-MM-DD" | null,
+      "description": string,
+      "amount": number,
+      "check_number": string | null }
+  ],
+  "unreadable": string[]
+}
+
+Rules:
+- Money leaving the account is negative. Money arriving is positive.
+- "check_number" only when the line clearly refers to a check.
+- Only include a transaction whose amount you can read exactly. Anything
+  partly legible goes in "unreadable" instead, described well enough that a
+  person can find that line on the page.
+- Do not total anything yourself. Report what is printed.
+- Numbers: digits only, no currency symbols, no thousands separators.`,
+};
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'POST only.' });
@@ -69,6 +123,7 @@ exports.handler = async (event) => {
 
   const { base64_image, mime_type } = body;
   const store_id = body.store_id || 'store1';
+  const kind = PROMPTS[body.kind] ? body.kind : 'invoice';
 
   if (!base64_image) return json(400, { error: 'No photo was sent.' });
   if (!/^image\/(jpeg|png|webp|gif)$/.test(mime_type || '')) {
@@ -93,7 +148,7 @@ exports.handler = async (event) => {
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mime_type, data: base64_image } },
-            { type: 'text', text: PROMPT },
+            { type: 'text', text: PROMPTS[kind] },
           ],
         }],
       }),
@@ -126,34 +181,111 @@ exports.handler = async (event) => {
       const n = Number(String(v).replace(/[^0-9.\-]/g, ''));
       return isNaN(n) ? null : Math.round(n * 100) / 100;
     };
+    const isoDate = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null);
+    const notes = Array.isArray(data.unreadable) ? data.unreadable.slice() : [];
 
+    // ---------------- a check the store wrote ----------------
+    if (kind === 'check') {
+      const draft = {
+        check_number: data.check_number ? String(data.check_number).replace(/\D/g, '') || null : null,
+        payee: data.payee || null,
+        amount: num(data.amount),
+        check_date: isoDate(data.check_date),
+        memo: data.memo || null,
+        handwritten: data.handwritten === true,
+        unreadable: notes,
+      };
+
+      // Is this check already logged? Writing it twice doubles what is out.
+      let duplicate = null;
+      if (draft.check_number) {
+        const d = await supabase
+          .from('payments')
+          .select('payment_id, check_number, amount, payment_date, status')
+          .eq('store_id', store_id)
+          .eq('method', 'check')
+          .eq('check_number', Number(draft.check_number))
+          .neq('status', 'void')
+          .limit(1);
+        duplicate = (d.data || [])[0] || null;
+      }
+
+      if (draft.handwritten) {
+        notes.push('The amount is handwritten. Check it against the check before saving.');
+      }
+
+      return json(200, {
+        ok: true, kind, draft, duplicate,
+        needs_eyes: draft.amount === null || draft.check_number === null ||
+                    notes.length > 0 || !!duplicate,
+        model: MODEL,
+      });
+    }
+
+    // ---------------- a page of a bank statement ----------------
+    if (kind === 'statement') {
+      const rows = Array.isArray(data.transactions) ? data.transactions : [];
+      const transactions = rows
+        .map((t) => ({
+          date: isoDate(t.date),
+          description: String(t.description || '').trim(),
+          amount: num(t.amount),
+          check_number: t.check_number ? String(t.check_number).replace(/\D/g, '') || null : null,
+        }))
+        .filter((t) => t.amount !== null && t.description);
+
+      const dropped = rows.length - transactions.length;
+      if (dropped > 0) {
+        notes.push(dropped + ' line' + (dropped === 1 ? '' : 's') +
+                   ' could not be read well enough to use.');
+      }
+
+      return json(200, {
+        ok: true, kind,
+        draft: {
+          account_last_four: data.account_last_four || null,
+          statement_date: isoDate(data.statement_date),
+          ending_balance: num(data.ending_balance),
+          transactions,
+          unreadable: notes,
+        },
+        // A photographed statement is for a quick look or a small page. A full
+        // month still belongs in the CSV import, which reads every line exactly.
+        needs_eyes: true,
+        advice: transactions.length > 25
+          ? 'That is a lot of lines from a photograph. Import the CSV instead so nothing is missed.'
+          : null,
+        model: MODEL,
+      });
+    }
+
+    // ---------------- a vendor invoice ----------------
     const draft = {
       vendor_name: data.vendor_name || null,
       invoice_number: data.invoice_number ? String(data.invoice_number).trim() : null,
-      invoice_date: /^\d{4}-\d{2}-\d{2}$/.test(data.invoice_date || '') ? data.invoice_date : null,
+      invoice_date: isoDate(data.invoice_date),
       subtotal: num(data.subtotal),
       tax: num(data.tax),
       freight: num(data.freight),
       total: num(data.total),
       terms_text: data.terms_text || null,
       line_count: Number.isFinite(data.line_count) ? data.line_count : null,
-      unreadable: Array.isArray(data.unreadable) ? data.unreadable : [],
+      unreadable: notes,
     };
 
     // Does the arithmetic on the page agree with itself? If it does not, say
     // so rather than quietly trusting the total.
-    const parts = [draft.subtotal, draft.tax, draft.freight];
     if (draft.total !== null && draft.subtotal !== null) {
-      const summed = parts.reduce((s, v) => s + (v || 0), 0);
+      const summed = [draft.subtotal, draft.tax, draft.freight]
+        .reduce((acc, v) => acc + (v || 0), 0);
       if (Math.abs(summed - draft.total) > 0.02) {
-        draft.unreadable.push(
+        notes.push(
           'The parts add up to ' + summed.toFixed(2) + ' but the total reads ' +
           draft.total.toFixed(2) + '. Check the total before saving.'
         );
       }
     }
 
-    // Is this a vendor we already know, and do we already have this invoice?
     let vendor = null;
     let duplicate = null;
 
@@ -181,9 +313,8 @@ exports.handler = async (event) => {
 
     return json(200, {
       ok: true,
+      kind,
       draft,
-      // When the vendor is known, their payment method and terms are already
-      // on file, so Raz confirms rather than re-enters them.
       vendor: vendor ? {
         vendor_id: vendor.vendor_id,
         name: vendor.name,
@@ -193,7 +324,7 @@ exports.handler = async (event) => {
         known: true,
       } : { known: false },
       duplicate,
-      needs_eyes: draft.total === null || draft.unreadable.length > 0 || !!duplicate,
+      needs_eyes: draft.total === null || notes.length > 0 || !!duplicate,
       model: MODEL,
     });
   } catch (err) {
