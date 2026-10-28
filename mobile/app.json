@@ -28,10 +28,17 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "extra": {
-      "apiBase": "https://famous-caramel-1cf571.netlify.app/.netlify/functions"
+      "apiBase": "https://famous-caramel-1cf571.netlify.app/.netlify/functions",
+      "eas": {
+        "projectId": "bb50a912-b6d2-4a7c-9c85-3aef4263a3b6"
+      }
     },
     "plugins": [
       [
@@ -41,6 +48,12 @@
           "cameraPermission": "Razi-Nova uses the camera to read vendor invoices at the dock, so they never end up in a pile on the desk."
         }
       ]
-    ]
+    ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/bb50a912-b6d2-4a7c-9c85-3aef4263a3b6"
+    }
   }
 }
