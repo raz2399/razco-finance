@@ -177,6 +177,37 @@ const checkTrue = (n, c, note) => {
   checkTrue('and says why', JSON.parse(res.body).error.indexOf('check number') > -1,
     JSON.parse(res.body).error);
 
-  console.log('\n' + pass + ' passed, ' + fail + ' failed');
+  
+// ---- the phone's other calls --------------------------------------------
+// Field names agreed in two places, in two languages, months apart. The
+// delivery screen already cost a round trip to Apple over 'vendor_name' vs
+// 'vendor'; these are checked from the source rather than from memory.
+(function () {
+  const fsrc = fs.readFileSync(path.join(__dirname, '..', 'mobile', 'src', 'api.js'), 'utf8');
+  const csrc = fs.readFileSync(path.join(__dirname, '..', 'functions', 'correct.js'), 'utf8');
+
+  console.log('\nCorrecting a figure from the phone');
+  const body = (fsrc.match(/correctFigure[\s\S]*?body: JSON.stringify\(\{([^}]*)\}/) || [])[1] || '';
+  checkTrue('sends target', body.indexOf('target') > -1, body);
+  checkTrue('sends amount', body.indexOf('amount') > -1, body);
+  checkTrue('sends note', body.indexOf('note') > -1, body);
+  checkTrue('sends the store', body.indexOf('store_id: STORE_ID') > -1, body);
+  checkTrue('and the server reads a target', csrc.indexOf('body.target') > -1 || csrc.indexOf('target') > -1);
+
+  console.log('\nVoiding an entry from the phone');
+  const vbody = (fsrc.match(/voidEntry[\s\S]*?body: JSON.stringify\(\{([^}]*)\}/) || [])[1] || '';
+  checkTrue("says action: 'void'", /action:\s*'void'/.test(vbody), vbody);
+  checkTrue('sends kind and id', vbody.indexOf('kind') > -1 && vbody.indexOf('id') > -1, vbody);
+  checkTrue('which is what the server checks', csrc.indexOf("body.action === 'void'") > -1);
+
+  console.log('\nThe vendor list call');
+  checkTrue('asks for vendors only', fsrc.indexOf("'/invoices?vendors_only=1'") > -1);
+  // call() appends store_id with '&' when the path already has a '?'. A
+  // path written with '&' instead would produce /invoices&vendors_only=1?...
+  checkTrue('with a ? so the store id appends correctly',
+    fsrc.indexOf("'/invoices&vendors_only") === -1);
+}());
+
+console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

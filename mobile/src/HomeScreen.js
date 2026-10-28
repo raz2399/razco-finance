@@ -10,7 +10,7 @@ import {
 import { getOverview, money } from './api';
 import { C, S } from './theme';
 
-export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks }) {
+export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks, onFixNumbers }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -81,6 +81,17 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
           <Text style={st.heroNote}>
             {money(pos.in_bank)} in the bank · {money(pos.checks_outstanding)} in checks not cashed
           </Text>
+          {/* Right under the number it corrects. Buried in a settings screen
+              it may as well not exist -- and when the drawer disagrees with
+              the app, the moment to say so is while the cash is still in
+              hand. */}
+          <TouchableOpacity
+            style={st.fix}
+            onPress={onFixNumbers}
+            hitSlop={{ top: 10, bottom: 10, left: 16, right: 16 }}
+          >
+            <Text style={st.fixText}>Wrong? Fix it</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={st.pair}>
@@ -205,6 +216,12 @@ const st = StyleSheet.create({
   heroLabel: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, color: '#9aa3b2', textTransform: 'uppercase' },
   heroValue: { fontSize: 44, fontWeight: '800', color: C.white, letterSpacing: -2, marginVertical: 6 },
   heroNote: { fontSize: 11.5, color: '#9aa3b2' },
+
+  fix: {
+    marginTop: 11, borderWidth: 1, borderColor: '#4a5568',
+    borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7,
+  },
+  fixText: { color: '#cfd6e2', fontSize: 12.5, fontWeight: '700' },
 
   secondary: {
     marginTop: 9, borderRadius: 12, paddingVertical: 14, alignItems: 'center',

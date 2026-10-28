@@ -60,6 +60,26 @@ export const saveInvoice = (invoice) =>
 
 export const getChecks = () => call('/checks');
 
+// What the system currently believes, and the history of every correction.
+export const getCorrections = () => call('/correct');
+
+// Replace a figure the system got wrong. target is 'bank' or 'cash'.
+// The counted number wins: a figure a person counted beats one a computer
+// inferred. Every change is written down with a reason.
+export const correctFigure = (target, amount, note) =>
+  call('/correct', {
+    method: 'POST',
+    body: JSON.stringify({ store_id: STORE_ID, target, amount, note }),
+  });
+
+// Undo an entry that should never have been recorded.
+export const voidEntry = (kind, id, note) =>
+  call('/correct', {
+    method: 'POST',
+    body: JSON.stringify({ store_id: STORE_ID, action: 'void', kind, id, note }),
+  });
+
+
 // A day at the register: by tender, by department, by cashier.
 export const getDay = (date) => call('/day' + (date ? '?date=' + date : ''));
 
