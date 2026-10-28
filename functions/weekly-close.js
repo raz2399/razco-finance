@@ -15,6 +15,14 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
+// The store is in Lindsay, California. Its day ends when the store closes,
+// not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
+// back office is being worked. Business dates are Pacific; instants
+// (created_at and friends) stay UTC, because those are moments, not days.
+const BUSINESS_TZ = 'America/Los_Angeles';
+const pacificToday = () => new Date().toLocaleDateString('en-CA', { timeZone: BUSINESS_TZ });
+
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
@@ -139,10 +147,11 @@ exports.handler = async (event) => {
     const store_id = body.store_id || q.store_id || 'store1';
 
     const startRaw = body.week_start || q.week_start;
-    const weekStart = startRaw ? new Date(startRaw + 'T00:00:00Z') : mondayOf(new Date());
+    const weekStart = startRaw ? new Date(startRaw + 'T00:00:00Z')
+                               : mondayOf(new Date(today + 'T00:00:00Z'));
     const ws = iso(weekStart);
     const we = iso(addDays(weekStart, 6));
-    const today = iso(new Date());
+    const today = pacificToday();
 
     const existingRes = await supabase
       .from('weekly_close').select('*')

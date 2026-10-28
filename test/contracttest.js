@@ -15,7 +15,8 @@ const Module = require('module');
 const ROOT = path.join(__dirname, '..');
 
 // ---- the mock database -----------------------------------------------
-const DB = { vendors: [], invoices: [], payments: [], bank_accounts: [], exceptions: [] };
+const DB = { vendors: [], invoices: [], payments: [], payment_allocations: [],
+             bank_accounts: [], exceptions: [] };
 
 function query(table) {
   let rows = (DB[table] || []).slice();

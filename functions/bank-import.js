@@ -14,6 +14,14 @@
 
 const crypto = require('crypto');
 
+// The store is in Lindsay, California. Its day ends when the store closes,
+// not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
+// back office is being worked. Business dates are Pacific; instants
+// (created_at and friends) stay UTC, because those are moments, not days.
+const BUSINESS_TZ = 'America/Los_Angeles';
+const pacificToday = () => new Date().toLocaleDateString('en-CA', { timeZone: BUSINESS_TZ });
+
+
 const isUuid = (v) =>
   typeof v === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
@@ -164,20 +172,48 @@ function toDate(raw) {
   return null;
 }
 
+// Which way the money went, from a word. Returns -1 out, 1 in, 0 when the
+// cell says nothing we recognise -- and 0 means "leave the amount alone"
+// rather than "treat it as money in", because a word we cannot read is not
+// permission to guess the direction.
+function signFromType(cell) {
+  const v = String(cell == null ? '' : cell).trim().toLowerCase();
+  if (!v) return 0;
+  if (/^(c|cr|credit|deposit|dep|in|received?)\b/.test(v)) return 1;
+  if (/^(d|db|dr|debit|withdraw|withdrawal|wd|out|payment|paid|check)\b/.test(v)) return -1;
+  return 0;
+}
+
 function findHeader(rows) {
   for (let i = 0; i < Math.min(rows.length, 15); i++) {
     const low = rows[i].map((c) => c.toLowerCase());
     const hasDate = low.some((c) => /date|posted|posting/.test(c));
     const hasMoney = low.some((c) => /amount|debit|credit|withdraw|deposit/.test(c));
     if (hasDate && hasMoney) {
-      const idx = { date: -1, desc: -1, amount: -1, debit: -1, credit: -1, balance: -1 };
+      const idx = { date: -1, desc: -1, amount: -1, debit: -1, credit: -1,
+                    balance: -1, type: -1, check: -1 };
       low.forEach((c, j) => {
-        if (idx.date < 0 && /date|posted|posting/.test(c)) idx.date = j;
-        else if (idx.desc < 0 && /desc|memo|payee|detail|narrat|transaction/.test(c)) idx.desc = j;
-        if (/^bal|balance/.test(c)) idx.balance = j;
-        else if (/debit|withdraw/.test(c)) idx.debit = j;
-        else if (/credit|deposit/.test(c)) idx.credit = j;
-        else if (idx.amount < 0 && /amount|amt/.test(c)) idx.amount = j;
+        const t = c.trim();
+        // A "Credit or Debit" column holds the WORD, not the money. Bank of
+        // the Sierra exports one Amount column plus this one to carry the
+        // sign. Read before the debit/credit tests below, which are looking
+        // for columns that hold amounts: without this, "Credit or Debit"
+        // matches /debit/, yields no number, and every debit in the file
+        // falls through and loads as money coming in.
+        // Naming both words in one header ("Credit or Debit", "Debit/Credit")
+        // means the column holds the direction. A column that holds a number
+        // is unaffected: signFromType cannot read a number, and says so.
+        if (idx.type < 0 &&
+            ((/credit/.test(t) && /debit/.test(t)) ||
+             /^(tran(saction)?\s*)?type$/.test(t) ||
+             /^(dr|cr)\s*[\/|-]\s*(cr|dr)$/.test(t))) { idx.type = j; return; }
+        if (idx.check < 0 && /check\s*(number|num|no\.?|#)/.test(t)) { idx.check = j; return; }
+        if (idx.date < 0 && /date|posted|posting/.test(t)) idx.date = j;
+        else if (idx.desc < 0 && /desc|memo|payee|detail|narrat|transaction/.test(t)) idx.desc = j;
+        if (/^bal|balance/.test(t)) idx.balance = j;
+        else if (/debit|withdraw/.test(t)) idx.debit = j;
+        else if (/credit|deposit/.test(t)) idx.credit = j;
+        else if (idx.amount < 0 && /amount|amt/.test(t)) idx.amount = j;
       });
       return { row: i, idx };
     }
@@ -235,6 +271,14 @@ function parseCSV(text) {
     }
     if (isNaN(amount)) { skipped.push(cols.join(',')); continue; }
 
+    // --- sign, when a separate column carries it in words
+    if (header && header.idx.type >= 0) {
+      const s = signFromType(cols[header.idx.type]);
+      // A file that says "Debit" and also prints the amount negative must not
+      // be flipped back to positive, so work from the magnitude.
+      if (s) amount = s * Math.abs(amount);
+    }
+
     // --- description
     let description = '';
     if (header && header.idx.desc >= 0) description = cols[header.idx.desc];
@@ -246,7 +290,14 @@ function parseCSV(text) {
 
     data.push({
       date, description, amount, raw: cols.join(','),
-      check_number: checkNumberFrom(description, cols),
+      // A column of its own beats reading the number out of the description.
+      check_number: (function () {
+        if (header && header.idx.check >= 0) {
+          const n = parseInt(String(cols[header.idx.check]).replace(/[^\d]/g, ''), 10);
+          if (n > 0) return n;
+        }
+        return checkNumberFrom(description, cols);
+      }()),
     });
   }
 
@@ -264,6 +315,11 @@ function hashTransaction(date, desc, amount) {
 // bank account itself so the user never has to supply a UUID.
 
 const CHUNK = 200;
+
+// Exported so the parser can be tested against a real bank's export without
+// a database behind it. The shape of a bank file is where the silent errors
+// live; it deserves tests of its own.
+exports.parseCSV = parseCSV;
 
 exports.handler = async (event) => {
   try {
@@ -327,7 +383,7 @@ exports.handler = async (event) => {
     };
 
     if (accountCreated) {
-      const seed = await writeAccount(0, new Date().toISOString().split('T')[0]);
+      const seed = await writeAccount(0, pacificToday());
       if (seed.error) {
         return {
           statusCode: 500,
@@ -584,7 +640,7 @@ exports.handler = async (event) => {
     if (newBalance !== null && !isNaN(newBalance)) {
       const write = await writeAccount(
         newBalance,
-        latestDate || new Date().toISOString().split('T')[0]
+        latestDate || pacificToday()
       );
       balanceWritten = !write.error;
       if (write.error) balanceError = write.error.message;

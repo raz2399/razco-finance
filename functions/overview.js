@@ -13,6 +13,14 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
+// The store is in Lindsay, California. Its day ends when the store closes,
+// not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
+// back office is being worked. Business dates are Pacific; instants
+// (created_at and friends) stay UTC, because those are moments, not days.
+const BUSINESS_TZ = 'America/Los_Angeles';
+const pacificToday = () => new Date().toLocaleDateString('en-CA', { timeZone: BUSINESS_TZ });
+
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
@@ -54,8 +62,9 @@ exports.handler = async (event) => {
     const q = event.queryStringParameters || {};
     const store_id = q.store_id || 'store1';
 
-    const today = iso(new Date());
-    const weekStart = q.week_start ? new Date(q.week_start + 'T00:00:00Z') : mondayOf(new Date());
+    const today = pacificToday();
+    const weekStart = q.week_start ? new Date(q.week_start + 'T00:00:00Z')
+                                   : mondayOf(new Date(today + 'T00:00:00Z'));
     const weekEnd = addDays(weekStart, 6);
     const ws = iso(weekStart);
     const we = iso(weekEnd);
@@ -70,6 +79,7 @@ exports.handler = async (event) => {
       accountsRes,
       syncRes,
       trendRes,
+      allocRes,
     ] = await Promise.all([
       supabase.from('tender_types').select('tender_id, description, bucket, sort_order'),
       supabase.from('tender_daily')
@@ -89,6 +99,9 @@ exports.handler = async (event) => {
       supabase.from('tender_daily')
         .select('business_date, tender_amount')
         .eq('store_id', store_id).gte('business_date', iso(addDays(weekStart, -56))).lte('business_date', we),
+      // Which payments settle an invoice. A payment that settles nothing is a
+      // cost in its own right, and has to be counted as one.
+      supabase.from('payment_allocations').select('payment_id'),
     ]);
 
     const bucketOf = {};
@@ -131,6 +144,23 @@ exports.handler = async (event) => {
     invoices.forEach((inv) => {
       const d = inv.received_date || inv.invoice_date;
       if (byDay[d]) byDay[d].expense += money(inv.total_amount);
+    });
+
+    // Not everything paid for arrives with an invoice. Rent, a utility, a
+    // one-off check written at the counter -- those are costs too, and
+    // counting only invoices left them out of the week entirely: the money
+    // left the bank and the expense line never moved.
+    //
+    // Only payments that settle nothing are added. A payment against an
+    // invoice is already counted above, on the day the invoice landed, so
+    // adding it again would charge Raz twice for one delivery.
+    const settles = {};
+    (allocRes.data || []).forEach((a) => { settles[a.payment_id] = 1; });
+    payments.forEach((p) => {
+      if (settles[p.payment_id]) return;
+      if (p.status === 'void' || p.status === 'cancelled') return;
+      const d = p.payment_date;
+      if (byDay[d]) byDay[d].expense += money(p.amount);
     });
 
     let wkCash = 0, wkCard = 0, wkCheck = 0, wkIncome = 0, wkExpense = 0;

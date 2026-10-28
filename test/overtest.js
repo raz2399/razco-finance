@@ -63,6 +63,19 @@ const DATA = {
       vendor_id: 'v1', check_number: 5103, memo: '', status: 'cleared', cleared_date: '2026-09-12' },
     { payment_id: 'p4', method: 'check', payment_date: '2026-09-10', amount: 999.00,
       vendor_id: 'v1', check_number: 5104, memo: '', status: 'void', cleared_date: null },
+    // A check written at the counter for something that never had an
+    // invoice -- rent, a utility, a one-off. Raz wrote one of these to test
+    // the system and watched it never reach the expense line.
+    { payment_id: 'p5', method: 'check', payment_date: '2026-09-11', amount: 492.64,
+      vendor_id: null, check_number: 9897, memo: 'la rosa tortillas', status: 'outstanding',
+      cleared_date: null },
+  ],
+  // Which payments settled which invoices. p5 is deliberately absent: it
+  // settles nothing, which is what makes it a cost of its own.
+  payment_allocations: [
+    { allocation_id: 'al1', payment_id: 'p1', invoice_id: 'i2', amount: 860.00 },
+    { allocation_id: 'al2', payment_id: 'p2', invoice_id: 'i1', amount: 2300.00 },
+    { allocation_id: 'al3', payment_id: 'p3', invoice_id: 'i3', amount: 500.00 },
   ],
   bank_accounts: [
     { account_id: 'a1', store_id: 'store1', nickname: 'Operating', last_four: '5269',
@@ -147,19 +160,35 @@ function checkTrue(name, cond, note) {
   console.log('\nWeek totals');
   check('cash total', b.week_totals.cash, 10752.44);
   check('income total', b.week_totals.income, 34320.36 + 1000.00 + 120.00);
-  check('expense total', b.week_totals.expense, 4200.00 + 860.00 + 3000.00 + 700.00);
+  // Invoices received, plus the counter check that settles no invoice.
+  check('expense total', b.week_totals.expense,
+        4200.00 + 860.00 + 3000.00 + 700.00 + 492.64);
   check('left on hand = income - expense',
     b.week_totals.left_on_hand,
     Math.round((b.week_totals.income - b.week_totals.expense) * 100) / 100);
 
+  console.log('\nA payment that settles no invoice is still a cost');
+  // The failure this guards against is silent: the money leaves the bank,
+  // the check shows under "still out", and the expense line never moves --
+  // so the week looks more profitable than it was.
+  var day11 = b.week.filter(function (r) { return r.date === '2026-09-11'; })[0];
+  // The 700.00 draft invoice also lands on the 11th, so the day holds both.
+  check('it lands on the day it was written', day11.expense,
+        Math.round((700.00 + 492.64) * 100) / 100);
+  checkTrue('and it is not counted twice',
+    b.week_totals.expense === 4200.00 + 860.00 + 3000.00 + 700.00 + 492.64,
+    'a payment against an invoice must not be added on top of the invoice');
+
   console.log('\nCash position');
   const p = b.position;
   check('in the bank', p.in_bank, 18000.00);
-  check('checks outstanding excludes cleared and void', p.checks_outstanding, 860.00 + 2300.00);
-  check('outstanding count', p.checks_outstanding_count, 2);
-  check('after checks clear', p.after_checks_clear, 18000.00 - 3160.00);
+  check('checks outstanding excludes cleared and void', p.checks_outstanding,
+        860.00 + 2300.00 + 492.64);
+  check('outstanding count', p.checks_outstanding_count, 3);
+  check('after checks clear', p.after_checks_clear, 18000.00 - 3652.64);
   check('open AP excludes paid', p.ap_open, 4200.00 + 1500.00 + 3000.00 + 700.00);
-  check('after everything', p.after_everything, 18000.00 - 3160.00 - 9400.00);
+  check('after everything', p.after_everything,
+        Math.round((18000.00 - 3652.64 - 9400.00) * 100) / 100);
 
   console.log('\nAutomatic drafts vs checks to write');
   check('drafts pending', p.drafts_pending, 3000.00 + 700.00);

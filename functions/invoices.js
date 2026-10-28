@@ -11,12 +11,20 @@
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 
+// The store is in Lindsay, California. Its day ends when the store closes,
+// not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
+// back office is being worked. Business dates are Pacific; instants
+// (created_at and friends) stay UTC, because those are moments, not days.
+const BUSINESS_TZ = 'America/Los_Angeles';
+const pacificToday = () => new Date().toLocaleDateString('en-CA', { timeZone: BUSINESS_TZ });
+
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+const todayStr = () => pacificToday();
 const round = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 let schemaCache = null;
@@ -357,6 +365,36 @@ exports.handler = async (event) => {
           .eq('invoice_id', p.invoice_id);
       }
 
+      // Record which invoices this check settled. Without this the link is
+      // lost the moment the check is written: the invoice says "paid" and
+      // the payment says nothing about what it paid for. Everything
+      // downstream needs it -- reconciling against the bank, exporting to
+      // QuickBooks, and knowing whether a payment is a cost in its own
+      // right or the settling of one already counted.
+      const payId = pay.data && pay.data[0] ? pay.data[0].payment_id : null;
+      if (payId) {
+        const allocations = picked.map((p) => ({
+          payment_id: payId,
+          invoice_id: p.invoice_id,
+          amount: round(p.total_amount !== undefined ? p.total_amount : p.balance_due),
+        }));
+        if (allocations.length) {
+          const alloc = await supabase.from('payment_allocations').insert(allocations);
+          // The check and the invoices are already written. A failure here
+          // loses the link, not the money, so say so rather than failing a
+          // payment that has actually been made.
+          if (alloc.error) {
+            await supabase.from('exceptions').insert({
+              store_id,
+              kind: 'ALLOCATION_NOT_RECORDED',
+              detail: 'Check ' + (pay.data[0].check_number || '?') + ' paid ' +
+                      allocations.length + ' invoice(s), but the link was not saved: ' +
+                      alloc.error.message,
+            });
+          }
+        }
+      }
+
       return json(200, {
         success: true,
         check: pay.data ? pay.data[0] : null,
@@ -545,6 +583,25 @@ exports.handler = async (event) => {
       const p = await supabase.from('payments').insert(payRow).select('payment_id, check_number, amount');
       if (p.error) return json(500, { error: 'Invoice saved, but the check failed: ' + p.error.message });
       createdPayment = p.data ? p.data[0] : null;
+
+      // Link the payment to the invoice it is for. A COD check and a
+      // scheduled draft both settle this one invoice, and saying so here is
+      // what keeps it from later being counted a second time as a cost of
+      // its own.
+      if (createdPayment && invoiceId) {
+        const alloc = await supabase.from('payment_allocations').insert({
+          payment_id: createdPayment.payment_id,
+          invoice_id: invoiceId,
+          amount: total,
+        });
+        if (alloc.error) {
+          await supabase.from('exceptions').insert({
+            store_id,
+            kind: 'ALLOCATION_NOT_RECORDED',
+            detail: 'Invoice ' + invoiceNumber + ' was paid but the link to the payment was not saved: ' + alloc.error.message,
+          });
+        }
+      }
       instruction = 'Check ' + body.check_number + ' handed over. Enter the bill in QuickBooks as paid.';
 
     } else if (payMethod === 'auto_debit') {
@@ -568,6 +625,25 @@ exports.handler = async (event) => {
       const p = await supabase.from('payments').insert(payRow).select('payment_id, amount');
       if (p.error) return json(500, { error: 'Invoice saved, but the draft schedule failed: ' + p.error.message });
       createdPayment = p.data ? p.data[0] : null;
+
+      // Link the payment to the invoice it is for. A COD check and a
+      // scheduled draft both settle this one invoice, and saying so here is
+      // what keeps it from later being counted a second time as a cost of
+      // its own.
+      if (createdPayment && invoiceId) {
+        const alloc = await supabase.from('payment_allocations').insert({
+          payment_id: createdPayment.payment_id,
+          invoice_id: invoiceId,
+          amount: total,
+        });
+        if (alloc.error) {
+          await supabase.from('exceptions').insert({
+            store_id,
+            kind: 'ALLOCATION_NOT_RECORDED',
+            detail: 'Invoice ' + invoiceNumber + ' was paid but the link to the payment was not saved: ' + alloc.error.message,
+          });
+        }
+      }
       instruction = 'Do not pay this one. The bank drafts ' + '$' + total.toFixed(2) + ' on ' + dueDate + '. Enter the bill in QuickBooks.';
 
     } else {

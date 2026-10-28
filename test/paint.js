@@ -91,12 +91,12 @@ function checkTrue(name, cond, note) {
   const txt = (id) => ($(id) ? $(id).textContent.trim() : '<<missing ' + id + '>>');
 
   console.log('\nKPI row');
-  check('left after everything clears', txt('k-left'), '$5,440');
+  check('left after everything clears', txt('k-left'), '$4,947');
   check('in the bank', txt('k-bank'), '$18,000');
-  check('checks not cleared', txt('k-out'), '$3,160');
+  check('checks not cleared', txt('k-out'), '$3,653');
   check('owed to vendors', txt('k-ap'), '$9,400');
   checkTrue('bank note names the account', txt('k-bank-n').indexOf('5269') > -1, txt('k-bank-n'));
-  checkTrue('check note counts them', txt('k-out-n').indexOf('2 checks') > -1, txt('k-out-n'));
+  checkTrue('check note counts them', txt('k-out-n').indexOf('3 checks') > -1, txt('k-out-n'));
 
   console.log('\nWeek table');
   const rows = win.document.querySelectorAll('#rn-weekbody tr');
@@ -114,8 +114,8 @@ function checkTrue(name, cond, note) {
   console.log('\nFormula strip');
   const f = txt('rn-formula');
   checkTrue('shows income', f.indexOf('$35,440') > -1, f);
-  checkTrue('shows expense', f.indexOf('$8,760') > -1, f);
-  checkTrue('shows the result', f.indexOf('$26,680') > -1, f);
+  checkTrue('shows expense', f.indexOf('$9,253') > -1, f);
+  checkTrue('shows the result', f.indexOf('$26,188') > -1, f);
   checkTrue('says left on hand', f.indexOf('left on hand') > -1);
 
   console.log('\nNeeds you');
@@ -127,8 +127,14 @@ function checkTrue(name, cond, note) {
 
   console.log('\nChecks still out');
   const chk = win.document.querySelectorAll('#rn-checks .rn-row');
-  check('two checks listed', chk.length, 2);
-  checkTrue('check number is shown', chk[0].textContent.indexOf('#510') > -1, chk[0].textContent);
+  check('three checks listed', chk.length, 3);
+  checkTrue('check number is shown',
+    /#(510\d|9897)/.test(chk[0].textContent), chk[0].textContent);
+  // Written today should read "today", not "1 days ago".
+  checkTrue('no check reads "1 days ago"',
+    Array.prototype.every.call(chk, function (r) {
+      return r.textContent.indexOf('1 days ago') === -1;
+    }));
 
   console.log('\nOwed by vendor');
   const ven = win.document.querySelectorAll('#rn-vendors .rn-row');
@@ -138,9 +144,9 @@ function checkTrue(name, cond, note) {
     ven[0].querySelector('.amt').className.indexOf('due') > -1);
 
   console.log('\nMobile screen');
-  check('hero number matches the KPI', txt('m-left'), '$5,440');
+  check('hero number matches the KPI', txt('m-left'), '$4,947');
   check('income', txt('m-in'), '$35,440');
-  check('expense', txt('m-out'), '$8,760');
+  check('expense', txt('m-out'), '$9,253');
 
   console.log('\nStale data banner');
   checkTrue('banner is shown when sales are behind', $('rn-stale').style.display === 'block');

@@ -175,7 +175,13 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
                   </Text>
                   <Text style={st.rowSub}>
                     Written {c.payment_date}
-                    {c.days_out !== null ? ` · ${c.days_out} days ago` : ''}
+                    {c.days_out === null || c.days_out === undefined
+                      ? ''
+                      : c.days_out <= 0
+                      ? ' · today'
+                      : c.days_out === 1
+                      ? ' · 1 day ago'
+                      : ` · ${c.days_out} days ago`}
                   </Text>
                 </View>
                 <Text style={st.rowAmt}>{money(c.amount)}</Text>

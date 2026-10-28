@@ -10,6 +10,14 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
+// The store is in Lindsay, California. Its day ends when the store closes,
+// not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
+// back office is being worked. Business dates are Pacific; instants
+// (created_at and friends) stay UTC, because those are moments, not days.
+const BUSINESS_TZ = 'America/Los_Angeles';
+const pacificToday = () => new Date().toLocaleDateString('en-CA', { timeZone: BUSINESS_TZ });
+
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
@@ -85,7 +93,7 @@ exports.handler = async (event) => {
       .eq('method', 'auto_debit')
       .eq('status', 'approved')
       .lte('payment_date', autoDue.toISOString().split('T')[0])
-      .gte('payment_date', new Date().toISOString().split('T')[0]);
+      .gte('payment_date', pacificToday());
 
     const autoDebitAmount = sum(autoDebits.data, 'amount');
     status.auto_debits = autoDebits.error ? 'error: ' + autoDebits.error.message : 'ok';
@@ -112,7 +120,7 @@ exports.handler = async (event) => {
       .select('entry_type, amount')
       .eq('store_id', store_id)
       .gte('business_date', weekStart.toISOString().split('T')[0])
-      .lte('business_date', new Date().toISOString().split('T')[0]);
+      .lte('business_date', pacificToday());
 
     let cashOnHand = 0;
     (cash.data || []).forEach((entry) => {
@@ -137,7 +145,7 @@ exports.handler = async (event) => {
       .select('expected_net')
       .eq('store_id', store_id)
       .in('status', ['expected', 'pending'])
-      .gte('expected_date', new Date().toISOString().split('T')[0]);
+      .gte('expected_date', pacificToday());
 
     const pendingSettlements = sum(pending.data, 'expected_net');
 
@@ -189,7 +197,7 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         store_id,
         account_id: accountId,
-        as_of_date: new Date().toISOString().split('T')[0],
+        as_of_date: pacificToday(),
         bank_balance: bankBalance,
         bank_balance_as_of: balanceAsOf,
         outstanding_checks: outstandingChecks,

@@ -63,6 +63,19 @@ const DATA = {
       vendor_id: 'v1', check_number: 5103, memo: '', status: 'cleared', cleared_date: '2026-09-12' },
     { payment_id: 'p4', method: 'check', payment_date: '2026-09-10', amount: 999.00,
       vendor_id: 'v1', check_number: 5104, memo: '', status: 'void', cleared_date: null },
+    // A check written at the counter for something that never had an
+    // invoice -- rent, a utility, a one-off. Raz wrote one of these to test
+    // the system and watched it never reach the expense line.
+    { payment_id: 'p5', method: 'check', payment_date: '2026-09-11', amount: 492.64,
+      vendor_id: null, check_number: 9897, memo: 'la rosa tortillas', status: 'outstanding',
+      cleared_date: null },
+  ],
+  // Which payments settled which invoices. p5 is deliberately absent: it
+  // settles nothing, which is what makes it a cost of its own.
+  payment_allocations: [
+    { allocation_id: 'al1', payment_id: 'p1', invoice_id: 'i2', amount: 860.00 },
+    { allocation_id: 'al2', payment_id: 'p2', invoice_id: 'i1', amount: 2300.00 },
+    { allocation_id: 'al3', payment_id: 'p3', invoice_id: 'i3', amount: 500.00 },
   ],
   bank_accounts: [
     { account_id: 'a1', store_id: 'store1', nickname: 'Operating', last_four: '5269',

@@ -2127,7 +2127,10 @@ var APP = {
         var c = d.checks[i];
         ch += '<div class="rn-row"><div><div class="nm">#' + (c.check_number || '?') + ' ' + c.payee + '</div>' +
               '<div class="sub">Written ' + c.payment_date +
-              (c.days_out !== null ? ' &middot; ' + c.days_out + ' days ago' : '') + '</div></div>' +
+              (c.days_out === null || c.days_out === undefined ? ''
+                : c.days_out <= 0 ? ' &middot; today'
+                : c.days_out === 1 ? ' &middot; 1 day ago'
+                : ' &middot; ' + c.days_out + ' days ago') + '</div></div>' +
               '<div class="amt">' + this.money(c.amount) + '</div></div>';
       }
     }
