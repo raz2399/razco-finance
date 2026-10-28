@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "net.razitech.razinovafinance",
-      "buildNumber": "1",
+      "buildNumber": "3",
       "infoPlist": {
         "NSCameraUsageDescription": "Razi-Nova uses the camera to photograph vendor invoices when a delivery arrives, so they never end up in a pile on the desk.",
         "NSPhotoLibraryUsageDescription": "Razi-Nova can attach a photo of a vendor invoice you have already taken."
