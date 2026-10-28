@@ -394,7 +394,13 @@ exports.handler = async (event) => {
 
     const batchId = crypto.randomUUID();
     transactions.forEach((t) => {
-      t.hash = hashTransaction(t.date, t.description, Math.abs(t.amount));
+      // The signed amount, not the magnitude. Hashing |amount| meant a row
+      // already stored the wrong way round -- a $16,682 check sitting in the
+      // account as money IN -- looked identical to its own correction, so
+      // re-importing the file could never repair it. The duplicate check
+      // silently protected the error. Direction is part of what makes a
+      // transaction what it is, so it belongs in the fingerprint.
+      t.hash = hashTransaction(t.date, t.description, t.amount.toFixed(2));
     });
 
     // --- 1. which have we seen before -------------------------------------
@@ -420,6 +426,27 @@ exports.handler = async (event) => {
       fresh.push(t);
     }
 
+    // --- 1b. does this file even look like a bank account? -----------------
+    // A trading business pays for things. A file of any size with nothing
+    // going out means the signs were read wrong, and the damage is silent:
+    // the balance simply climbs. Said out loud here rather than discovered
+    // weeks later from a balance nobody believes.
+    const outCount = transactions.filter((t) => t.amount < 0).length;
+    const inCount = transactions.length - outCount;
+    const directionWarnings = [];
+    if (transactions.length >= 20 && outCount === 0) {
+      directionWarnings.push(
+        'Every one of the ' + transactions.length + ' rows reads as money coming IN and ' +
+        'none as money going out. That is almost certainly the file being read wrong, ' +
+        'not a month without a single payment. Nothing was matched against your checks.'
+      );
+    } else if (transactions.length >= 20 && inCount === 0) {
+      directionWarnings.push(
+        'Every one of the ' + transactions.length + ' rows reads as money going OUT ' +
+        'and none as deposits. Check the file before trusting the balance.'
+      );
+    }
+
     // --- 2. bulk insert ----------------------------------------------------
     let insertedRows = [];
     let insertError = null;
@@ -434,6 +461,7 @@ exports.handler = async (event) => {
             description: t.description,
             memo: t.description,
             amount: t.amount,
+            txn_type: t.amount < 0 ? 'debit' : 'credit',
             import_batch: batchId,
             import_hash: t.hash,
             check_number: t.check_number,
@@ -667,7 +695,10 @@ exports.handler = async (event) => {
           balance_as_of: latestDate,
           balance_error: balanceError,
           auto_filled_columns: autoFilled,
+          money_in_count: inCount,
+          money_out_count: outCount,
         },
+        direction_warnings: directionWarnings,
         cleared_checks: matches.map((m) => m.check_number),
         cleared_how: matches.map((m) => ({
           check_number: m.check_number, matched_on: m.how, amount_differs: m.amount_differs,

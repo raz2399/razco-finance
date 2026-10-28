@@ -105,5 +105,40 @@ const ODD = [
 ].join('\n');
 check('rather than being forced positive', parseCSV(ODD)[0].amount, -149.12);
 
+// --------------------------------------------------- the fingerprint
+console.log('\nA row stored the wrong way round must not block its own fix');
+// This is the failure that put $894,346 in the account. 153 September rows
+// had been loaded by an older parser with every debit stored as a credit.
+// Re-importing the correct file could not repair them, because the
+// duplicate check hashed the MAGNITUDE: the wrong row and its correction
+// looked like the same transaction, so the fix was skipped as a duplicate
+// and the error was protected by the very thing meant to prevent errors.
+const crypto = require('crypto');
+const fingerprint = (d, desc, amt) =>
+  crypto.createHash('sha256').update(d + '|' + desc + '|' + amt).digest('hex');
+const wrong = fingerprint('2026-09-01', 'CHECK 9473', (16682.10).toFixed(2));
+const right = fingerprint('2026-09-01', 'CHECK 9473', (-16682.10).toFixed(2));
+checkTrue('a check in and the same check out are not the same row', wrong !== right);
+checkTrue('while hashing the magnitude says they are',
+  fingerprint('2026-09-01', 'CHECK 9473', Math.abs(16682.10)) ===
+  fingerprint('2026-09-01', 'CHECK 9473', Math.abs(-16682.10)));
+
+console.log('\nThe real file has money going both ways');
+const fs = require('fs');
+const REAL = '/tmp/claude-0/-home-claude/438b082b-4ec8-5d69-9aa0-3d38a7b0f1fa/scratchpad/bank/b.csv';
+if (fs.existsSync(REAL)) {
+  const all = parseCSV(fs.readFileSync(REAL, 'utf8'));
+  const out = all.filter((r) => r.amount < 0).length;
+  const inn = all.length - out;
+  checkTrue('thousands of rows read', all.length > 2000);
+  checkTrue('most of them are money going out', out > inn, out + ' out vs ' + inn + ' in');
+  check('nothing was skipped', all.skipped.length, 0);
+  const net = Math.round(all.reduce((t, r) => t + r.amount, 0) * 100) / 100;
+  // Counted independently from the same file; the two must agree exactly.
+  check('net movement for the year', net, 8875.04);
+} else {
+  console.log('  --   real file not present, skipped');
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
