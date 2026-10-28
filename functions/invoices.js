@@ -152,8 +152,40 @@ exports.handler = async (event) => {
   try {
     // ------------------------------- GET ---------------------------------
     if (event.httpMethod === 'GET') {
-      const { store_id, status } = event.queryStringParameters || {};
+      const { store_id, status, vendors_only } = event.queryStringParameters || {};
       if (!store_id) return json(400, { error: 'Missing store_id' });
+
+      // The phone only wants the names, and it wants them at the dock on a
+      // cellular signal. Sending 300 invoices to fill a suggestion list is
+      // the sort of thing that makes an app feel broken in a cold room.
+      if (vendors_only) {
+        const only = await supabase
+          .from('vendors')
+          .select('vendor_id, name, payment_type, terms_code, terms_days')
+          .eq('store_id', store_id)
+          .eq('active', true);
+        if (only.error) return json(500, { error: only.error.message });
+        const alias = await supabase.from('vendor_aliases').select('vendor_id, alias_text');
+        const aliasOf = {};
+        (alias.data || []).forEach((a) => {
+          (aliasOf[a.vendor_id] = aliasOf[a.vendor_id] || []).push(a.alias_text);
+        });
+        return json(200, {
+          vendor_list: (only.data || [])
+            .map((v) => ({
+              vendor_id: v.vendor_id,
+              vendor_name: v.name,
+              // 'unknown' travels as null so the phone cannot mistake it for
+              // a method and quietly date an invoice from it.
+              pay_method: v.payment_type === 'unknown' ? null : v.payment_type,
+              terms: v.terms_code || '',
+              terms_days: v.terms_days,
+              aliases: aliasOf[v.vendor_id] || [],
+            }))
+            .sort((a, b) => (a.vendor_name || '').toLowerCase()
+                            .localeCompare((b.vendor_name || '').toLowerCase())),
+        });
+      }
 
       // Always read everything: a paid COD bill still has to reach QuickBooks,
       // so the QB queue cannot be built from open invoices alone.

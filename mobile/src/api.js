@@ -49,6 +49,9 @@ export const closeWeek = (weekStart, cashOnHand) =>
 
 export const getInvoices = () => call('/invoices');
 
+// Just the vendor names, for the suggestion list at the dock.
+export const getVendorList = () => call('/invoices?vendors_only=1');
+
 export const saveInvoice = (invoice) =>
   call('/invoices', {
     method: 'POST',

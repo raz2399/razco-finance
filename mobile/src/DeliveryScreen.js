@@ -15,7 +15,7 @@ import {
   StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { saveInvoice, readPaper, money } from './api';
+import { saveInvoice, readPaper, getVendorList, money } from './api';
 import { C, S } from './theme';
 
 const METHODS = [
@@ -71,6 +71,20 @@ function whatIsMissing(d) {
 }
 
 export default function DeliveryScreen({ onDone, onCancel }) {
+  // Every vendor on file, fetched once. Typing at the dock should suggest
+  // a name that is already known rather than quietly creating a second
+  // spelling of a vendor Raz already has.
+  const [vendors, setVendors] = useState([]);
+  React.useEffect(() => {
+    let alive = true;
+    getVendorList()
+      .then((r) => { if (alive) setVendors((r && r.vendor_list) || []); })
+      // A failed lookup must not stop a delivery being recorded. Typing
+      // still works; it just stops suggesting.
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   const [items, setItems] = useState([blank()]);
   const [reading, setReading] = useState(false);
   const [savingAll, setSavingAll] = useState(false);
@@ -248,6 +262,7 @@ export default function DeliveryScreen({ onDone, onCancel }) {
               key={d.id}
               d={d}
               index={i + 1}
+              vendors={vendors}
               onChange={(patch) => update(d.id, patch)}
               onRemove={() => remove(d.id)}
             />
@@ -282,7 +297,70 @@ export default function DeliveryScreen({ onDone, onCancel }) {
   );
 }
 
-function Card({ d, index, onChange, onRemove }) {
+// Names that match what has been typed so far. Matching is loose on
+// purpose -- "salters" should find SALTERS DISTRIBUTING, and the aliases
+// carry the spellings QuickBooks uses so one vendor is one row however it
+// was written on the paper.
+export function matchVendors(typed, vendors) {
+  const q = String(typed || '').trim().toLowerCase();
+  if (q.length < 2 || !vendors || !vendors.length) return null;
+
+  const hits = [];
+  for (let i = 0; i < vendors.length; i++) {
+    const v = vendors[i];
+    const name = String(v.vendor_name || '').toLowerCase();
+    // Exactly what is typed: nothing left to suggest.
+    if (name === q) return null;
+    const inAlias = (v.aliases || []).some((a) => String(a).toLowerCase().indexOf(q) > -1);
+    if (name.indexOf(q) > -1 || inAlias) hits.push(v);
+  }
+  // A name that starts with what was typed is the likelier one, so it goes
+  // first; six is as many as fits above the keyboard.
+  hits.sort((a, b) => {
+    const sa = String(a.vendor_name || '').toLowerCase().indexOf(q) === 0 ? 0 : 1;
+    const sb = String(b.vendor_name || '').toLowerCase().indexOf(q) === 0 ? 0 : 1;
+    if (sa !== sb) return sa - sb;
+    return String(a.vendor_name || '').localeCompare(String(b.vendor_name || ''));
+  });
+  return hits.slice(0, 6);
+}
+
+function VendorSuggestions({ typed, vendors, onPick }) {
+  const hits = matchVendors(typed, vendors);
+  if (hits === null) return null;
+  if (!hits.length) {
+    return (
+      <Text style={st.sugNone}>
+        Not on file. Saving will add "{String(typed).trim()}" as a new vendor.
+      </Text>
+    );
+  }
+
+  return (
+    <View style={st.sugBox}>
+      {hits.map((v) => (
+        <TouchableOpacity
+          key={v.vendor_id}
+          style={st.sugRow}
+          onPress={() => onPick(v)}
+          activeOpacity={0.6}
+        >
+          <Text style={st.sugName} numberOfLines={1}>{v.vendor_name}</Text>
+          <Text style={st.sugMeta}>
+            {v.pay_method
+              ? (v.pay_method === 'cod' ? 'COD'
+                : v.pay_method === 'auto_debit' ? 'Auto-draft'
+                : v.pay_method === 'cod_draft' ? 'COD draft'
+                : 'Charge') + (v.terms ? ' · ' + v.terms : '')
+              : 'terms not set'}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+function Card({ d, index, vendors, onChange, onRemove }) {
   const missing = whatIsMissing(d);
   const amt = readMoney(d.amount);
   const needsCheck = d.method === 'cod';
@@ -328,8 +406,22 @@ function Card({ d, index, onChange, onRemove }) {
           <Text style={S.label}>Vendor</Text>
           <TextInput
             style={st.input} value={d.vendor}
-            onChangeText={(v) => onChange({ vendor: v })}
+            onChangeText={(v) => onChange({ vendor: v, vendorKnown: false })}
             placeholder="Who delivered" autoCapitalize="words"
+            autoCorrect={false}
+          />
+          <VendorSuggestions
+            typed={d.vendor}
+            vendors={vendors}
+            onPick={(v) => onChange({
+              vendor: v.vendor_name,
+              vendorKnown: true,
+              // Only take a method the vendor actually has. For the ones
+              // loaded from QuickBooks without terms this is null, and the
+              // method buttons below stay for Raz to answer.
+              method: v.pay_method || d.method,
+              terms: v.terms || d.terms,
+            })}
           />
 
           <View style={{ flexDirection: 'row', marginTop: 12 }}>
@@ -414,6 +506,18 @@ function Card({ d, index, onChange, onRemove }) {
 }
 
 const st = StyleSheet.create({
+  sugBox: {
+    borderWidth: 1, borderColor: C.line, borderRadius: 10, marginTop: 6,
+    backgroundColor: C.white, overflow: 'hidden',
+  },
+  sugRow: {
+    paddingVertical: 10, paddingHorizontal: 12,
+    borderBottomWidth: 1, borderBottomColor: '#f1f3f7',
+  },
+  sugName: { fontSize: 14, fontWeight: '600', color: C.ink },
+  sugMeta: { fontSize: 11, color: C.mute, marginTop: 1 },
+  sugNone: { fontSize: 11.5, color: C.mute, marginTop: 6, fontStyle: 'italic' },
+
   bar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 14, paddingVertical: 12,
