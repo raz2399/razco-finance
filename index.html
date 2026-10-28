@@ -1584,6 +1584,10 @@ var APP = {
   methodLabel: function(m) {
     if (m === 'cod') return 'COD — check at the door';
     if (m === 'auto_debit') return 'Auto-draft — bank takes it';
+    if (m === 'cod_draft') return 'COD — bank drafts it';
+    // A vendor loaded from the list with no payment type confirmed. Saying
+    // "charge account" here would set a due date out of thin air.
+    if (m === 'unknown' || !m) return 'Payment type not set — pick one below';
     return 'Charge account — we write a check';
   },
 
@@ -1626,6 +1630,19 @@ var APP = {
         if (String(d.vendors[i].vendor_name).trim().toLowerCase() === name) { known = d.vendors[i]; break; }
       }
     }
+    if (!known && d && d.vendor_list) {
+      for (var n = 0; n < d.vendor_list.length; n++) {
+        if (String(d.vendor_list[n].vendor_name).trim().toLowerCase() === name) {
+          known = {
+            vendor_name: d.vendor_list[n].vendor_name,
+            pay_method: d.vendor_list[n].pay_method,
+            terms: d.vendor_list[n].terms,
+            balance: 0
+          };
+          break;
+        }
+      }
+    }
     if (!known && d && d.invoices) {
       for (var j = 0; j < d.invoices.length; j++) {
         if (String(d.invoices[j].vendor_name).trim().toLowerCase() === name) {
@@ -1642,16 +1659,23 @@ var APP = {
     if (!name) { badge.style.display = 'none'; setup.style.display = 'none'; cod.style.display = 'none'; return; }
 
     if (known) {
-      setup.style.display = 'none';
-      badge.style.display = 'block';
       var m = known.pay_method;
-      badge.style.background = m === 'auto_debit' ? '#FDECEA' : m === 'cod' ? '#FFF8E1' : '#E8F5E9';
-      badge.style.color = m === 'auto_debit' ? '#922B21' : m === 'cod' ? '#8D6E00' : '#1B5E20';
+      // A vendor can be on file without us knowing how he pays them -- the
+      // QuickBooks export carried no terms. Show the setup box so he picks,
+      // rather than silently defaulting to a charge account and inventing a
+      // due date from it.
+      var unset = (m === 'unknown' || !m);
+      setup.style.display = unset ? 'block' : 'none';
+      badge.style.display = 'block';
+      badge.style.background = unset ? '#EEF2F7' : m === 'auto_debit' ? '#FDECEA' : m === 'cod' ? '#FFF8E1' : '#E8F5E9';
+      badge.style.color = unset ? '#44506A' : m === 'auto_debit' ? '#922B21' : m === 'cod' ? '#8D6E00' : '#1B5E20';
       badge.innerHTML = '<strong>' + this.escHtml(this.methodLabel(m)) + '</strong>' +
         (known.terms ? ' &middot; ' + this.escHtml(known.terms) : '') +
-        (known.balance ? ' &middot; already owed ' + this.money(known.balance) : '');
+        (known.balance ? ' &middot; already owed ' + this.money(known.balance) : '') +
+        (unset ? '<div style="font-weight:400;margin-top:3px">On file from QuickBooks. How this one gets paid was never recorded.</div>' : '');
       cod.style.display = m === 'cod' ? 'block' : 'none';
-      this.pending_method = m;
+      // Never carry 'unknown' forward as if it were a method.
+      this.pending_method = unset ? null : m;
     } else {
       badge.style.display = 'none';
       setup.style.display = 'block';
@@ -1674,10 +1698,25 @@ var APP = {
     var box = document.getElementById('inv-vendors');
     var list = document.getElementById('inv-vendor-list');
     var opts = '';
-    var all = this.invoice_data && this.invoice_data.invoices ? this.invoice_data.invoices : [];
+    // Every vendor on file first, then any name that has only ever appeared
+    // on an invoice. Suggesting only the vendors currently owed money meant
+    // a freshly loaded vendor list suggested nothing at all.
+    var d = this.invoice_data || {};
+    var all = d.invoices || [];
+    var vl = d.vendor_list || [];
     var seen = {};
-    for (var k = 0; k < all.length; k++) {
-      if (!seen[all[k].vendor_name]) { seen[all[k].vendor_name] = 1; opts += '<option value="' + this.escHtml(all[k].vendor_name) + '">'; }
+    var k;
+    for (k = 0; k < vl.length; k++) {
+      if (vl[k].vendor_name && !seen[vl[k].vendor_name]) {
+        seen[vl[k].vendor_name] = 1;
+        opts += '<option value="' + this.escHtml(vl[k].vendor_name) + '">';
+      }
+    }
+    for (k = 0; k < all.length; k++) {
+      if (all[k].vendor_name && !seen[all[k].vendor_name]) {
+        seen[all[k].vendor_name] = 1;
+        opts += '<option value="' + this.escHtml(all[k].vendor_name) + '">';
+      }
     }
     if (list) list.innerHTML = opts;
 

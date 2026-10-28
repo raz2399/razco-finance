@@ -232,6 +232,34 @@ function checkTrue(name, cond, note) {
   checkTrue('there is no way to type a new cash count', !$('rn-cash-on-hand'));
   checkTrue('reopening is offered', !!$('rn-reopen'));
 
+  console.log('\nVendor suggestions');
+  // The name box used to be filled from invoices only, so 31 vendors could
+  // sit in the database and the box would suggest nothing at all.
+  APP.invoice_data = {
+    vendor_list: [
+      { vendor_name: 'SALTERS DISTRIBUTING', pay_method: 'unknown', terms: '' },
+      { vendor_name: 'Sysco', pay_method: 'charge_account', terms: 'net15' },
+    ],
+    invoices: [{ vendor_name: 'Dona G Sales', pay_method: 'auto_debit', terms: 'net30' }],
+  };
+  APP.paintVendors([]);
+  const sug = win.document.getElementById('inv-vendor-list').innerHTML;
+  checkTrue('a vendor with no invoice is still suggested',
+    sug.indexOf('SALTERS DISTRIBUTING') > -1, sug);
+  checkTrue('so is one that only appears on an invoice', sug.indexOf('Dona G Sales') > -1, sug);
+  check('and nobody is listed twice', (sug.match(/<option/g) || []).length, 3);
+
+  console.log('\nA vendor whose payment type was never recorded');
+  $('inv-vendor').value = 'SALTERS DISTRIBUTING';
+  APP.onVendorTyped();
+  checkTrue('is recognised as on file', $('inv-vendor-known').style.display !== 'none');
+  checkTrue('is not labelled a charge account',
+    txt('inv-vendor-known').toLowerCase().indexOf('charge account') === -1,
+    txt('inv-vendor-known'));
+  checkTrue('says the payment type is not set', txt('inv-vendor-known').indexOf('not set') > -1);
+  checkTrue('and asks him to pick one', $('inv-setup').style.display === 'block');
+  checkTrue('nothing is carried forward as a method', !APP.pending_method);
+
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

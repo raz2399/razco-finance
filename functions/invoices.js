@@ -269,6 +269,20 @@ exports.handler = async (event) => {
         due_this_week_count: dueThisWeek.length,
         due_this_week_total: round(dueThisWeek.reduce((s, r) => s + r.balance_due, 0)),
         vendors,
+        // Every vendor on file, not only the ones currently owed money.
+        // `vendors` above is the "who do I owe" list and is empty for a
+        // vendor with no open invoice -- which is most of them, and which
+        // left the name box with nothing to suggest even though the names
+        // were sitting in the database.
+        vendor_list: (vend.data || [])
+          .map((v) => ({
+            vendor_name: v.name,
+            pay_method: v.payment_type,
+            terms: v.terms_code || '',
+            terms_days: v.terms_days,
+          }))
+          .sort((a, b) => (a.vendor_name || '').toLowerCase()
+                          .localeCompare((b.vendor_name || '').toLowerCase())),
         invoices: rows,
       });
     }
