@@ -141,5 +141,74 @@ checkTrue('disconnect tells Plaid as well as forgetting it here',
 
 function money(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 
+// ---- sandbox must never reach his real figures -----------------------
+//
+// Plaid's sandbox connects to invented banks with invented balances. The
+// sync writes the balance straight onto bank_accounts and marks checks
+// cleared. Unguarded, setting the connection up in sandbox would have put
+// a made-up number over the real Bank of the Sierra balance and told him
+// checks had cleared that never did -- on screen, looking like the truth.
+(function () {
+  const fs2 = require('fs');
+  const path2 = require('path');
+  const src = fs2.readFileSync(
+    path2.join(__dirname, '..', 'functions', 'plaid-sync.js'), 'utf8');
+
+  console.log('\nOnly production is real money');
+  checkTrue('there is a live flag, and production is what sets it',
+    /const LIVE = PLAID_ENV === 'production'/.test(src));
+
+  // Every write that touches a figure he reads has to sit behind it.
+  // Every occurrence, and judged by the function it sits in rather than by
+  // how many characters away the nearest guard happens to be. A fixed
+  // lookback window both missed two unguarded deletes and then flagged a
+  // write that was perfectly safe inside a function returning early.
+  const enclosing = (at) => {
+    const head = src.lastIndexOf('\nasync function ', at);
+    const head2 = src.lastIndexOf('\nfunction ', at);
+    const from = Math.max(head, head2);
+    if (from < 0) return '';
+    let to = src.indexOf('\n}', at);
+    if (to < 0) to = src.length;
+    return src.slice(from, to);
+  };
+
+  const guardedWrite = (table) => {
+    const needle = "from('" + table + "')";
+    let at = src.indexOf(needle);
+    if (at < 0) return 'no write to ' + table + ' at all';
+    while (at > -1) {
+      const stmtEnd = src.indexOf(';', at);
+      const stmt = src.slice(at, stmtEnd < 0 ? at + 300 : stmtEnd);
+      const op = (stmt.match(/\.(upsert|insert|update|delete)\(/) || [null])[0];
+      if (op) {
+        const body = enclosing(at);
+        const wrapped = /if \(LIVE/.test(src.slice(Math.max(0, at - 500), at));
+        const earlyReturn = /if \(!LIVE\)\s*return/.test(body);
+        if (!wrapped && !earlyReturn) {
+          return 'unguarded ' + op + ' on ' + table;
+        }
+      }
+      at = src.indexOf(needle, at + 1);
+    }
+    return true;
+  };
+
+  checkTrue('the balance is only written on a live connection',
+    guardedWrite('bank_accounts') === true, String(guardedWrite('bank_accounts')));
+  checkTrue('transactions are only saved on a live connection',
+    guardedWrite('bank_transactions') === true, String(guardedWrite('bank_transactions')));
+  checkTrue('and checks are only cleared on a live connection',
+    /if \(!LIVE\) return \{ cleared: \[\]/.test(src));
+
+  // And he has to be told, every time, not just in a log somewhere.
+  checkTrue('every reply says which environment it is',
+    /environment: PLAID_ENV/.test(src) && /live: LIVE/.test(src));
+  checkTrue('and a test run says so in plain words',
+    /TEST CONNECTION/.test(src) && /invented/.test(src));
+  checkTrue('and says nothing was saved',
+    /Nothing was saved/.test(src));
+}());
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

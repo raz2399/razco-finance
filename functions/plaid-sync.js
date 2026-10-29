@@ -38,6 +38,19 @@ const money = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const PLAID_ENV = process.env.PLAID_ENV || 'sandbox';
 const PLAID_HOST = 'https://' + PLAID_ENV + '.plaid.com';
 
+// Only production is real money.
+//
+// Plaid's sandbox connects to invented banks with invented balances. Left
+// unguarded, setting the account up in sandbox would have written a made-up
+// figure straight over the Bank of the Sierra balance, marked real checks
+// cleared against transactions that never happened, and put all of it on
+// the screen looking exactly like the truth.
+//
+// So outside production this runs and reports what it WOULD have done, and
+// writes nothing. The connection can be proved without a single invented
+// dollar reaching his books.
+const LIVE = PLAID_ENV === 'production';
+
 async function plaid(path, body) {
   const client_id = process.env.PLAID_CLIENT_ID;
   const secret = process.env.PLAID_SECRET;
@@ -120,15 +133,19 @@ async function syncItem(item) {
 
   // A pending transaction that has now posted: the posted row names it.
   // Drop the pending one rather than letting both stand.
+  // Both of these DELETE. On a test connection they are deleting out of the
+  // table holding a year of his real statement, on ids handed over by a
+  // bank that is not his. Nothing should reach that table from a sandbox,
+  // least of all a delete.
   const supersedes = incoming.map((t) => t.pending_transaction_id).filter(Boolean);
-  if (supersedes.length) {
+  if (LIVE && supersedes.length) {
     await supabase.from('bank_transactions')
       .delete().in('plaid_transaction_id', supersedes);
   }
 
   // Plaid can withdraw a transaction it previously reported.
   const gone = (removed || []).map((r) => r.transaction_id).filter(Boolean);
-  if (gone.length) {
+  if (LIVE && gone.length) {
     await supabase.from('bank_transactions').delete().in('plaid_transaction_id', gone);
   }
 
@@ -137,9 +154,11 @@ async function syncItem(item) {
   for (let i = 0; i < incoming.length; i += CHUNK) {
     const rows = incoming.slice(i, i + CHUNK)
       .map((t) => toRow(t, storeId, item.account_id));
-    const res = await supabase.from('bank_transactions')
-      .upsert(rows, { onConflict: 'plaid_transaction_id' });
-    if (res.error) throw new Error('Could not save transactions: ' + res.error.message);
+    if (LIVE) {
+      const res = await supabase.from('bank_transactions')
+        .upsert(rows, { onConflict: 'plaid_transaction_id' });
+      if (res.error) throw new Error('Could not save transactions: ' + res.error.message);
+    }
     written += rows.length;
   }
 
@@ -160,12 +179,14 @@ async function syncItem(item) {
       available: acct.balances.available === null || acct.balances.available === undefined
         ? null : money(acct.balances.available),
     };
-    await supabase.from('bank_accounts').update({
-      current_balance: balances.current,
-      available_balance: balances.available,
-      balance_as_of: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }),
-      balance_source: 'plaid',
-    }).eq('account_id', item.account_id);
+    if (LIVE) {
+      await supabase.from('bank_accounts').update({
+        current_balance: balances.current,
+        available_balance: balances.available,
+        balance_as_of: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }),
+        balance_source: 'plaid',
+      }).eq('account_id', item.account_id);
+    }
   }
 
   await supabase.from('plaid_items').update({
@@ -178,6 +199,14 @@ async function syncItem(item) {
   return {
     item_id: item.item_id,
     bank: item.institution_name,
+    environment: PLAID_ENV,
+    // Said on every reply, not buried in a log. A test run that reads like
+    // a real one is how invented figures end up believed.
+    live: LIVE,
+    saved: LIVE,
+    note: LIVE ? null : 'TEST CONNECTION (' + PLAID_ENV + '). Plaid sandbox banks are not yours '
+      + 'and these figures are invented. Nothing was saved: your balance, '
+      + 'your transactions and your checks are untouched.',
     added: added.length,
     modified: modified.length,
     removed: removed.length,
@@ -191,6 +220,12 @@ async function syncItem(item) {
 // The number comes from the bank now, so this is an exact match on the
 // number and the amount rather than reading digits out of a description.
 async function clearChecks(storeId) {
+  // Nothing to match against outside production: no sandbox transaction was
+  // saved, so there is nothing here that could clear a real check. Guarded
+  // anyway rather than relying on that, because a check marked cleared is a
+  // check he stops expecting to leave the bank.
+  if (!LIVE) return { cleared: [], differing: [], skipped: 'not a live connection' };
+
   const [outRes, txnRes] = await Promise.all([
     supabase.from('payments')
       .select('payment_id, check_number, amount, payment_date')
