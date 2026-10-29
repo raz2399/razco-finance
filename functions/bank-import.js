@@ -393,24 +393,40 @@ exports.handler = async (event) => {
     }
 
     const batchId = crypto.randomUUID();
+
+    // A fingerprint of date, description and amount is not unique: a store
+    // takes two identical deposits on one day often enough, and collapsing
+    // them loses real money quietly. So the fingerprint also carries which
+    // occurrence this is within the file -- the first $380 deposit of the
+    // day and the second get different fingerprints, while importing the
+    // same file twice still matches row for row.
+    const occurrence = {};
     transactions.forEach((t) => {
-      // The signed amount, not the magnitude. Hashing |amount| meant a row
-      // already stored the wrong way round -- a $16,682 check sitting in the
-      // account as money IN -- looked identical to its own correction, so
-      // re-importing the file could never repair it. The duplicate check
-      // silently protected the error. Direction is part of what makes a
-      // transaction what it is, so it belongs in the fingerprint.
-      t.hash = hashTransaction(t.date, t.description, t.amount.toFixed(2));
+      const key = t.date + '|' + t.description + '|' + t.amount.toFixed(2);
+      occurrence[key] = (occurrence[key] || 0) + 1;
+      t.seq = occurrence[key];
+      t.hash = hashTransaction(t.date, t.description,
+                               t.amount.toFixed(2) + (t.seq > 1 ? '#' + t.seq : ''));
+      // Fingerprints written by older versions of this importer. Changing
+      // the scheme without these orphans every row already stored, and the
+      // next import of the same file loads the whole year a second time --
+      // which is exactly what happened: 2,507 rows became 4,873 and the
+      // balance went to minus forty-two thousand.
+      t.older = [
+        hashTransaction(t.date, t.description, Math.abs(t.amount)),
+        hashTransaction(t.date, t.description, t.amount.toFixed(2)),
+      ];
     });
 
     // --- 1. which have we seen before -------------------------------------
     const seen = new Set();
-    for (let i = 0; i < transactions.length; i += CHUNK) {
-      const hashes = transactions.slice(i, i + CHUNK).map((t) => t.hash);
+    const allHashes = [];
+    transactions.forEach((t) => { allHashes.push(t.hash); t.older.forEach((h) => allHashes.push(h)); });
+    for (let i = 0; i < allHashes.length; i += CHUNK) {
       const found = await supabase
         .from('bank_transactions')
         .select('import_hash')
-        .in('import_hash', hashes);
+        .in('import_hash', allHashes.slice(i, i + CHUNK));
       (found.data || []).forEach((r) => seen.add(r.import_hash));
     }
 
@@ -418,7 +434,8 @@ exports.handler = async (event) => {
     const fresh = [];
     const duplicates = [];
     for (const t of transactions) {
-      if (seen.has(t.hash) || batchSeen.has(t.hash)) {
+      const knownAlready = seen.has(t.hash) || t.older.some((h) => seen.has(h));
+      if (knownAlready || batchSeen.has(t.hash)) {
         duplicates.push({ date: t.date, description: t.description, amount: t.amount });
         continue;
       }

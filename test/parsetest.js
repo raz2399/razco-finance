@@ -140,5 +140,38 @@ if (fs.existsSync(REAL)) {
   console.log('  --   real file not present, skipped');
 }
 
+console.log('\nTwo identical deposits on one day are two deposits');
+// date + description + amount is not unique. A store takes the same
+// amount twice in a day often enough, and the old fingerprint collapsed
+// the pair into one, losing a real deposit without a word. Carrying the
+// occurrence number keeps them apart while a re-import of the same file
+// still matches row for row.
+(function () {
+  const fp = (d, desc, amt, seq) =>
+    crypto.createHash('sha256')
+      .update(d + '|' + desc + '|' + amt + (seq > 1 ? '#' + seq : ''))
+      .digest('hex');
+  const first = fp('2026-03-11', 'DEPOSIT    MERCHANT BNKCD CCD', '380.00', 1);
+  const second = fp('2026-03-11', 'DEPOSIT    MERCHANT BNKCD CCD', '380.00', 2);
+  checkTrue('the second one is not the first', first !== second);
+  checkTrue('and the same file read again gives the same two',
+    fp('2026-03-11', 'DEPOSIT    MERCHANT BNKCD CCD', '380.00', 1) === first &&
+    fp('2026-03-11', 'DEPOSIT    MERCHANT BNKCD CCD', '380.00', 2) === second);
+
+  // The importer must still recognise rows stored under the two older
+  // schemes. Without that, changing the fingerprint reloads the whole
+  // year: 2,507 rows became 4,873 and the balance read minus $42,616.
+  const legacyUnsigned = crypto.createHash('sha256')
+    .update('2026-10-26|CHECK 6742|149.12').digest('hex');
+  const legacySigned = crypto.createHash('sha256')
+    .update('2026-10-26|CHECK 6742|-149.12').digest('hex');
+  checkTrue('the two older fingerprints differ from each other', legacyUnsigned !== legacySigned);
+  const SRC = fs.readFileSync(
+    path.join(__dirname, '..', 'functions', 'bank-import.js'), 'utf8');
+  checkTrue('and the importer looks for both', SRC.indexOf('t.older') > -1);
+  checkTrue('before deciding a row is new',
+    /knownAlready\s*=\s*seen\.has\(t\.hash\)\s*\|\|\s*t\.older\.some/.test(SRC));
+}());
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

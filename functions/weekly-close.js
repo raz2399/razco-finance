@@ -146,12 +146,13 @@ exports.handler = async (event) => {
     const body = event.body ? JSON.parse(event.body) : {};
     const store_id = body.store_id || q.store_id || 'store1';
 
+    // today first: the week it belongs to is worked out from it.
+    const today = pacificToday();
     const startRaw = body.week_start || q.week_start;
     const weekStart = startRaw ? new Date(startRaw + 'T00:00:00Z')
                                : mondayOf(new Date(today + 'T00:00:00Z'));
     const ws = iso(weekStart);
     const we = iso(addDays(weekStart, 6));
-    const today = pacificToday();
 
     const existingRes = await supabase
       .from('weekly_close').select('*')

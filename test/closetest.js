@@ -180,6 +180,23 @@ const POST = (b) => handler({ httpMethod: 'POST',
   checkTrue('a week with no sales says so',
     partial.warnings.some((w) => w.indexOf('No register sales') > -1), JSON.stringify(partial.warnings));
 
+  console.log('\nOpening the screen without naming a week');
+  // Every other call in this suite passes week_start, so nothing ever ran
+  // the branch that works the week out from today. That branch read `today`
+  // five lines before `today` was declared, and the screen said
+  // "Could not load: Cannot access 'today' before initialization".
+  const bare = await handler({
+    httpMethod: 'GET',
+    queryStringParameters: { store_id: 'store1' },
+  });
+  check('it answers at all', bare.statusCode, 200);
+  const bb = JSON.parse(bare.body);
+  checkTrue('and works the week out by itself',
+    /^\d{4}-\d{2}-\d{2}$/.test(bb.week_start || ''), bb.week_start);
+  const span = Math.round(
+    (new Date(bb.week_end + 'T00:00:00Z') - new Date(bb.week_start + 'T00:00:00Z')) / 86400000);
+  check('Monday to Sunday', span, 6);
+
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
