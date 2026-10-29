@@ -369,6 +369,13 @@ exports.handler = async (event) => {
           in_bank: inBank,
           bank_label: acct ? (acct.nickname + (acct.last_four ? ' ••' + acct.last_four : '')) : null,
           balance_as_of: acct ? acct.balance_as_of : null,
+          // How old that bank figure is, in days. The number itself says
+          // nothing about its own age, and a six-week-old balance looks
+          // exactly like this morning's. Everything on this screen is built
+          // on it, so its age belongs next to it.
+          balance_age_days: acct && acct.balance_as_of
+            ? daysBetween(acct.balance_as_of, today)
+            : null,
           checks_outstanding: checksOut,
           checks_outstanding_count: outstanding.length,
           after_checks_clear: afterChecks,

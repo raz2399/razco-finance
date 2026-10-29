@@ -81,6 +81,16 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
           <Text style={st.heroNote}>
             {money(pos.in_bank)} in the bank · {money(pos.checks_outstanding)} in checks not cashed
           </Text>
+          {/* A bank balance does not say how old it is, and a six-week-old
+              one looks exactly like this morning's. Every figure above is
+              built on it. */}
+          {pos.balance_age_days !== null && pos.balance_age_days !== undefined
+            && pos.balance_age_days > 2 ? (
+            <Text style={st.staleBank}>
+              That bank figure is {pos.balance_age_days} days old
+              {pos.balance_as_of ? ' — from ' + pos.balance_as_of : ''}
+            </Text>
+          ) : null}
           {/* Right under the number it corrects. Buried in a settings screen
               it may as well not exist -- and when the drawer disagrees with
               the app, the moment to say so is while the cash is still in
@@ -216,6 +226,11 @@ const st = StyleSheet.create({
   heroLabel: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, color: '#9aa3b2', textTransform: 'uppercase' },
   heroValue: { fontSize: 44, fontWeight: '800', color: C.white, letterSpacing: -2, marginVertical: 6 },
   heroNote: { fontSize: 11.5, color: '#9aa3b2' },
+
+  staleBank: {
+    color: '#f0b429', fontSize: 11.5, fontWeight: '700',
+    marginTop: 7, textAlign: 'center',
+  },
 
   fix: {
     marginTop: 11, borderWidth: 1, borderColor: '#4a5568',

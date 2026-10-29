@@ -2087,8 +2087,19 @@ var APP = {
 
     // ---- KPI cards ----
     this.setKpi('k-left', pos.after_everything, 'After checks clear and vendors are paid');
-    this.setKpi('k-bank', pos.in_bank,
-      pos.bank_label ? (pos.bank_label + (pos.balance_as_of ? ' as of ' + pos.balance_as_of : '')) : 'No account on file');
+    // A bank balance does not say how old it is, and a six-week-old one
+    // looks exactly like this morning's. Every other figure here rests on
+    // it, so when it is stale, say so in words rather than a date nobody
+    // subtracts from today.
+    var bankNote = pos.bank_label
+      ? (pos.bank_label + (pos.balance_as_of ? ' as of ' + pos.balance_as_of : ''))
+      : 'No account on file';
+    if (pos.balance_age_days !== null && pos.balance_age_days !== undefined &&
+        pos.balance_age_days > 2) {
+      bankNote += ' &mdash; <strong style="color:#8a6414">' +
+        pos.balance_age_days + ' days old</strong>';
+    }
+    this.setKpi('k-bank', pos.in_bank, bankNote);
     this.setKpi('k-out', pos.checks_outstanding,
       (pos.checks_outstanding_count || 0) + ' check' + (pos.checks_outstanding_count === 1 ? '' : 's') + ' written, not cashed yet');
     var apNote = (pos.ap_open_count || 0) + ' invoice' + (pos.ap_open_count === 1 ? '' : 's') + ' still open';
