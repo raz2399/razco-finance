@@ -14,9 +14,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, TextInput, RefreshControl, ActivityIndicator,
-  TouchableOpacity, SafeAreaView, StyleSheet,
+  TouchableOpacity, SafeAreaView, StyleSheet, Alert,
 } from 'react-native';
-import { findVendors, getVendorLedger, money } from './api';
+import {
+  findVendors, getVendorLedger, money, todayPacific,
+  settleInvoices, unsettleInvoices, settleWholeVendor, payWholeVendor,
+} from './api';
+import VendorLineSheet from './VendorLineSheet';
 import { C, S } from './theme';
 
 const METHOD_NOTE = {
@@ -78,6 +82,11 @@ export default function VendorsScreen({ onBack }) {
   const [dir, setDir] = useState('desc');
   const [openOnly, setOpenOnly] = useState(false);
 
+  // The add/fix sheet. editing is null when adding.
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [working, setWorking] = useState(false);
+
   // Typing shouldn't fire a request per keystroke. A short pause does.
   useEffect(() => {
     let dead = false;
@@ -117,6 +126,37 @@ export default function VendorsScreen({ onBack }) {
   const openVendor = (id) => { setLedger(null); setVendorId(id); };
   const backToList = () => { setVendorId(null); setLedger(null); setLedgerError(null); };
 
+  // After anything is written, the ledger is re-read rather than patched
+  // in place -- the running balance is worked out on the server in date
+  // order, and guessing at it here is how two screens start disagreeing.
+  async function afterWrite(says) {
+    setSheetOpen(false);
+    setEditing(null);
+    await loadLedger(vendorId, sort, dir, openOnly);
+    if (says) Alert.alert('Done', says);
+  }
+
+  async function act(run, confirm) {
+    if (confirm) {
+      const go = await new Promise((resolve) => {
+        Alert.alert(confirm.title, confirm.body, [
+          { text: 'No', style: 'cancel', onPress: () => resolve(false) },
+          { text: confirm.yes, onPress: () => resolve(true) },
+        ]);
+      });
+      if (!go) return;
+    }
+    setWorking(true);
+    try {
+      const r = await run();
+      await afterWrite(r && r.says);
+    } catch (e) {
+      Alert.alert('That did not work', e.message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
   function pickSort(key) {
     if (key === sort) { setDir(dir === 'asc' ? 'desc' : 'asc'); return; }
     setSort(key);
@@ -146,7 +186,7 @@ export default function VendorsScreen({ onBack }) {
           </View>
         ) : (
           <ScrollView
-            contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
+            contentContainerStyle={{ padding: 12, paddingBottom: 110 }}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -215,17 +255,105 @@ export default function VendorsScreen({ onBack }) {
                   <Text style={S.label}>
                     {ledger.count} line{ledger.count === 1 ? '' : 's'}
                   </Text>
-                  {ledger.entries.map((e) => <Line key={e.kind + e.id} e={e} />)}
+                  {ledger.entries.map((e) => (
+                    <Line
+                      key={e.kind + e.id}
+                      e={e}
+                      busy={working}
+                      onFix={() => { setEditing(e); setSheetOpen(true); }}
+                      onPaid={() => act(
+                        () => (e.paid_outside > 0
+                          ? unsettleInvoices([e.id])
+                          : settleInvoices([e.id])),
+                        e.paid_outside > 0 ? null : {
+                          title: 'Already paid?',
+                          body: 'This clears the balance and writes NO check, '
+                              + 'because the money did not leave through this '
+                              + 'system. Use it for a bill settled in QuickBooks '
+                              + 'or before the switchover.',
+                          yes: 'Yes, clear it',
+                        })}
+                    />
+                  ))}
                   {!ledger.entries.length ? (
                     <Text style={st.none}>
                       {openOnly ? 'Nothing still open for this vendor.' : 'Nothing on this vendor yet.'}
                     </Text>
                   ) : null}
                 </View>
+
+                {/* The two senses of paid, kept apart in the words.        */}
+                {t.owed > 0 ? (
+                  <View style={{ marginTop: 4 }}>
+                    <TouchableOpacity
+                      style={st.wide}
+                      disabled={working}
+                      activeOpacity={0.75}
+                      onPress={() => act(() => settleWholeVendor(vendorId), {
+                        title: 'Clear the whole vendor',
+                        body: 'Marks everything still open as already paid '
+                            + 'somewhere else. It clears ' + money(t.owed, true)
+                            + ' and writes NO check. Each line can be put back '
+                            + 'one at a time.',
+                        yes: 'Clear it all',
+                      })}
+                    >
+                      <Text style={st.wideText}>Already paid — clear {money(t.owed)}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[st.wide, st.wideStrong]}
+                      disabled={working}
+                      activeOpacity={0.75}
+                      onPress={() => Alert.prompt
+                        ? Alert.prompt(
+                            'Pay it all now',
+                            'One check for ' + money(t.owed, true)
+                              + ', put against every open invoice. Check number:',
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: 'Write it',
+                                onPress: (num) => act(() => payWholeVendor(
+                                  vendorId, 'check', num, todayPacific())),
+                              },
+                            ],
+                            'plain-text')
+                        : act(() => payWholeVendor(vendorId, 'check', null, todayPacific()), {
+                            title: 'Pay it all now',
+                            body: 'Writes one check for ' + money(t.owed, true)
+                                + ' against every open invoice.',
+                            yes: 'Write it',
+                          })}
+                    >
+                      <Text style={[st.wideText, st.wideTextStrong]}>
+                        Pay it now — write one check
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
               </>
             ) : null}
           </ScrollView>
         )}
+
+        {v ? (
+          <TouchableOpacity
+            style={st.fab}
+            activeOpacity={0.85}
+            onPress={() => { setEditing(null); setSheetOpen(true); }}
+          >
+            <Text style={st.fabText}>+  Add a line</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        <VendorLineSheet
+          visible={sheetOpen}
+          vendor={v}
+          editing={editing}
+          onClose={() => { setSheetOpen(false); setEditing(null); }}
+          onSaved={afterWrite}
+        />
       </SafeAreaView>
     );
   }
@@ -341,25 +469,76 @@ function VendorRow({ v, onPress }) {
   );
 }
 
-function Line({ e }) {
+function Line({ e, onFix, onPaid, busy }) {
   const isPay = e.kind === 'payment';
+  const dead = !!e.voided;
+  // Settled with no payment here to account for it.
+  const outside = !isPay && !dead && e.paid_outside > 0;
+
   return (
     <View style={st.line}>
       <View style={{ flex: 1, paddingRight: 10 }}>
-        <Text style={[st.lineWhat, e.opening && { color: '#8D6E00' }]} numberOfLines={1}>
+        <Text
+          style={[
+            st.lineWhat,
+            e.opening && { color: '#8D6E00' },
+            dead && st.struck,
+          ]}
+          numberOfLines={1}
+        >
           {e.opening ? 'Opening balance' : e.label}
         </Text>
         <Text style={st.lineMeta}>
           {shortDate(e.date)}
           {e.number ? '  ·  #' + e.number : ''}
-          {e.due_date ? '  ·  due ' + shortDate(e.due_date) : ''}
-          {isPay && !e.settled ? '  ·  not cashed' : ''}
+          {e.due_date && !dead ? '  ·  due ' + shortDate(e.due_date) : ''}
+          {isPay && !e.settled && !dead ? '  ·  not cashed' : ''}
+          {outside ? '  ·  paid elsewhere' : ''}
+          {dead ? '  ·  VOID' : ''}
         </Text>
         <Text style={st.lineEntered}>keyed in {enteredAt(e.entered_at)}</Text>
+
+        {/* A voided line keeps no buttons: there is nothing left to do to
+            it, and it moves no money either way. */}
+        {!dead ? (
+          <View style={st.lineActs}>
+            <TouchableOpacity
+              style={st.act}
+              onPress={onFix}
+              disabled={busy}
+              activeOpacity={0.6}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={st.actText}>Fix</Text>
+            </TouchableOpacity>
+            {!isPay ? (
+              <TouchableOpacity
+                style={st.act}
+                onPress={onPaid}
+                disabled={busy}
+                activeOpacity={0.6}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={[st.actText, !outside && { color: '#168a5a' }]}>
+                  {outside ? 'Not paid' : 'Paid'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
       </View>
+
       <View style={{ alignItems: 'flex-end' }}>
-        <Text style={[st.lineAmount, isPay && { color: '#168a5a' }]}>
-          {isPay ? '− ' + money(e.paid, true) : money(e.charge, true)}
+        <Text
+          style={[
+            st.lineAmount,
+            isPay && { color: '#168a5a' },
+            dead && st.struck,
+          ]}
+        >
+          {dead ? money(e.face_amount, true)
+                : isPay ? '− ' + money(e.paid, true)
+                : money(e.charge, true)}
         </Text>
         <Text style={st.lineBalance}>{money(e.balance_after, true)}</Text>
       </View>
@@ -436,6 +615,32 @@ const st = StyleSheet.create({
   lineEntered: { fontSize: 10.5, color: '#9aa3b2', marginTop: 1 },
   lineAmount: { fontSize: 14.5, fontWeight: '800', color: C.ink },
   lineBalance: { fontSize: 11, color: C.mute, marginTop: 2 },
+
+  struck: { textDecorationLine: 'line-through', color: C.mute },
+
+  lineActs: { flexDirection: 'row', marginTop: 7 },
+  act: {
+    paddingHorizontal: 11, paddingVertical: 5, marginRight: 7,
+    borderRadius: 999, borderWidth: 1, borderColor: C.line, backgroundColor: C.white,
+  },
+  actText: { fontSize: 11.5, fontWeight: '800', color: C.mute },
+
+  wide: {
+    borderWidth: 1, borderColor: C.line, backgroundColor: C.white,
+    borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginBottom: 9,
+  },
+  wideStrong: { borderColor: C.red },
+  wideText: { fontSize: 14, fontWeight: '800', color: C.ink },
+  wideTextStrong: { color: C.red },
+
+  fab: {
+    position: 'absolute', right: 16, bottom: 22,
+    backgroundColor: C.red, borderRadius: 999,
+    paddingHorizontal: 20, paddingVertical: 14,
+    shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 }, elevation: 5,
+  },
+  fabText: { color: C.white, fontSize: 14.5, fontWeight: '800' },
 
   none: { fontSize: 13, color: C.mute, paddingVertical: 8 },
 

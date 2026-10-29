@@ -719,6 +719,24 @@
     .rn-capture-state.check{background:#fdf8ec;color:#8a6414}
     .rn-capture-state.bad{background:#fdf1f1;color:#a32226}
     .rn-thumb{margin-top:10px;max-height:120px;border-radius:8px;border:1px solid var(--rn-line)}
+    /* Buttons. These class names were already in use on the vendor screen
+       with no rules behind them at all, so the button rendered as whatever
+       the browser does by default. */
+    .btn, .btn-ghost {
+      font: inherit; font-size: 13.5px; font-weight: 700;
+      padding: 9px 14px; border-radius: 9px; cursor: pointer;
+      border: 1px solid transparent; line-height: 1.2;
+    }
+    .btn { background: var(--primary); color: #fff; }
+    .btn:hover { background: #a92227; }
+    .btn-ghost { background: #fff; color: var(--text); border-color: var(--border); }
+    .btn-ghost:hover { border-color: var(--secondary); color: var(--secondary); }
+    .btn:disabled, .btn-ghost:disabled { opacity: .5; cursor: default; }
+
+    .lbl {
+      display: block; font-size: 10.5px; font-weight: 800; letter-spacing: .7px;
+      text-transform: uppercase; color: var(--text-light); margin-bottom: 4px;
+    }
   </style>
 <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
 </head>
@@ -1128,6 +1146,127 @@
           </div>
 
           <div id="vl-totals" style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0"></div>
+
+          <!-- The two senses of "paid" are kept apart here on purpose, in the
+               words themselves. Already paid elsewhere clears the balance and
+               writes no check, because no money left through this system and
+               inventing one would show a payment leaving the bank that never
+               left it. Pay it now writes a real check. -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+            <button class="btn-ghost" id="vl-add" style="width:auto">+ Add a line</button>
+            <button class="btn-ghost" id="vl-import" style="width:auto">Import a sheet</button>
+            <button class="btn-ghost" id="vl-settle-all" style="width:auto">Already paid — clear it all</button>
+            <button class="btn-ghost" id="vl-pay-all" style="width:auto">Pay it all now</button>
+          </div>
+
+          <!-- Add a line -->
+          <div id="vl-add-box" style="display:none;border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;background:#fbfcfe">
+            <div style="display:flex;gap:14px;margin-bottom:11px">
+              <label style="font-size:13.5px"><input type="radio" name="vl-kind" value="invoice" checked> A bill from them</label>
+              <label style="font-size:13.5px"><input type="radio" name="vl-kind" value="payment"> A payment to them</label>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+              <div>
+                <label class="lbl">DATE</label>
+                <input id="vl-f-date" type="date" style="font-size:13px;padding:7px">
+              </div>
+              <div>
+                <label class="lbl" id="vl-f-numlbl">INVOICE NUMBER</label>
+                <input id="vl-f-number" type="text" style="font-size:13px;padding:7px;width:130px">
+              </div>
+              <div>
+                <label class="lbl">AMOUNT</label>
+                <input id="vl-f-amount" type="text" inputmode="decimal" placeholder="0.00"
+                       style="font-size:13px;padding:7px;width:110px">
+              </div>
+              <div id="vl-f-duewrap">
+                <label class="lbl">DUE <span style="font-weight:400">(blank = from terms)</span></label>
+                <input id="vl-f-due" type="date" style="font-size:13px;padding:7px">
+              </div>
+              <div id="vl-f-methodwrap" style="display:none">
+                <label class="lbl">HOW</label>
+                <select id="vl-f-method" style="font-size:13px;padding:7px">
+                  <option value="check">Check</option>
+                  <option value="ach">ACH</option>
+                  <option value="auto_debit">Bank draft</option>
+                  <option value="cash">Cash</option>
+                  <option value="card">Card</option>
+                  <option value="wire">Wire</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:160px">
+                <label class="lbl">NOTE</label>
+                <input id="vl-f-note" type="text" style="font-size:13px;padding:7px;width:100%;box-sizing:border-box">
+              </div>
+            </div>
+            <label style="display:block;font-size:13px;margin-top:11px" id="vl-f-paidwrap">
+              <input id="vl-f-paid" type="checkbox"> It is already paid — do not add it to what I owe
+            </label>
+            <div style="display:flex;gap:8px;margin-top:13px">
+              <button class="btn" id="vl-f-save" style="width:auto">Save it</button>
+              <button class="btn-ghost" id="vl-f-cancel" style="width:auto">Cancel</button>
+              <span id="vl-f-msg" style="font-size:12.5px;align-self:center"></span>
+            </div>
+          </div>
+
+          <!-- Import a sheet -->
+          <div id="vl-imp-box" style="display:none;border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;background:#fbfcfe">
+            <div style="font-size:13px;color:var(--text-light);line-height:1.5;margin-bottom:10px">
+              A QuickBooks <strong>Transaction List by Vendor</strong> or
+              <strong>A/P Aging Detail</strong>, or a statement the vendor sent.
+              Save it as CSV, or copy the rows straight out of Excel and paste them below.
+              Nothing is saved until you have seen what it will do.
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+              <input id="vl-imp-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" style="font-size:13px">
+              <label style="font-size:13px;margin-left:auto">
+                <input id="vl-imp-thisvendor" type="checkbox" checked> All of it is this vendor
+              </label>
+            </div>
+            <textarea id="vl-imp-text" rows="6" spellcheck="false"
+                      placeholder="…or paste the rows here, headings included"
+                      style="width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;padding:9px"></textarea>
+            <div style="display:flex;gap:8px;margin-top:11px;flex-wrap:wrap">
+              <button class="btn-ghost" id="vl-imp-check" style="width:auto">Show me what it will do</button>
+              <button class="btn" id="vl-imp-go" style="width:auto;display:none">Import it</button>
+              <button class="btn-ghost" id="vl-imp-cancel" style="width:auto">Cancel</button>
+              <span id="vl-imp-msg" style="font-size:12.5px;align-self:center"></span>
+            </div>
+            <div id="vl-imp-result" style="margin-top:12px"></div>
+          </div>
+
+          <!-- Correcting one line -->
+          <div id="vl-edit-box" style="display:none;border:1px solid #c0282d;border-radius:10px;padding:14px;margin-bottom:14px;background:#fffafa">
+            <div style="font-weight:700;font-size:13.5px;margin-bottom:10px" id="vl-e-what"></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+              <div>
+                <label class="lbl">DATE</label>
+                <input id="vl-e-date" type="date" style="font-size:13px;padding:7px">
+              </div>
+              <div>
+                <label class="lbl">NUMBER</label>
+                <input id="vl-e-number" type="text" style="font-size:13px;padding:7px;width:120px">
+              </div>
+              <div>
+                <label class="lbl">AMOUNT</label>
+                <input id="vl-e-amount" type="text" inputmode="decimal" style="font-size:13px;padding:7px;width:110px">
+              </div>
+              <div id="vl-e-duewrap">
+                <label class="lbl">DUE</label>
+                <input id="vl-e-due" type="date" style="font-size:13px;padding:7px">
+              </div>
+              <div style="flex:1;min-width:150px">
+                <label class="lbl">NOTE</label>
+                <input id="vl-e-note" type="text" style="font-size:13px;padding:7px;width:100%;box-sizing:border-box">
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:13px;flex-wrap:wrap">
+              <button class="btn" id="vl-e-save" style="width:auto">Save the correction</button>
+              <button class="btn-ghost" id="vl-e-void" style="width:auto;color:#c0282d">Void this line</button>
+              <button class="btn-ghost" id="vl-e-cancel" style="width:auto">Cancel</button>
+              <span id="vl-e-msg" style="font-size:12.5px;align-self:center"></span>
+            </div>
+          </div>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
             <label style="font-size:11px;font-weight:700;color:var(--text-light)">FROM</label>
@@ -1615,7 +1754,435 @@ var APP = {
         el.addEventListener('change', refresh);
       }
     });
+    this.wireVendorEntry();
     this.searchVendors(box ? box.value : '');
+  },
+
+  // ---------- putting lines on by hand, and correcting them ----------
+  //
+  // Two different things both get called "paid" and they must not be mixed:
+  //
+  //   Already paid elsewhere -- it was settled before this system, or in
+  //   QuickBooks. The balance clears and NO check is written, because no
+  //   money left through here. Write one and the cash position shows a
+  //   check leaving the bank that never left it, and the cost is counted
+  //   twice: once there and once here.
+  //
+  //   Pay it now -- he is paying it from this system. That writes a real
+  //   check, with a method and a date, and it belongs in the cash position.
+  //
+  // The buttons say which is which in those words, because the difference
+  // is the difference between books that agree with the bank and books
+  // that do not.
+
+  vl_editing: null,
+
+  wireVendorEntry: function() {
+    var self = this;
+    if (this.vl_wired) return;
+    this.vl_wired = true;
+
+    var show = function(id, on) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = on ? 'block' : 'none';
+    };
+    var hideAll = function() {
+      show('vl-add-box', false); show('vl-imp-box', false); show('vl-edit-box', false);
+    };
+    this.vlHideBoxes = hideAll;
+
+    this.bind2('vl-add', function() {
+      var open = document.getElementById('vl-add-box').style.display === 'block';
+      hideAll();
+      if (open) return;
+      document.getElementById('vl-f-msg').innerHTML = '';
+      document.getElementById('vl-f-date').value = self.today();
+      document.getElementById('vl-f-number').value = '';
+      document.getElementById('vl-f-amount').value = '';
+      document.getElementById('vl-f-due').value = '';
+      document.getElementById('vl-f-note').value = '';
+      document.getElementById('vl-f-paid').checked = false;
+      show('vl-add-box', true);
+      document.getElementById('vl-f-amount').focus();
+    });
+
+    // A bill and a payment do not want the same boxes.
+    var kinds = document.getElementsByName('vl-kind');
+    for (var k = 0; k < kinds.length; k++) {
+      kinds[k].onchange = function() {
+        var pay = this.value === 'payment';
+        document.getElementById('vl-f-numlbl').innerHTML = pay ? 'CHECK NUMBER' : 'INVOICE NUMBER';
+        document.getElementById('vl-f-duewrap').style.display = pay ? 'none' : 'block';
+        document.getElementById('vl-f-methodwrap').style.display = pay ? 'block' : 'none';
+        document.getElementById('vl-f-paidwrap').style.display = pay ? 'none' : 'block';
+      };
+    }
+
+    this.bind2('vl-f-cancel', function() { hideAll(); });
+    this.bind2('vl-f-save', function() { self.saveVendorLine(); });
+
+    this.bind2('vl-import', function() {
+      var open = document.getElementById('vl-imp-box').style.display === 'block';
+      hideAll();
+      if (open) return;
+      document.getElementById('vl-imp-msg').innerHTML = '';
+      document.getElementById('vl-imp-result').innerHTML = '';
+      document.getElementById('vl-imp-go').style.display = 'none';
+      show('vl-imp-box', true);
+    });
+    this.bind2('vl-imp-cancel', function() { hideAll(); });
+    this.bind2('vl-imp-check', function() { self.importSheet(true); });
+    this.bind2('vl-imp-go', function() { self.importSheet(false); });
+
+    var file = document.getElementById('vl-imp-file');
+    if (file) {
+      file.onchange = function() {
+        var f = this.files && this.files[0];
+        if (!f) return;
+        var reader = new FileReader();
+        reader.onload = function() {
+          document.getElementById('vl-imp-text').value = String(reader.result || '');
+          document.getElementById('vl-imp-msg').innerHTML =
+            '<span style="color:var(--text-light)">' + self.escHtml(f.name) + ' read. ' +
+            'Nothing is saved yet.</span>';
+        };
+        reader.onerror = function() {
+          document.getElementById('vl-imp-msg').innerHTML =
+            '<span style="color:var(--danger)">Could not read that file.</span>';
+        };
+        reader.readAsText(f);
+      };
+    }
+
+    this.bind2('vl-settle-all', function() { self.clearWholeVendor('settle'); });
+    this.bind2('vl-pay-all', function() { self.clearWholeVendor('pay_now'); });
+
+    this.bind2('vl-e-cancel', function() { hideAll(); });
+    this.bind2('vl-e-save', function() { self.saveVendorEdit(); });
+    this.bind2('vl-e-void', function() { self.voidVendorLine(); });
+  },
+
+  // Lindsay's today, not the browser's idea of UTC.
+  today: function() {
+    var d = new Date();
+    return d.getFullYear() + '-' +
+           ('0' + (d.getMonth() + 1)).slice(-2) + '-' +
+           ('0' + d.getDate()).slice(-2);
+  },
+
+  saveVendorLine: function() {
+    var self = this;
+    var msg = document.getElementById('vl-f-msg');
+    var kinds = document.getElementsByName('vl-kind');
+    var kind = 'invoice';
+    for (var k = 0; k < kinds.length; k++) { if (kinds[k].checked) kind = kinds[k].value; }
+
+    var amount = document.getElementById('vl-f-amount').value;
+    if (!amount || isNaN(Number(String(amount).replace(/[$,\s]/g, '')))) {
+      msg.innerHTML = '<span style="color:var(--danger)">How much is it for?</span>';
+      return;
+    }
+
+    var body;
+    if (kind === 'payment') {
+      body = {
+        action: 'add_payment',
+        vendor_id: this.vl_vendor,
+        payment_date: document.getElementById('vl-f-date').value,
+        amount: amount,
+        method: document.getElementById('vl-f-method').value,
+        check_number: document.getElementById('vl-f-number').value,
+        memo: document.getElementById('vl-f-note').value
+      };
+    } else {
+      body = {
+        action: 'add_invoice',
+        vendor_id: this.vl_vendor,
+        invoice_date: document.getElementById('vl-f-date').value,
+        invoice_number: document.getElementById('vl-f-number').value,
+        total_amount: amount,
+        due_date: document.getElementById('vl-f-due').value,
+        notes: document.getElementById('vl-f-note').value,
+        // Ticked, it goes straight in settled: on the books for the record,
+        // off what he owes, and no check invented to explain it.
+        amount_paid: document.getElementById('vl-f-paid').checked ? amount : ''
+      };
+    }
+
+    msg.innerHTML = '<span style="color:var(--text-light)">Saving…</span>';
+    this.post('/vendor-entry', body, function(status, d) {
+      if (status === 409 && d && d.duplicate_of) {
+        // Nearly always the same bill entered twice. Named, not silently
+        // doubled -- but vendors do reuse numbers, so he can overrule it.
+        if (window.confirm(d.error + '\n\nEnter it again anyway?')) {
+          body.allow_duplicate = true;
+          self.post('/vendor-entry', body, function(s2, d2) {
+            if (s2 !== 200) {
+              msg.innerHTML = '<span style="color:var(--danger)">' +
+                self.escHtml((d2 && d2.error) || 'Could not save that.') + '</span>';
+              return;
+            }
+            self.vlHideBoxes();
+            self.openVendor(self.vl_vendor);
+          });
+        } else {
+          msg.innerHTML = '';
+        }
+        return;
+      }
+      if (status !== 200 || !d || d.error) {
+        msg.innerHTML = '<span style="color:var(--danger)">' +
+          self.escHtml((d && d.error) || 'Could not save that.') + '</span>';
+        return;
+      }
+      self.vlHideBoxes();
+      self.openVendor(self.vl_vendor);
+    });
+  },
+
+  clearWholeVendor: function(how) {
+    var self = this;
+    var paying = how === 'pay_now';
+    var body = { action: how, vendor_id: this.vl_vendor, all_open: true };
+
+    if (paying) {
+      var num = window.prompt(
+        'Pay everything still open on this vendor.\n\n' +
+        'This writes ONE check for the whole balance and puts it against\n' +
+        'each open invoice. Check number:');
+      if (num === null) return;
+      body.method = 'check';
+      body.check_number = num;
+      body.payment_date = this.today();
+    } else {
+      if (!window.confirm(
+        'Mark everything still open on this vendor as already paid.\n\n' +
+        'Use this when it was settled somewhere else — before this system, ' +
+        'or in QuickBooks.\n\n' +
+        'It clears what you owe and writes NO check, because no money left ' +
+        'through here. Each line can be put back one at a time if you ' +
+        'change your mind.')) return;
+    }
+
+    this.post('/vendor-entry', body, function(status, d) {
+      if (status !== 200 || !d || d.error) {
+        window.alert((d && d.error) || 'Could not do that.');
+        return;
+      }
+      if (d.says) window.alert(d.says);
+      self.openVendor(self.vl_vendor);
+    });
+  },
+
+  editVendorLine: function(kind, id) {
+    var e = null;
+    var list = this.vl_entries || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].kind === kind && list[i].id === id) { e = list[i]; break; }
+    }
+    if (!e) return;
+
+    this.vl_editing = { kind: kind, id: id };
+    this.vlHideBoxes();
+
+    document.getElementById('vl-e-what').innerHTML =
+      'Correcting ' + this.escHtml(e.label || (kind === 'payment' ? 'a payment' : 'an invoice'));
+    document.getElementById('vl-e-date').value = e.date || '';
+    document.getElementById('vl-e-number').value = e.number || '';
+    document.getElementById('vl-e-amount').value =
+      (kind === 'payment' ? (e.face_amount != null ? e.face_amount : e.paid)
+                          : (e.face_amount != null ? e.face_amount : e.charge));
+    document.getElementById('vl-e-due').value = e.due_date || '';
+    document.getElementById('vl-e-duewrap').style.display = kind === 'payment' ? 'none' : 'block';
+    document.getElementById('vl-e-note').value = (kind === 'payment' ? (e.memo || '') : (e.note || ''));
+    document.getElementById('vl-e-msg').innerHTML = '';
+    document.getElementById('vl-edit-box').style.display = 'block';
+    document.getElementById('vl-e-amount').focus();
+  },
+
+  saveVendorEdit: function() {
+    var self = this;
+    if (!this.vl_editing) return;
+    var kind = this.vl_editing.kind;
+    var msg = document.getElementById('vl-e-msg');
+
+    var fields = {};
+    if (kind === 'payment') {
+      fields.payment_date = document.getElementById('vl-e-date').value;
+      fields.check_number = document.getElementById('vl-e-number').value;
+      fields.amount = document.getElementById('vl-e-amount').value;
+      fields.memo = document.getElementById('vl-e-note').value;
+    } else {
+      fields.invoice_date = document.getElementById('vl-e-date').value;
+      fields.invoice_number = document.getElementById('vl-e-number').value;
+      fields.total_amount = document.getElementById('vl-e-amount').value;
+      fields.due_date = document.getElementById('vl-e-due').value;
+      fields.notes = document.getElementById('vl-e-note').value;
+    }
+
+    msg.innerHTML = '<span style="color:var(--text-light)">Saving…</span>';
+    this.post('/vendor-entry', {
+      action: 'edit', kind: kind, id: this.vl_editing.id, fields: fields
+    }, function(status, d) {
+      if (status !== 200 || !d || d.error) {
+        msg.innerHTML = '<span style="color:var(--danger)">' +
+          self.escHtml((d && d.error) || 'Could not save that.') + '</span>';
+        return;
+      }
+      self.vlHideBoxes();
+      self.openVendor(self.vl_vendor);
+    });
+  },
+
+  voidVendorLine: function() {
+    var self = this;
+    if (!this.vl_editing) return;
+    var why = window.prompt('Void this line. It stays on the ledger marked void ' +
+                            'and counts nothing.\n\nWhy?', 'Keyed in error');
+    if (why === null) return;
+    this.post('/vendor-entry', {
+      action: 'void', kind: this.vl_editing.kind, id: this.vl_editing.id, note: why
+    }, function(status, d) {
+      if (status !== 200 || !d || d.error) {
+        window.alert((d && d.error) || 'Could not void that.');
+        return;
+      }
+      self.vlHideBoxes();
+      self.openVendor(self.vl_vendor);
+    });
+  },
+
+  settleOne: function(id, already) {
+    var self = this;
+    this.post('/vendor-entry', {
+      action: already ? 'unsettle' : 'settle', invoice_ids: [id]
+    }, function(status, d) {
+      if (status !== 200 || !d || d.error) {
+        window.alert((d && d.error) || 'Could not do that.');
+        return;
+      }
+      self.openVendor(self.vl_vendor);
+    });
+  },
+
+  importSheet: function(preview) {
+    var self = this;
+    var text = document.getElementById('vl-imp-text').value;
+    var msg = document.getElementById('vl-imp-msg');
+    var out = document.getElementById('vl-imp-result');
+
+    if (!text || !text.replace(/\s/g, '')) {
+      msg.innerHTML = '<span style="color:var(--danger)">Choose a file or paste the rows first.</span>';
+      return;
+    }
+
+    var body = { action: 'import', sheet: text, preview: !!preview };
+    if (document.getElementById('vl-imp-thisvendor').checked) body.vendor_id = this.vl_vendor;
+
+    msg.innerHTML = '<span style="color:var(--text-light)">' +
+                    (preview ? 'Reading it…' : 'Importing…') + '</span>';
+
+    this.post('/vendor-entry', body, function(status, d) {
+      if (status !== 200 || !d || d.error) {
+        msg.innerHTML = '';
+        out.innerHTML = '<div style="border:1px solid #f3c9ca;background:#fdf1f1;' +
+          'border-radius:9px;padding:12px;font-size:13px;color:var(--danger)">' +
+          self.escHtml((d && d.error) || 'Could not read that sheet.') + '</div>';
+        document.getElementById('vl-imp-go').style.display = 'none';
+        return;
+      }
+      msg.innerHTML = '';
+
+      if (!preview) {
+        out.innerHTML = '<div style="border:1px solid #bfe3d0;background:#f1faf5;' +
+          'border-radius:9px;padding:12px;font-size:13.5px;font-weight:600">' +
+          self.escHtml(d.says || 'Imported.') + '</div>';
+        document.getElementById('vl-imp-go').style.display = 'none';
+        self.openVendor(self.vl_vendor);
+        return;
+      }
+
+      out.innerHTML = self.importPreviewHtml(d);
+      document.getElementById('vl-imp-go').style.display = d.summary.to_add ? 'inline-block' : 'none';
+    });
+  },
+
+  // What it is about to do, in figures he can check against the sheet in
+  // front of him before anything is written.
+  importPreviewHtml: function(d) {
+    var s = d.summary;
+    var self = this;
+    var h = '';
+
+    h += '<div style="border:1px solid var(--border);border-radius:9px;padding:12px;background:#fff">';
+    h += '<div style="font-size:13.5px;font-weight:700;margin-bottom:8px">' +
+         'Read as a ' + this.escHtml(s.shape) + ' — nothing saved yet</div>';
+
+    var line = function(label, value, tone) {
+      return '<div style="display:flex;justify-content:space-between;gap:12px;' +
+             'padding:4px 0;font-size:13px' + (tone ? ';color:' + tone : '') + '">' +
+             '<span>' + label + '</span><strong>' + value + '</strong></div>';
+    };
+
+    h += line('Bills to add', s.invoices + ' — ' + this.money(s.invoices_total));
+    h += line('Payments to add', s.payments + ' — ' + this.money(s.payments_total));
+    if (s.will_be_marked_paid) {
+      h += line('Of those, already paid on the sheet',
+                s.will_be_marked_paid + ' — ' + this.money(s.will_be_marked_paid_total),
+                '#8D6E00');
+    }
+    if (s.duplicates) {
+      h += line('Already on your books, so skipped', s.duplicates, 'var(--text-light)');
+    }
+    if (s.skipped) {
+      h += line('Total lines and blanks, skipped', s.skipped, 'var(--text-light)');
+    }
+    h += '<div style="border-top:1px solid var(--border);margin-top:7px;padding-top:7px"></div>';
+    h += line('<strong>This adds to what you owe</strong>',
+              this.money(s.adds_to_what_you_owe), 'var(--text)');
+
+    if (s.problems) {
+      // Named, never dropped. An import that quietly skips four lines is
+      // worse than one that refuses, because the total still looks right.
+      h += '<div style="margin-top:11px;border:1px solid #f0d9a8;background:#fdf8ec;' +
+           'border-radius:8px;padding:10px">';
+      h += '<div style="font-size:12.5px;font-weight:800;color:#8D6E00;margin-bottom:5px">' +
+           s.problems + ' row' + (s.problems === 1 ? '' : 's') +
+           ' could not be read, and will NOT be imported</div>';
+      for (var i = 0; i < d.problems.length && i < 12; i++) {
+        h += '<div style="font-size:12px;color:#8D6E00">Row ' + d.problems[i].row + ' — ' +
+             this.escHtml(d.problems[i].why) + '</div>';
+      }
+      if (d.problems.length > 12) {
+        h += '<div style="font-size:12px;color:#8D6E00">…and ' + (d.problems.length - 12) + ' more</div>';
+      }
+      h += '</div>';
+    }
+
+    if (d.plan && d.plan.length) {
+      h += '<div style="margin-top:11px;max-height:230px;overflow:auto;' +
+           'border:1px solid var(--border);border-radius:8px">';
+      h += '<table style="width:100%;border-collapse:collapse;font-size:12.5px">';
+      for (var j = 0; j < d.plan.length && j < 100; j++) {
+        var p = d.plan[j];
+        h += '<tr style="border-bottom:1px solid #f1f3f7' +
+             (p.action === 'skip' ? ';opacity:.5' : '') + '">' +
+             '<td style="padding:5px 8px;white-space:nowrap">' + this.escHtml(p.date) + '</td>' +
+             '<td style="padding:5px 8px">' + this.escHtml(p.vendor_name || '') + '</td>' +
+             '<td style="padding:5px 8px;color:var(--text-light)">' + this.escHtml(p.number || '') + '</td>' +
+             '<td style="padding:5px 8px;text-align:right;font-weight:600' +
+               (p.kind === 'payment' ? ';color:#168a5a' : '') + '">' +
+               (p.kind === 'payment' ? '&minus; ' : '') + this.money(p.amount) + '</td>' +
+             '<td style="padding:5px 8px;font-size:11.5px;color:var(--text-light)">' +
+               (p.action === 'skip' ? 'already on the books'
+                 : p.already_paid ? 'already paid' : '') + '</td>' +
+             '</tr>';
+      }
+      h += '</table></div>';
+    }
+
+    h += '</div>';
+    return h;
   },
 
   searchVendors: function(q) {
@@ -1708,6 +2275,9 @@ var APP = {
         return;
       }
       document.getElementById('vl-ledger-card').style.display = 'block';
+      // Kept so the correction form can find a line by its id without
+      // going back to the server for something already on the screen.
+      self.vl_entries = d.entries || [];
       document.getElementById('vl-name').innerHTML = self.escHtml(d.vendor.name);
       document.getElementById('vl-sub').innerHTML =
         (d.vendor.method_label ? self.escHtml(d.vendor.method_label) : 'Payment type not set') +
@@ -1724,6 +2294,12 @@ var APP = {
       var tiles = tile('Owed now', self.money(t.owed), t.owed > 0 ? '#922B21' : '#1B5E20') +
         tile('Charged', self.money(t.charged)) +
         tile('Paid', self.money(t.paid));
+      // Money that is settled with no payment here to show for it. On its
+      // own tile rather than folded into Paid, because calling it paid
+      // would claim a check this system can never produce.
+      if (t.paid_outside) {
+        tiles += tile('Paid elsewhere', self.money(t.paid_outside), '#6b7280');
+      }
       if (t.checks_not_cashed) {
         tiles += tile('Checks not cashed', self.money(t.checks_not_cashed_total), '#8D6E00');
       }
@@ -1743,13 +2319,14 @@ var APP = {
         // only thing that puts them in order.
         { key: 'entered', label: 'Entered' },
         { key: 'amount', label: 'Amount' },
-        { key: null, label: 'Balance after' }
+        { key: null, label: 'Balance after' },
+        { key: null, label: '' }
       ];
       var hh = '';
       for (var c = 0; c < cols.length; c++) {
         var col = cols[c];
         var arrow = (col.key && col.key === d.sort) ? (d.dir === 'asc' ? ' \u2191' : ' \u2193') : '';
-        hh += '<th style="text-align:' + (c >= 4 ? 'right' : 'left') +
+        hh += '<th style="text-align:' + (c === 4 || c === 5 ? 'right' : 'left') +
               ';padding:0 8px 8px 0;font-size:10.5px;font-weight:800;letter-spacing:.7px;' +
               'text-transform:uppercase;color:var(--text-light)' +
               (col.key ? ';cursor:pointer' : '') + '"' +
@@ -1771,7 +2348,41 @@ var APP = {
                 ? ' <span style="color:#1B5E20;font-size:11px">paid</span>' : '') +
               (e.due_date ? ' <span style="font-size:11px;color:var(--text-light)">due ' +
                 self.escHtml(e.due_date) + '</span>' : '');
-        body += '<tr style="border-top:1px solid #F1F3F5">' +
+
+        // A voided line stays on the screen -- struck through, counting
+        // nothing. Hidden, he enters it again next week.
+        if (e.voided) {
+          what = '<span style="text-decoration:line-through;color:var(--text-light)">' +
+                 (isPay ? self.escHtml(e.label) : 'Invoice') + '</span>' +
+                 ' <span style="font-size:11px;color:var(--danger);font-weight:700">VOID</span>';
+        }
+
+        // Settled with no payment here to account for it.
+        var outside = !isPay && !e.voided && e.paid_outside > 0;
+        if (outside) {
+          what += ' <span style="font-size:11px;color:var(--text-light)">paid elsewhere</span>';
+        }
+
+        var acts = '';
+        if (!e.voided) {
+          acts += '<button class="vl-act" data-act="edit" data-kind="' + e.kind +
+                  '" data-id="' + e.id + '" style="font:inherit;font-size:11.5px;' +
+                  'font-weight:700;padding:3px 8px;border:1px solid var(--border);' +
+                  'background:#fff;border-radius:7px;cursor:pointer;color:var(--text-light)">Fix</button>';
+          if (!isPay) {
+            // The wording is the whole point. This clears the balance and
+            // writes no check, because the money did not leave through here.
+            acts += ' <button class="vl-act" data-act="' + (outside ? 'unsettle' : 'settle') +
+                    '" data-id="' + e.id + '" style="font:inherit;font-size:11.5px;' +
+                    'font-weight:700;padding:3px 8px;border:1px solid var(--border);' +
+                    'background:#fff;border-radius:7px;cursor:pointer;color:' +
+                    (outside ? 'var(--text-light)' : '#168a5a') + '">' +
+                    (outside ? 'Not paid' : 'Paid') + '</button>';
+          }
+        }
+
+        body += '<tr style="border-top:1px solid #F1F3F5' +
+          (e.voided ? ';opacity:.55' : '') + '">' +
           '<td style="padding:9px 8px 9px 0;white-space:nowrap">' + self.escHtml(e.date || '') + '</td>' +
           '<td style="padding:9px 8px 9px 0">' + what + '</td>' +
           '<td style="padding:9px 8px 9px 0;color:var(--text-light)">' +
@@ -1780,9 +2391,14 @@ var APP = {
             self.escHtml(self.vlWhen(e.entered_at)) + '</td>' +
           '<td style="text-align:right;padding:9px 0;font-weight:600' +
             (isPay ? ';color:#1B5E20' : '') + '">' +
-            (isPay ? '&minus; ' + self.money(e.paid) : self.money(e.charge)) + '</td>' +
+            (e.voided ? '<span style="text-decoration:line-through;color:var(--text-light)">' +
+               self.money(e.face_amount) + '</span>'
+             : isPay ? '&minus; ' + self.money(e.paid)
+             : self.money(e.charge)) + '</td>' +
           '<td style="text-align:right;padding:9px 0 9px 8px;color:var(--text-light)">' +
             self.money(e.balance_after) + '</td>' +
+          '<td style="text-align:right;padding:9px 0 9px 10px;white-space:nowrap">' +
+            acts + '</td>' +
           '</tr>';
       }
       document.getElementById('vl-body').innerHTML = body;
@@ -1803,6 +2419,25 @@ var APP = {
             self.vl_dir = (key === 'date') ? 'desc' : 'asc';
           }
           self.openVendor(self.vl_vendor);
+        };
+      }
+
+      var acts2 = document.querySelectorAll('.vl-act');
+      for (var a2 = 0; a2 < acts2.length; a2++) {
+        acts2[a2].onclick = function() {
+          var what = this.getAttribute('data-act');
+          var id = this.getAttribute('data-id');
+          if (what === 'edit') { self.editVendorLine(this.getAttribute('data-kind'), id); return; }
+          if (what === 'settle') {
+            if (!window.confirm(
+              'Mark this one as already paid.\n\n' +
+              'It clears the balance and writes NO check, because the money ' +
+              'did not leave through this system. Use it for a bill settled ' +
+              'in QuickBooks or before the switchover.')) return;
+            self.settleOne(id, false);
+            return;
+          }
+          if (what === 'unsettle') { self.settleOne(id, true); }
         };
       }
     });

@@ -355,6 +355,81 @@ const checkTrue = (n, c, note) => {
     api.indexOf("'/vendor-ledger?vendor_id='") > -1);
 }());
 
+
+// ---- adding, fixing and clearing lines -------------------------------
+//
+// The one thing the whole feature turns on: "already paid" and "pay it
+// now" are different. Already paid clears the balance and writes NO
+// payment, because the money left somewhere else -- recording a check
+// here would put one in the bank reconciliation that never happened and
+// count the cost twice. Pay it now writes a real payment.
+//
+// If a screen ever wires the already-paid button to pay_now, the books
+// quietly stop agreeing with the bank. So it is asserted, on both screens.
+(function () {
+  const srv = fs.readFileSync(path.join(ROOT, 'functions', 'vendor-entry.js'), 'utf8');
+  const desk = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const api = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'api.js'), 'utf8');
+  const vs = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'VendorsScreen.js'), 'utf8');
+  const sheet = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'VendorLineSheet.js'), 'utf8');
+
+  console.log('\nAdding, fixing and clearing');
+
+  ['add_invoice', 'add_payment', 'edit', 'settle', 'unsettle', 'pay_now', 'void', 'import']
+    .forEach((a) => {
+      checkTrue('the server does ' + a, srv.indexOf("case '" + a + "'") > -1);
+    });
+
+  checkTrue('the desktop can add a line', desk.indexOf("action: 'add_invoice'") > -1);
+  checkTrue('and a payment', desk.indexOf("action: 'add_payment'") > -1);
+  checkTrue('and correct one', desk.indexOf("action: 'edit'") > -1);
+  checkTrue('and void one', desk.indexOf("action: 'void'") > -1);
+  checkTrue('and import a sheet', desk.indexOf("action: 'import'") > -1);
+
+  checkTrue('the phone can add a line', /action: 'add_invoice'/.test(api));
+  checkTrue('and correct one', /action: 'edit'/.test(api));
+  checkTrue('and void one', /action: 'void'/.test(api));
+
+  // THE assertion. settle must never be wired to pay_now.
+  checkTrue('the server settles without writing a payment',
+    /async function settle\(/.test(srv) &&
+    srv.indexOf('amount_paid: total') > -1 &&
+    !/function settle\([\s\S]*?from\('payments'\)[\s\S]*?\n}/.test(
+      srv.slice(srv.indexOf('async function settle('),
+                srv.indexOf('async function unsettle('))),
+    'settle() must not insert a payment row');
+
+  checkTrue('paying now DOES write one',
+    /async function payNow\(/.test(srv) && /addPayment\(/.test(
+      srv.slice(srv.indexOf('async function payNow('))));
+
+  checkTrue('the phone names the two separately',
+    /settleWholeVendor/.test(api) && /payWholeVendor/.test(api));
+  checkTrue('settle calls settle, not pay_now',
+    /settleWholeVendor = \(vendorId\) =>\s*\n?\s*entry\(\{ action: 'settle'/.test(api),
+    api.slice(api.indexOf('settleWholeVendor'), api.indexOf('settleWholeVendor') + 160));
+  checkTrue('and pay_now calls pay_now',
+    /payWholeVendor[\s\S]{0,120}action: 'pay_now'/.test(api));
+
+  // Both screens have to SAY that no check is written, or he will assume
+  // one was and go looking for it on the statement.
+  checkTrue('the desktop says no check is written',
+    /writes NO check/i.test(desk), 'the desktop must say it');
+  checkTrue('the phone says it too',
+    /writes NO check/i.test(vs) || /no check is written/i.test(sheet),
+    'the phone must say it');
+
+  console.log('\nImporting a sheet');
+  checkTrue('a preview writes nothing',
+    srv.indexOf('if (body.preview !== false)') > -1);
+  checkTrue('and the desktop asks for one first',
+    desk.indexOf('self.importSheet(true)') > -1);
+  checkTrue('rows it cannot read are shown, not dropped',
+    /could not be read/i.test(desk) && /problems/.test(srv));
+  checkTrue('and it says what the import adds to what he owes',
+    /adds_to_what_you_owe/.test(srv) && /adds_to_what_you_owe/.test(desk));
+}());
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

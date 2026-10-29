@@ -280,6 +280,45 @@ export const getVendorLedger = (vendorId, sort, dir, openOnly) =>
        '&sort=' + (sort || 'date') + '&dir=' + (dir || 'desc') +
        (openOnly ? '&include=open' : ''));
 
+// Putting a line on a vendor by hand, correcting one, and clearing one.
+//
+// "Already paid" and "pay it now" are two different things and the names
+// keep them apart. settle clears the balance and writes NO payment,
+// because the money did not leave through this system -- inventing one
+// would show a check leaving the bank that never left it. pay_now writes
+// a real payment.
+const entry = (body) =>
+  call('/vendor-entry', { method: 'POST', body: JSON.stringify(body) });
+
+export const addVendorInvoice = (fields) =>
+  entry({ action: 'add_invoice', ...fields });
+
+export const addVendorPayment = (fields) =>
+  entry({ action: 'add_payment', ...fields });
+
+export const editVendorLine = (kind, id, fields) =>
+  entry({ action: 'edit', kind, id, fields });
+
+export const voidVendorLine = (kind, id, note) =>
+  entry({ action: 'void', kind, id, note });
+
+// Already paid, elsewhere. No payment row.
+export const settleInvoices = (invoiceIds) =>
+  entry({ action: 'settle', invoice_ids: invoiceIds });
+
+export const unsettleInvoices = (invoiceIds) =>
+  entry({ action: 'unsettle', invoice_ids: invoiceIds });
+
+export const settleWholeVendor = (vendorId) =>
+  entry({ action: 'settle', vendor_id: vendorId, all_open: true });
+
+// Paying it now, from here. This one does write a payment.
+export const payWholeVendor = (vendorId, method, checkNumber, payDate) =>
+  entry({
+    action: 'pay_now', vendor_id: vendorId, all_open: true,
+    method, check_number: checkNumber, payment_date: payDate,
+  });
+
 // A day at the register: by tender, by department, by cashier.
 export const getDay = (date) => call('/day' + (date ? '?date=' + date : ''));
 
@@ -290,6 +329,20 @@ export const readPaper = (kind, base64, mime) =>
     method: 'POST',
     body: JSON.stringify({ store_id: STORE_ID, kind, base64_image: base64, mime_type: mime }),
   });
+
+// Lindsay's today. toISOString() is UTC, and from five in the afternoon
+// Pacific that is already tomorrow -- which is exactly when the back
+// office is being worked.
+export const todayPacific = () => {
+  try {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  } catch (e) {
+    const d = new Date();
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+};
 
 export const money = (n, cents = false) => {
   const v = Number(n) || 0;

@@ -256,7 +256,11 @@ function readVendorSheet(text) {
 
   return {
     ok: true,
-    shape: head.amount_is_open_balance ? 'aging report'
+    // An Open Balance column is what makes a sheet an aging report, whether
+    // or not it also carries the original amount. It is the column that
+    // says what is still owed, and it is the reason the import can tell a
+    // bill that was paid from one that was not.
+    shape: idx.open > -1 ? 'aging report'
          : idx.type > -1 ? 'transaction list'
          : 'statement',
     columns: head.columns.filter((c) => !isNoise(c)),
