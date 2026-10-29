@@ -300,3 +300,18 @@ export const money = (n, cents = false) => {
 };
 
 export const STORE = () => STORE_ID;
+
+// ---- things that need a person --------------------------------------
+//
+// The system has been writing exceptions into a table for months and
+// nothing ever read them back: a check that cleared for the wrong
+// amount, a payment that failed, all of it recorded carefully and shown
+// to nobody. A warning nobody reads is worse than no warning, because it
+// creates the impression that something is watching.
+export const getAttention = () => call('/attention');
+
+export const clearAttention = (exceptionId, note) =>
+  call('/attention', {
+    method: 'POST',
+    body: JSON.stringify({ exception_id: exceptionId, action: 'resolve', note }),
+  });
