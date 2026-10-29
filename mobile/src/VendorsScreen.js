@@ -14,13 +14,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, TextInput, RefreshControl, ActivityIndicator,
-  TouchableOpacity, SafeAreaView, StyleSheet, Alert,
+  TouchableOpacity, SafeAreaView, StyleSheet,
 } from 'react-native';
 import {
   findVendors, getVendorLedger, money, todayPacific,
   settleInvoices, unsettleInvoices, settleWholeVendor, payWholeVendor,
 } from './api';
 import VendorLineSheet from './VendorLineSheet';
+import Confirm from './Confirm';
+import Notice from './Notice';
 import { C, S } from './theme';
 
 const METHOD_NOTE = {
@@ -86,6 +88,9 @@ export default function VendorsScreen({ onBack }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [working, setWorking] = useState(false);
+  // The question on screen, and what to run if he says yes.
+  const [ask, setAsk] = useState(null);
+  const [notice, setNotice] = useState(null);
 
   // Typing shouldn't fire a request per keystroke. A short pause does.
   useEffect(() => {
@@ -133,25 +138,29 @@ export default function VendorsScreen({ onBack }) {
     setSheetOpen(false);
     setEditing(null);
     await loadLedger(vendorId, sort, dir, openOnly);
-    if (says) Alert.alert('Done', says);
+    if (says) setNotice({ bad: false, text: says });
   }
 
-  async function act(run, confirm) {
-    if (confirm) {
-      const go = await new Promise((resolve) => {
-        Alert.alert(confirm.title, confirm.body, [
-          { text: 'No', style: 'cancel', onPress: () => resolve(false) },
-          { text: confirm.yes, onPress: () => resolve(true) },
-        ]);
-      });
-      if (!go) return;
-    }
+  // Ask, then do. The asking is a view this screen renders, not an OS
+  // alert -- see Confirm.js for why that difference cost a working button.
+  //
+  // `run` takes whatever was typed into the confirm box, so the check
+  // number comes through the same path as everything else rather than
+  // through Alert.prompt, which does not exist on Android at all.
+  function act(run, confirm) {
+    if (confirm) { setAsk({ spec: confirm, run: run }); return; }
+    go(run);
+  }
+
+  async function go(run, typed) {
+    setAsk(null);
     setWorking(true);
     try {
-      const r = await run();
+      const r = await run(typed);
       await afterWrite(r && r.says);
     } catch (e) {
-      Alert.alert('That did not work', e.message);
+      // Shown on the screen, not through an alert that may never appear.
+      setNotice({ bad: true, text: e.message });
     } finally {
       setWorking(false);
     }
@@ -305,26 +314,20 @@ export default function VendorsScreen({ onBack }) {
                       style={[st.wide, st.wideStrong]}
                       disabled={working}
                       activeOpacity={0.75}
-                      onPress={() => Alert.prompt
-                        ? Alert.prompt(
-                            'Pay it all now',
-                            'One check for ' + money(t.owed, true)
-                              + ', put against every open invoice. Check number:',
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              {
-                                text: 'Write it',
-                                onPress: (num) => act(() => payWholeVendor(
-                                  vendorId, 'check', num, todayPacific())),
-                              },
-                            ],
-                            'plain-text')
-                        : act(() => payWholeVendor(vendorId, 'check', null, todayPacific()), {
-                            title: 'Pay it all now',
-                            body: 'Writes one check for ' + money(t.owed, true)
-                                + ' against every open invoice.',
-                            yes: 'Write it',
-                          })}
+                      onPress={() => act(
+                        (checkNumber) => payWholeVendor(
+                          vendorId, 'check', checkNumber, todayPacific()),
+                        {
+                          title: 'Pay it all now',
+                          body: 'Writes ONE check for ' + money(t.owed, true)
+                              + ' and puts it against every open invoice. '
+                              + 'This one does leave the bank.',
+                          input: 'Check number',
+                          numeric: true,
+                          required: true,
+                          yes: 'Write it',
+                          danger: true,
+                        })}
                     >
                       <Text style={[st.wideText, st.wideTextStrong]}>
                         Pay it now — write one check
@@ -353,6 +356,16 @@ export default function VendorsScreen({ onBack }) {
           editing={editing}
           onClose={() => { setSheetOpen(false); setEditing(null); }}
           onSaved={afterWrite}
+          onFailed={(text) => setNotice({ bad: true, text })}
+        />
+
+        <Notice notice={notice} onClose={() => setNotice(null)} />
+
+        <Confirm
+          ask={ask && ask.spec}
+          busy={working}
+          onNo={() => setAsk(null)}
+          onYes={(typed) => go(ask.run, typed)}
         />
       </SafeAreaView>
     );

@@ -13,11 +13,12 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ActivityIndicator, Modal,
-  ScrollView, SafeAreaView, StyleSheet, Alert,
+  ScrollView, SafeAreaView, StyleSheet,
 } from 'react-native';
 import {
   addVendorInvoice, addVendorPayment, editVendorLine, voidVendorLine, todayPacific,
 } from './api';
+import Confirm from './Confirm';
 import { C, S } from './theme';
 
 // Plain words for what the database calls things. He should never have to
@@ -54,7 +55,7 @@ const METHODS = [
 
 const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '').trim());
 
-export default function VendorLineSheet({ visible, vendor, editing, onClose, onSaved }) {
+export default function VendorLineSheet({ visible, vendor, editing, onClose, onSaved, onFailed }) {
   const correcting = !!editing;
   const startKind = correcting ? editing.kind : 'invoice';
 
@@ -77,6 +78,9 @@ export default function VendorLineSheet({ visible, vendor, editing, onClose, onS
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [loadedFor, setLoadedFor] = useState(null);
+  // Asked inside the sheet, by the sheet. Alert.alert called from within a
+  // Modal is the case that does not present at all -- see Confirm.js.
+  const [ask, setAsk] = useState(null);
 
   // Fill the boxes when the sheet opens, and only then -- resetting on
   // every render would wipe what he is typing.
@@ -179,29 +183,22 @@ export default function VendorLineSheet({ visible, vendor, editing, onClose, onS
       // server stops it and says which one it clashes with; he decides.
       if (/already on/i.test(e.message || '')) {
         setBusy(false);
-        Alert.alert('Already on the books', e.message, [
-          { text: 'Leave it', style: 'cancel' },
-          {
-            text: 'Enter it anyway',
-            onPress: async () => {
-              setBusy(true);
-              try {
-                const r = await addVendorInvoice({
-                  vendor_id: vendor.vendor_id,
-                  invoice_date: date, invoice_number: number, total_amount: money,
-                  due_date: due, notes: note,
-                  amount_paid: alreadyPaid ? money : '',
-                  allow_duplicate: true,
-                });
-                onSaved(r && r.says);
-              } catch (e2) {
-                setError(e2.message);
-              } finally {
-                setBusy(false);
-              }
-            },
+        setAsk({
+          title: 'Already on the books',
+          body: e.message,
+          no: 'Leave it',
+          yes: 'Enter it anyway',
+          run: async () => {
+            const r = await addVendorInvoice({
+              vendor_id: vendor.vendor_id,
+              invoice_date: date, invoice_number: number, total_amount: money,
+              due_date: due, notes: note,
+              amount_paid: alreadyPaid ? money : '',
+              allow_duplicate: true,
+            });
+            onSaved(r && r.says);
           },
-        ]);
+        });
         return;
       }
       setError(e.message);
@@ -211,29 +208,37 @@ export default function VendorLineSheet({ visible, vendor, editing, onClose, onS
   }
 
   function killIt() {
-    Alert.alert(
-      'Void this line',
-      'It stays on the ledger marked void and counts nothing. Nothing is deleted.',
-      [
-        { text: 'Keep it', style: 'cancel' },
-        {
-          text: 'Void it',
-          style: 'destructive',
-          onPress: async () => {
-            setBusy(true);
-            try {
-              const r = await voidVendorLine(kind, editing.id, 'Voided from the phone');
-              onSaved(r && r.says);
-            } catch (e) {
-              setError(e.message);
-            } finally {
-              setBusy(false);
-            }
-          },
-        },
-      ],
-    );
+    setAsk({
+      title: 'Void this line',
+      body: 'It stays on the ledger marked void and counts nothing. Nothing '
+          + 'is deleted. If a check is voided, whatever it paid goes back to '
+          + 'being owed.',
+      no: 'Keep it',
+      yes: 'Void it',
+      danger: true,
+      run: async () => {
+        const r = await voidVendorLine(kind, editing.id, 'Voided from the phone');
+        onSaved(r && r.says);
+      },
+    });
   }
+
+  // One place where a confirmed action runs, so a failure can never end
+  // in silence: it either saves, or it says why on this sheet.
+  async function runAsked() {
+    const job = ask;
+    setAsk(null);
+    setBusy(true);
+    try {
+      await job.run();
+    } catch (e) {
+      setError(e.message);
+      if (onFailed) onFailed(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -395,6 +400,12 @@ export default function VendorLineSheet({ visible, vendor, editing, onClose, onS
             </TouchableOpacity>
           ) : null}
         </ScrollView>
+        <Confirm
+          ask={ask}
+          busy={busy}
+          onNo={() => setAsk(null)}
+          onYes={runAsked}
+        />
       </SafeAreaView>
     </Modal>
   );

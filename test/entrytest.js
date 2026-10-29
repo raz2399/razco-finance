@@ -164,6 +164,17 @@ function query(table) {
       return api;
     },
 
+    // Deferred for the same reason as update: .delete() is written before
+    // the .eq()/.in() that says which rows.
+    delete() {
+      work = () => {
+        const hit = matching();
+        DB[table] = (DB[table] || []).filter((r) => hit.indexOf(r) === -1);
+        return hit;
+      };
+      return api;
+    },
+
     // Deferred on purpose. supabase-js is written .update(patch).eq(...),
     // so at the moment update() is called the filters that say WHICH rows
     // do not exist yet. Applying it here would quietly rewrite every row
@@ -421,6 +432,48 @@ const inv = (id) => DB.invoices.filter((i) => i.invoice_id === id)[0];
   r = await POST({ action: 'edit', kind: 'invoice', id: fixId, fields: { total_amount: '1' } }, 'store2');
   checkTrue('refused', r.status === 403 || r.status === 404, 'got ' + r.status);
   check('and the figure stands', inv(fixId).total_amount, 1254.80);
+
+  console.log('\nVoiding a check puts the money back');
+  // Found live, not imagined: a $2,242.87 check was voided and $964.37 of
+  // it stayed allocated to the bill. The payment read VOID and the invoice
+  // read PAID at the same time. Void a check on a real invoice and he
+  // stops chasing money he still owes.
+  reset();
+  await POST({ action: 'add_invoice', vendor_id: MJ, invoice_number: 'V1',
+    invoice_date: '2026-10-20', total_amount: '964.37' });
+  const vInv = DB.invoices[0].invoice_id;
+  await POST({ action: 'add_payment', vendor_id: MJ, amount: '2242.87',
+    method: 'check', check_number: '9800', payment_date: '2026-10-28' });
+  const vPay = DB.payments[0].payment_id;
+
+  check('the bill was settled by the check', inv(vInv).balance_due, 0);
+  check('and the allocation is there', DB.payment_allocations.length, 1);
+
+  r = await POST({ action: 'void', kind: 'payment', id: vPay, note: 'Wrong vendor' });
+  check('voided', r.status, 200);
+  check('the check is void', DB.payments[0].status, 'void');
+  check('the bill is owed again', inv(vInv).balance_due, 964.37);
+  check('nothing is paid on it', inv(vInv).amount_paid, 0);
+  check('and it is open again, not paid', inv(vInv).status, 'approved');
+  check('the allocation is gone', DB.payment_allocations.length, 0);
+  check('and the reply says what came back', r.body.put_back, 964.37);
+  checkTrue('in words too', /owed again/i.test(r.body.says), r.body.says);
+
+  console.log('\nVoiding the invoice instead leaves the check alone');
+  // The money really did leave the bank. What changes is that it is no
+  // longer against this bill.
+  reset();
+  await POST({ action: 'add_invoice', vendor_id: MJ, invoice_number: 'V2',
+    invoice_date: '2026-10-20', total_amount: '500' });
+  const vInv2 = DB.invoices[0].invoice_id;
+  await POST({ action: 'add_payment', vendor_id: MJ, amount: '500',
+    method: 'check', check_number: '9801', payment_date: '2026-10-28' });
+
+  r = await POST({ action: 'void', kind: 'invoice', id: vInv2, note: 'Never delivered' });
+  check('the invoice is void', inv(vInv2).status, 'void');
+  check('the check still exists', DB.payments[0].status, 'outstanding');
+  check('for its full amount', DB.payments[0].amount, 500);
+  check('but no longer against that bill', DB.payment_allocations.length, 0);
 
   console.log('\nVoiding a line');
   r = await POST({ action: 'void', kind: 'invoice', id: fixId, note: 'Keyed twice' });

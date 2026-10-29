@@ -627,6 +627,59 @@ async function payNow(store_id, body, who) {
   }, who);
 }
 
+
+// Takes back what a line did, before it is marked void.
+//
+// A voided PAYMENT: whatever it was put against comes back to owing, and
+// the allocations go, because money that never left cannot be sitting on
+// a bill.
+//
+// A voided INVOICE: the money really did leave the bank, so the payment
+// stands -- but it is no longer against this bill, so the allocations go
+// and the payment shows as not applied to anything. That is the honest
+// reading: a check he wrote, against a bill that turned out not to exist.
+async function unwind(store_id, kind, id) {
+  const col = kind === 'payment' ? 'payment_id' : 'invoice_id';
+  const allocRes = await supabase.from('payment_allocations')
+    .select('allocation_id, payment_id, invoice_id, amount').eq(col, id);
+  const allocs = allocRes.data || [];
+  if (!allocs.length) return { restored: 0, invoices: 0 };
+
+  const touched = {};
+  allocs.forEach((a) => {
+    touched[a.invoice_id] = money((touched[a.invoice_id] || 0) + money(a.amount));
+  });
+
+  const ids = Object.keys(touched);
+  const invRes = await supabase.from('invoices')
+    .select('invoice_id, total_amount, amount_paid, status')
+    .eq('store_id', store_id).in('invoice_id', ids);
+
+  let restored = 0;
+  for (const inv of (invRes.data || [])) {
+    const back = touched[inv.invoice_id] || 0;
+    // Never below nothing, however the figures got where they are.
+    const nowPaid = Math.max(0, money(money(inv.amount_paid) - back));
+    const total = money(inv.total_amount);
+    const up = await supabase.from('invoices').update({
+      amount_paid: nowPaid,
+      // Only rewrite the status if this invoice is not itself void.
+      status: inv.status === 'void' ? 'void'
+            : nowPaid >= total && total > 0 ? 'paid'
+            : nowPaid > 0 ? 'partially_paid'
+            : 'approved',
+      updated_at: new Date().toISOString(),
+    }).eq('invoice_id', inv.invoice_id).eq('store_id', store_id);
+    if (up.error) continue;
+    restored = money(restored + money(money(inv.amount_paid) - nowPaid));
+  }
+
+  await supabase.from('payment_allocations')
+    .delete().in('allocation_id', allocs.map((a) => a.allocation_id));
+
+  return { restored: restored, invoices: ids.length };
+}
+
 // ---------------------------------------------------------------------
 // Voiding a line
 
@@ -638,6 +691,15 @@ async function voidLine(store_id, body, who) {
   const idCol = kind === 'invoice' ? 'invoice_id' : 'payment_id';
   const reason = String(body.note || '').trim() || 'Voided by hand';
 
+  // Voiding has to put back what the line did, or the ledger keeps the
+  // effect of something it says never happened.
+  //
+  // Found live: a $2,242.87 check was voided and $964.37 of it stayed
+  // allocated to the bill. The payment read VOID and the invoice read
+  // PAID, at the same time, on the same screen. Void a check on a real
+  // invoice and he would have stopped chasing money he still owed.
+  const undone = await unwind(store_id, kind, body.id);
+
   const patch = kind === 'invoice'
     ? { status: 'void', notes: reason, updated_at: new Date().toISOString() }
     : { status: 'void', void_reason: reason, updated_at: new Date().toISOString() };
@@ -646,12 +708,21 @@ async function voidLine(store_id, body, who) {
     .eq(idCol, body.id).eq('store_id', store_id).select('*').single();
   if (up.error) return json(500, { error: up.error.message });
 
-  await noted(store_id, 'manual_void', kind + ' voided — ' + reason,
+  await noted(store_id, 'manual_void',
+    kind + ' voided — ' + reason +
+    (undone.restored ? '. $' + undone.restored.toFixed(2) + ' put back on ' +
+      undone.invoices + ' invoice(s)' : ''),
     kind, body.id, who);
 
   return json(200, {
     success: true, kind: kind, id: body.id,
-    says: 'Voided. It stays on the ledger marked void and counts nothing.',
+    put_back: undone.restored,
+    invoices_reopened: undone.invoices,
+    says: 'Voided. It stays on the ledger marked void and counts nothing.' +
+      (undone.restored
+        ? ' $' + undone.restored.toFixed(2) + ' is owed again on ' +
+          undone.invoices + ' invoice' + (undone.invoices > 1 ? 's' : '') + '.'
+        : ''),
   });
 }
 
