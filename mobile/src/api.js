@@ -11,82 +11,23 @@ const BASE =
 
 let STORE_ID = 'store1';
 
-// The session is kept on the device, in the keychain.
+// The session lives in memory on this line.
 //
-// It used to live in memory only, which meant every restart of the app put
-// him back at the sign-in screen -- and a restart is not a rare thing: iOS
-// kills a backgrounded app whenever it likes, and applying an update is a
-// restart too. That turned every new version into a password prompt, which
-// is why updates could not simply apply themselves.
-//
-// Required rather than imported, and null-checked at every use. The module
-// is native, so a JavaScript bundle carrying this code must never run on a
-// build that does not have it: an import would throw at startup and the
-// app would not open at all. The app version was bumped for this build so
-// the runtime versions differ and the old binary is never served this
-// bundle -- but a missing module here degrades to an in-memory session
-// rather than a phone that will not start.
-let SecureStore = null;
-try {
-  // eslint-disable-next-line global-require
-  SecureStore = require('expo-secure-store');
-} catch (e) {
-  SecureStore = null;
-}
-
-const SESSION_KEY = 'razinova_session';
-
+// Keeping it on the device needs expo-secure-store, which is native, so
+// it ships in 1.1.0 and not here. This build stays exactly as it was --
+// he signs in again after the app has been fully closed -- so that
+// everything else can reach the phone he is holding tonight rather than
+// waiting behind a TestFlight install.
 let session = { access: null, refresh: null, user: null, expires_at: null };
 
 export const getSession = () => session;
 export const isSignedIn = () => !!session.access;
 
-function remember() {
-  if (!SecureStore || !SecureStore.setItemAsync) return;
-  // Not awaited. Nothing the person does should wait on a disk write, and
-  // a failed write costs them a sign-in, not their data.
-  SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session)).catch(() => {});
-}
+function remember() {}
+function forget() {}
 
-function forget() {
-  if (!SecureStore || !SecureStore.deleteItemAsync) return;
-  SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {});
-}
-
-/**
- * Brings back the session from the last time, if there is one.
- *
- * The access token will nearly always be stale by now -- it only lasts an
- * hour and the phone has been in a pocket -- so this renews it on the spot
- * rather than letting the first screen fail and sort itself out.
- *
- * Returns true if he is signed in.
- */
-export async function restoreSession() {
-  if (!SecureStore || !SecureStore.getItemAsync) return false;
-  try {
-    const raw = await SecureStore.getItemAsync(SESSION_KEY);
-    if (!raw) return false;
-    const saved = JSON.parse(raw);
-    if (!saved || !saved.refresh) return false;
-
-    session = {
-      access: saved.access || null,
-      refresh: saved.refresh,
-      user: saved.user || null,
-      expires_at: saved.expires_at || null,
-    };
-    if (saved.user && saved.user.stores && saved.user.stores.length) {
-      STORE_ID = saved.user.stores[0];
-    }
-
-    await freshEnough(true);
-    return !!session.access;
-  } catch (e) {
-    // A keychain that will not open is not a reason to fail to start.
-    return false;
-  }
-}
+// Nothing to come back to, so the app goes straight to the sign-in screen.
+export async function restoreSession() { return false; }
 
 function setSession(d) {
   session = {

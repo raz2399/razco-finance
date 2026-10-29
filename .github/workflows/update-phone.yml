@@ -19,7 +19,12 @@ name: Send the phone app its update
 
 on:
   push:
-    branches: [main]
+    # phone-1-0-0 carries the same work built for the runtime his
+    # installed app actually runs. The channel is the same; EAS serves each
+    # binary the bundle matching its own runtimeVersion, so a 1.0.0 phone
+    # gets the 1.0.0 bundle and a 1.1.0 phone gets the 1.1.0 one, off the
+    # same channel, with no chance of the wrong one landing.
+    branches: [main, phone-1-0-0]
     # Only when the phone app actually changed. A backend fix has no business
     # pushing a pointless update to a phone in a cold stockroom.
     paths:
