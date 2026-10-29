@@ -1416,6 +1416,14 @@
           <p class="rn-screensub">Tie the bank to the books, and fill in what only you can know.</p>
         </div>
 
+        <!-- Raised by the system over time and, until now, read by nobody.
+             Sits above everything else here because it is the only part of
+             this screen that is already waiting for him. -->
+        <div class="card" id="rec-attn-card" style="display:none">
+          <h3>Needs you</h3>
+          <div id="rec-attn" class="rn-rows"></div>
+        </div>
+
         <div class="card">
           <h3>Match the bank to the books</h3>
           <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
@@ -1808,6 +1816,7 @@ var APP = {
     if (tabName === 'reconcile') {
       var rec = this;
       this.bind2('rec-preview', function() { rec.recRun(false); });
+      this.loadAttention();
       this.loadRecCategories();
       this.load1099();
     }
@@ -2213,6 +2222,64 @@ var APP = {
         });
       })(sels[s]);
     }
+  },
+
+  loadAttention: function() {
+    var self = this;
+    this.get('/attention', function(status, d) {
+      var card = document.getElementById('rec-attn-card');
+      var box = document.getElementById('rec-attn');
+      if (!card || !box) return;
+      var items = (d && d.items) || [];
+      if (status !== 200 || !items.length) { card.style.display = 'none'; return; }
+      card.style.display = 'block';
+
+      var h = '';
+      for (var i = 0; i < items.length && i < 60; i++) {
+        var it = items[i];
+        var bad = it.severity === 'critical';
+        h += '<div style="padding:11px 0;border-bottom:1px solid var(--border);' +
+             'display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">' +
+             '<div style="flex:1;min-width:200px">' +
+             '<div style="font-size:13px;font-weight:700;color:' +
+             (bad ? '#a12025' : 'var(--text)') + '">' +
+             self.escHtml(it.headline || it.code) + '</div>' +
+             '<div style="font-size:12.5px;line-height:1.5;margin-top:2px">' +
+             self.escHtml(it.message) + '</div>' +
+             (it.suggested_action ? '<div style="font-size:11.5px;color:var(--text-light);' +
+                'margin-top:3px;line-height:1.45">' + self.escHtml(it.suggested_action) +
+                '</div>' : '') +
+             '</div>' +
+             '<button class="btn" data-attn="' + self.escHtml(it.exception_id) + '">' +
+             'Dealt with</button></div>';
+      }
+      box.innerHTML = h;
+
+      var btns = box.querySelectorAll('[data-attn]');
+      for (var b = 0; b < btns.length; b++) {
+        (function(btn) {
+          btn.addEventListener('click', function() {
+            btn.disabled = true;
+            self.post('/attention', {
+              store_id: self.store_id,
+              exception_id: btn.getAttribute('data-attn'),
+              action: 'resolve'
+            }, function(st, r) {
+              btn.disabled = false;
+              if (st !== 200 || !r || r.error) {
+                self.recMsg('bad', (r && r.error) ? self.escHtml(r.error) : 'Could not save.');
+                return;
+              }
+              var row = btn.parentNode;
+              if (row && row.parentNode) row.parentNode.removeChild(row);
+              if (!box.querySelectorAll('[data-attn]').length) {
+                document.getElementById('rec-attn-card').style.display = 'none';
+              }
+            });
+          });
+        })(btns[b]);
+      }
+    });
   },
 
   load1099: function() {

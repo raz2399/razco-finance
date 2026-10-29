@@ -7,7 +7,7 @@ import {
   View, Text, ScrollView, RefreshControl, TouchableOpacity,
   ActivityIndicator, StyleSheet, SafeAreaView,
 } from 'react-native';
-import { getOverview, money } from './api';
+import { getOverview, getAttention, money } from './api';
 import { C, S } from './theme';
 
 export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks, onFixNumbers, onLogCheck }) {
@@ -15,6 +15,7 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [attention, setAttention] = useState(null);
 
   const load = useCallback(async (isRefresh) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
@@ -30,6 +31,18 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
   }, []);
 
   React.useEffect(() => { load(); }, [load]);
+
+  // Fetched separately and allowed to fail quietly. If the attention
+  // list is down that is a reason to show no banner, never a reason to
+  // stop the bank balance appearing -- the headline figure must not
+  // depend on a secondary call.
+  React.useEffect(() => {
+    let alive = true;
+    getAttention()
+      .then((r) => { if (alive) setAttention(r); })
+      .catch(() => { if (alive) setAttention(null); });
+    return () => { alive = false; };
+  }, [refreshing]);
 
   if (loading) {
     return (
@@ -67,6 +80,29 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
           <View style={st.errorBox}>
             <Text style={st.errorText}>{error}</Text>
             <Text style={st.errorHint}>Pull down to try again.</Text>
+          </View>
+        ) : null}
+
+        {attention && attention.groups && attention.groups.length ? (
+          <View style={st.attnBox}>
+            <Text style={st.attnTitle}>
+              {attention.open} thing{attention.open === 1 ? '' : 's'} need you
+            </Text>
+            {attention.groups.slice(0, 4).map((g) => (
+              <View key={g.code} style={st.attnRow}>
+                <View
+                  style={[
+                    st.attnDot,
+                    { backgroundColor: g.severity === 'critical' ? C.red : '#c88a16' },
+                  ]}
+                />
+                <Text style={st.attnLine}>
+                  {g.headline}
+                  {g.count > 1 ? '  \u00d7' + g.count : ''}
+                </Text>
+              </View>
+            ))}
+            <Text style={st.attnFoot}>Open Reconcile on the desktop to deal with these.</Text>
           </View>
         ) : null}
 
@@ -284,6 +320,20 @@ const st = StyleSheet.create({
 
   warnBox: { backgroundColor: '#fdf8ec', borderWidth: 1, borderColor: '#f0dcae', borderRadius: 10, padding: 11, marginBottom: 11 },
   warnText: { fontSize: 12, color: '#8a6414', fontWeight: '600', lineHeight: 17 },
+
+  // Deliberately plainer than the error box. These are real and they
+  // need him, but they are not the app failing, and a screen where
+  // everything shouts is a screen where nothing is heard.
+  attnBox: {
+    backgroundColor: C.white, borderWidth: 1, borderColor: '#e8d5b0',
+    borderLeftWidth: 4, borderLeftColor: '#c88a16',
+    borderRadius: 10, padding: 12, marginBottom: 11,
+  },
+  attnTitle: { fontSize: 13.5, fontWeight: '800', color: C.ink, marginBottom: 8 },
+  attnRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  attnDot: { width: 7, height: 7, borderRadius: 4, marginRight: 9 },
+  attnLine: { flex: 1, fontSize: 12.5, color: C.ink, lineHeight: 17 },
+  attnFoot: { fontSize: 11, color: C.mute, marginTop: 4, lineHeight: 15 },
   // Not green. Green says all is well, and all being well is exactly
   // what a failed call cannot tell him.
   unknown: { fontSize: 13.5, color: C.mute, fontStyle: 'italic' },

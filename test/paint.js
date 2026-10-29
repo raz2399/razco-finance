@@ -312,6 +312,7 @@ function checkTrue(name, cond, note) {
   checkTrue('a place for vendors with no category', !!$('rec-cats'));
   checkTrue('a place for vendors with no terms', !!$('rec-terms'));
   checkTrue('a place for the 1099s', !!$('rec-1099'));
+  checkTrue('and somewhere for things already waiting on him', !!$('rec-attn'));
 
   // The preview button must not write. This is the one that touches 2,660
   // rows of real books, so the default has to be "show me".
