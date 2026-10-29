@@ -46,7 +46,14 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
   const vendors = (data && data.vendors) || [];
   const checks = (data && data.checks) || [];
   const fresh = (data && data.freshness) || {};
-  const negative = Number(pos.after_everything) < 0;
+  const negative = !!data && Number(pos.after_everything) < 0;
+
+  // When the call failed there is no figure, and money(undefined) is "$0".
+  // That is how a broken server came to look like an empty bank account:
+  // a red line at the top saying the server returned 502, and underneath
+  // it, in the biggest type on the screen, $0 in the bank. A number nobody
+  // sent must read as no number.
+  const fig = (v, cents) => (data && v != null ? money(v, cents) : '—');
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
@@ -76,10 +83,10 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
         <View style={st.hero}>
           <Text style={st.heroLabel}>Left after everything clears</Text>
           <Text style={[st.heroValue, negative && { color: '#ff6b70' }]}>
-            {money(pos.after_everything)}
+            {fig(pos.after_everything)}
           </Text>
           <Text style={st.heroNote}>
-            {money(pos.in_bank)} in the bank · {money(pos.checks_outstanding)} in checks not cashed
+            {fig(pos.in_bank)} in the bank · {fig(pos.checks_outstanding)} in checks not cashed
           </Text>
           {/* A bank balance does not say how old it is, and a six-week-old
               one looks exactly like this morning's. Every figure above is
@@ -107,11 +114,11 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
         <View style={st.pair}>
           <View style={[S.card, st.half]}>
             <Text style={S.label}>Income this week</Text>
-            <Text style={[st.pairValue, { color: C.green }]}>{money(tot.income)}</Text>
+            <Text style={[st.pairValue, { color: C.green }]}>{fig(tot.income)}</Text>
           </View>
           <View style={[S.card, st.half, { marginLeft: 10 }]}>
             <Text style={S.label}>Expense this week</Text>
-            <Text style={[st.pairValue, { color: C.red }]}>{money(tot.expense)}</Text>
+            <Text style={[st.pairValue, { color: C.red }]}>{fig(tot.expense)}</Text>
           </View>
         </View>
 
@@ -128,7 +135,9 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
         <View style={S.card}>
           <Text style={S.label}>Needs you</Text>
           {alerts.length === 0 ? (
-            <Text style={st.ok}>Nothing needs you right now.</Text>
+            <Text style={data ? st.ok : st.unknown}>
+              {data ? 'Nothing needs you right now.' : 'Could not load this.'}
+            </Text>
           ) : (
             alerts.map((a, i) => (
               <View
@@ -150,10 +159,12 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
         <View style={S.card}>
           <View style={st.rowHead}>
             <Text style={S.label}>I owe vendors</Text>
-            <Text style={st.rowHeadAmt}>{money(pos.ap_open)}</Text>
+            <Text style={st.rowHeadAmt}>{fig(pos.ap_open)}</Text>
           </View>
           {vendors.length === 0 ? (
-            <Text style={st.ok}>You do not owe any vendor right now.</Text>
+            <Text style={data ? st.ok : st.unknown}>
+              {data ? 'You do not owe any vendor right now.' : 'Could not load this.'}
+            </Text>
           ) : (
             vendors.map((v, i) => {
               const overdue = v.next_due && v.next_due < data.today && !v.automatic;
@@ -183,10 +194,12 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
         <TouchableOpacity style={S.card} onPress={onOpenChecks} activeOpacity={0.7}>
           <View style={st.rowHead}>
             <Text style={S.label}>Checks still out</Text>
-            <Text style={st.rowHeadAmt}>{money(pos.checks_outstanding)}</Text>
+            <Text style={st.rowHeadAmt}>{fig(pos.checks_outstanding)}</Text>
           </View>
           {checks.length === 0 ? (
-            <Text style={st.ok}>Every check you wrote has cleared.</Text>
+            <Text style={data ? st.ok : st.unknown}>
+              {data ? 'Every check you wrote has cleared.' : 'Could not load this.'}
+            </Text>
           ) : (
             checks.slice(0, 5).map((c, i) => (
               <View key={i} style={st.row}>
@@ -267,6 +280,9 @@ const st = StyleSheet.create({
 
   warnBox: { backgroundColor: '#fdf8ec', borderWidth: 1, borderColor: '#f0dcae', borderRadius: 10, padding: 11, marginBottom: 11 },
   warnText: { fontSize: 12, color: '#8a6414', fontWeight: '600', lineHeight: 17 },
+  // Not green. Green says all is well, and all being well is exactly
+  // what a failed call cannot tell him.
+  unknown: { fontSize: 13.5, color: C.mute, fontStyle: 'italic' },
   errorBox: { backgroundColor: '#fdf1f1', borderWidth: 1, borderColor: '#f3c9ca', borderRadius: 10, padding: 11, marginBottom: 11 },
   errorText: { fontSize: 13, color: C.red, fontWeight: '700' },
   errorHint: { fontSize: 11.5, color: C.mute, marginTop: 3 },

@@ -42,10 +42,27 @@ async function whoIs(token) {
 
 // Returns { ok: true, user } or { ok: false, status, error }.
 //
-// `user` carries the stores this person may see. A caller must never read
-// the store_id from the request and trust it: that is how one account ends
-// up reading another store's books by changing a query string.
+// It never throws. Every endpoint calls this as its first line, before its
+// own try block, so anything thrown in here comes out of the function as a
+// bare 502 with no message -- which is what Raz saw on his phone: "The
+// server returned 502", every number on the screen reading zero, and
+// nothing anywhere saying why. A failure to check who somebody is has to
+// come back as an answer, not as a crash.
 async function requireUser(event, supabase, options) {
+  try {
+    return await checkUser(event, supabase, options);
+  } catch (err) {
+    console.error('AUTH GUARD CRASHED:', err && err.stack ? err.stack : err);
+    return {
+      ok: false,
+      status: 503,
+      error: 'Could not check who you are: ' + ((err && err.message) || 'unknown') +
+             '. Try again in a moment.',
+    };
+  }
+}
+
+async function checkUser(event, supabase, options) {
   const opts = options || {};
 
   if (event.httpMethod === 'OPTIONS') return { ok: true, preflight: true, user: null };
@@ -120,4 +137,37 @@ function storeFor(user, asked) {
   return user.stores.indexOf(asked) > -1 ? asked : null;
 }
 
-module.exports = { requireUser, storeFor, bearer };
+// Wraps a handler so that nothing it does can come back as a bare 502.
+//
+// Netlify answers a crashed function with 502 and a page of plain text. The
+// phone cannot read that, so it says "The server returned 502. Pull down to
+// try again", and every figure on the screen falls back to zero. A man
+// looking at that cannot tell a broken server from an empty bank account.
+//
+// Anything that escapes a handler now comes back as 500 with the actual
+// message, which the app shows and the logs keep.
+function safely(name, fn) {
+  return async (event, context) => {
+    try {
+      return await fn(event, context);
+    } catch (err) {
+      console.error('FUNCTION CRASHED [' + name + ']:',
+        err && err.stack ? err.stack : err);
+      return {
+        statusCode: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        },
+        body: JSON.stringify({
+          error: (err && err.message) || 'Something went wrong in ' + name + '.',
+          where: name,
+        }),
+      };
+    }
+  };
+}
+
+module.exports = { requireUser, storeFor, bearer, safely };

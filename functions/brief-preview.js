@@ -1,4 +1,4 @@
-const { requireUser } = require('./lib/guard');
+const { requireUser, safely } = require('./lib/guard');
 // Netlify Function: brief-preview
 // The morning brief, on demand.
 //
@@ -12,7 +12,7 @@ const { requireUser } = require('./lib/guard');
 
 const { build } = require('./daily-brief');
 
-exports.handler = async (event) => {
+exports.handler = safely('brief-preview', async (event) => {
   // Nobody sees any of this without signing in. Before this, the URL was
   // the only thing between a stranger and the bank position, and a URL is
   // not a secret: it is in browser history, in a chat message, on a screen
@@ -43,4 +43,4 @@ exports.handler = async (event) => {
       body: JSON.stringify({ error: err.message, where: 'brief-preview' }),
     };
   }
-};
+});

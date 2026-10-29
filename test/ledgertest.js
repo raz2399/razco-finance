@@ -45,6 +45,36 @@ const DB = {
   payment_allocations: [{ payment_id: 'p1', invoice_id: 'i2', amount: 1000 }],
 };
 
+// A second vendor for the awkward cases: a bill settled before this system
+// existed, a bill voided after being entered, and a check that was stopped.
+DB.vendors.push({
+  vendor_id: 'v4', store_id: 'store1', name: 'Pan Dulce Bakery', payment_type: 'check',
+  terms_code: 'net15', terms_days: 15, account_number: null, contact_phone: null, active: true,
+});
+DB.invoices.push(
+  // Paid outside the system: amount_paid moved, no payment row behind it.
+  { invoice_id: 'o1', store_id: 'store1', vendor_id: 'v4', invoice_number: '500',
+    invoice_date: '2026-10-01', received_date: '2026-10-01', due_date: '2026-10-16',
+    total_amount: 800, amount_paid: 800, balance_due: 0, status: 'paid',
+    payment_type: 'check', notes: 'Already paid before this system', created_at: '2026-10-01T10:00:00Z' },
+  // Half of it settled outside, half still owed.
+  { invoice_id: 'o2', store_id: 'store1', vendor_id: 'v4', invoice_number: '501',
+    invoice_date: '2026-10-08', received_date: '2026-10-08', due_date: '2026-10-23',
+    total_amount: 600, amount_paid: 250, balance_due: 350, status: 'partially_paid',
+    payment_type: 'check', notes: null, created_at: '2026-10-08T10:00:00Z' },
+  // Entered then killed. It must show, and it must count nothing.
+  { invoice_id: 'o3', store_id: 'store1', vendor_id: 'v4', invoice_number: '502',
+    invoice_date: '2026-10-10', received_date: '2026-10-10', due_date: null,
+    total_amount: 9999, amount_paid: 0, balance_due: 9999, status: 'void',
+    payment_type: 'check', notes: 'Keyed twice', created_at: '2026-10-10T10:00:00Z' },
+);
+DB.payments.push(
+  // Stopped. The money never left.
+  { payment_id: 'o4', store_id: 'store1', vendor_id: 'v4', method: 'check',
+    payment_date: '2026-10-12', amount: 4444, check_number: 9700, memo: null,
+    status: 'stopped', cleared_date: null, created_at: '2026-10-12T10:00:00Z' },
+);
+
 function query(table) {
   let rows = (DB[table] || []).slice();
   const api = {
@@ -97,9 +127,9 @@ const GET = (params) => handler({
   check('offered under its real name', b.vendors[0].name, 'M & J Seafood Co., Inc.');
 
   b = JSON.parse((await GET({})).body);
-  check('no search, all of them', b.count, 3);
+  check('no search, all of them', b.count, 4);
   checkTrue('the ones he owes come first', b.vendors[0].owed > 0);
-  check('and the total is the total', b.total_owed, 21008.53);
+  check('and the total is the total', b.total_owed, 21358.53);
 
   console.log('\nA vendor with nothing against him');
   const tadin = JSON.parse((await GET({ q: 'tadin' })).body).vendors[0];
@@ -171,6 +201,38 @@ const GET = (params) => handler({
   check('kept separate in the totals', b.totals.from_quickbooks, 20508.53);
   checkTrue('so it is never mistaken for a bill anyone has seen',
     b.totals.from_quickbooks < b.totals.owed);
+
+  console.log('\nPaid outside this system');
+  // The bug this covers: owed was worked out as charges minus the payments
+  // recorded here. An invoice settled before this system has no payment
+  // here, so it read as owed in full -- for ever, however many times it was
+  // marked paid. 800 + 600 - 800 - 250 = 350, and not a penny of the 9,999
+  // voided invoice or the 4,444 stopped check.
+  const pd = JSON.parse((await GET({ vendor_id: 'v4' })).body);
+  check('owed is what is actually left', pd.totals.owed, 350);
+  check('charged counts neither the void nor the stop', pd.totals.charged, 1400);
+  check('no payment here claims to have paid it', pd.totals.paid, 0);
+  check('it is called what it is', pd.totals.paid_outside, 1050);
+  checkTrue('and the three sides still add up',
+    Math.round((pd.totals.charged - pd.totals.paid - pd.totals.paid_outside) * 100) / 100
+      === pd.totals.owed);
+
+  console.log('\nA line that was killed still shows, and counts nothing');
+  const void_ = pd.entries.filter((e) => e.number === '502')[0];
+  checkTrue('the voided invoice is still on the screen', !!void_);
+  check('marked as void', void_.voided, true);
+  check('moving no money', void_.charge, 0);
+  check('but it still says what it was for', void_.face_amount, 9999);
+  const stopped = pd.entries.filter((e) => e.number === '9700')[0];
+  check('the stopped check is marked too', stopped.voided, true);
+  check('and took nothing out', stopped.paid, 0);
+  check('not counted as a check still out', pd.totals.checks_not_cashed, 0);
+  check('two dead lines, and he can see there are two', pd.totals.voided_lines, 2);
+
+  console.log('\nAnd the vendor list agrees with the ledger');
+  const pdRow = JSON.parse((await GET({ q: 'pan dulce' })).body).vendors[0];
+  check('same figure in the search as in the ledger', pdRow.owed, pd.totals.owed);
+  check('one invoice still open, not three', pdRow.open_count, 1);
 
   console.log('\nA vendor that is not his');
   const nope = await handler({

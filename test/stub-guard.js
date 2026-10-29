@@ -36,6 +36,21 @@ require.cache[STUB_ID] = {
       return user.stores.indexOf(asked) > -1 ? asked : null;
     },
     bearer: () => 'test-token',
+
+    // The real one turns a crash into a 500 carrying the message. The stub
+    // does the same, so a suite that provokes a crash sees what Raz would
+    // see rather than an exception thrown out of the test runner.
+    safely: (name, fn) => async (event, context) => {
+      try {
+        return await fn(event, context);
+      } catch (err) {
+        return {
+          statusCode: 500,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: (err && err.message) || 'crashed', where: name }),
+        };
+      }
+    },
   },
 };
 

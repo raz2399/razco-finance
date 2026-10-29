@@ -132,10 +132,18 @@ function checkTrue(name, cond, note) {
   checkTrue('check number is shown',
     /#(510\d|9897)/.test(chk[0].textContent), chk[0].textContent);
   // Written today should read "today", not "1 days ago".
+  //
+  // The boundary matters: a plain indexOf('1 days ago') also matches the
+  // "1 days ago" inside "11 days ago", so this failed every time a check
+  // happened to be 11, 21 or 31 days old -- a test that cried wolf on the
+  // calendar rather than on the code.
   checkTrue('no check reads "1 days ago"',
     Array.prototype.every.call(chk, function (r) {
-      return r.textContent.indexOf('1 days ago') === -1;
-    }));
+      return !/(^|\D)1 days ago/.test(r.textContent);
+    }), Array.prototype.map.call(chk, function (r) { return r.textContent; }).join(' | '));
+
+  checkTrue('and a check one day old reads "1 day ago"',
+    !/\b1 days ago\b/.test(win.document.getElementById('rn-checks').innerHTML));
 
   console.log('\nOwed by vendor');
   const ven = win.document.querySelectorAll('#rn-vendors .rn-row');

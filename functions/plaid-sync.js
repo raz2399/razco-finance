@@ -20,7 +20,7 @@
 //      than sitting beside it.
 
 const { createClient } = require('@supabase/supabase-js');
-const { requireUser } = require('./lib/guard');
+const { requireUser, safely } = require('./lib/guard');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -244,7 +244,7 @@ async function clearChecks(storeId) {
   return { cleared, differing };
 }
 
-exports.handler = async (event) => {
+exports.handler = safely('plaid-sync', async (event) => {
   // Nobody sees any of this without signing in. Before this, the URL was
   // the only thing between a stranger and the bank position, and a URL is
   // not a secret: it is in browser history, in a chat message, on a screen
@@ -297,7 +297,7 @@ exports.handler = async (event) => {
   } catch (err) {
     return json(500, { error: err.message, where: 'plaid-sync' });
   }
-};
+});
 
 // Exported so the sign conversion can be tested without a bank behind it.
 exports.toLedgerAmount = toLedgerAmount;

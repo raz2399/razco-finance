@@ -9,7 +9,7 @@
 
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
-const { requireUser } = require('./lib/guard');
+const { requireUser, safely } = require('./lib/guard');
 
 // The store is in Lindsay, California. Its day ends when the store closes,
 // not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
@@ -72,7 +72,7 @@ const json = (status, body) => ({
   body: JSON.stringify(body),
 });
 
-exports.handler = async (event) => {
+exports.handler = safely('checks', async (event) => {
   // Nobody sees any of this without signing in. Before this, the URL was
   // the only thing between a stranger and the bank position, and a URL is
   // not a secret: it is in browser history, in a chat message, on a screen
@@ -237,4 +237,4 @@ exports.handler = async (event) => {
     console.error('checks error:', error);
     return json(500, { error: error.message });
   }
-};
+});

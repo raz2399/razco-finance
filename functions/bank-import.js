@@ -83,7 +83,10 @@ function fillRequired(row, def, text, today) {
   return filled;
 }
 const { createClient } = require('@supabase/supabase-js');
-const { requireUser } = require('./lib/guard');
+const { requireUser, safely } = require('./lib/guard');
+// Shared with the vendor-sheet reader so the two can never disagree
+// about what 09/14/26 means or what (1,234.56) is worth.
+const { splitLine, toAmount, toDate } = require('./lib/paper');
 
 
 // Banks write a check line a dozen ways: "CHECK 5101", "CHECK# 5101",
@@ -120,58 +123,6 @@ const supabase = createClient(
 // Reads the header row and finds columns by NAME. Falls back to sniffing the
 // data when there is no usable header. Rows without a real date (bank preamble,
 // account name, totals lines) are skipped instead of being treated as data.
-
-function splitLine(line) {
-  const out = [];
-  let cur = '';
-  let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') quoted = !quoted;
-    else if (ch === ',' && !quoted) { out.push(cur); cur = ''; }
-    else cur += ch;
-  }
-  out.push(cur);
-  return out.map((c) => c.trim().replace(/^["']|["']$/g, ''));
-}
-
-function toAmount(raw) {
-  if (raw == null) return NaN;
-  let s = String(raw).trim();
-  if (!s) return NaN;
-  const paren = /^\(.*\)$/.test(s);
-  s = s.replace(/[()$\s,]/g, '');
-  if (!/^-?\d*\.?\d+$/.test(s)) return NaN;
-  const n = parseFloat(s);
-  if (isNaN(n)) return NaN;
-  return paren ? -n : n;
-}
-
-const MONTHS = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
-
-// Returns YYYY-MM-DD, or null if this is not a date.
-function toDate(raw) {
-  if (raw == null) return null;
-  const s = String(raw).trim().replace(/^["']|["']$/g, '');
-  if (!s) return null;
-
-  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);            // 2026-09-14
-  if (m) return `${m[1]}-${String(+m[2]).padStart(2,'0')}-${String(+m[3]).padStart(2,'0')}`;
-
-  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);   // 09/14/2026 or 9-14-26
-  if (m) {
-    let y = +m[3];
-    if (y < 100) y += 2000;
-    return `${y}-${String(+m[1]).padStart(2,'0')}-${String(+m[2]).padStart(2,'0')}`;
-  }
-
-  m = s.match(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})/); // Sep 14, 2026
-  if (m && MONTHS[m[1].toLowerCase()]) {
-    return `${m[3]}-${String(MONTHS[m[1].toLowerCase()]).padStart(2,'0')}-${String(+m[2]).padStart(2,'0')}`;
-  }
-
-  return null;
-}
 
 // Which way the money went, from a word. Returns -1 out, 1 in, 0 when the
 // cell says nothing we recognise -- and 0 means "leave the amount alone"
@@ -322,7 +273,7 @@ const CHUNK = 200;
 // live; it deserves tests of its own.
 exports.parseCSV = parseCSV;
 
-exports.handler = async (event) => {
+exports.handler = safely('bank-import', async (event) => {
   // Nobody sees any of this without signing in. Before this, the URL was
   // the only thing between a stranger and the bank position, and a URL is
   // not a secret: it is in browser history, in a chat message, on a screen
@@ -746,4 +697,4 @@ exports.handler = async (event) => {
     console.error('Bank import error:', error);
     return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
   }
-};
+});

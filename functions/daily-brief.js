@@ -10,6 +10,7 @@
 // can never disagree with the screen.
 
 const { createClient } = require('@supabase/supabase-js');
+const { safely } = require('./lib/guard');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -200,7 +201,7 @@ async function sendIt(brief) {
 // never be built from different code.
 exports.build = build;
 
-exports.handler = async (event) => {
+exports.handler = safely('daily-brief', async (event) => {
   const q = (event && event.queryStringParameters) || {};
   const store_id = q.store_id || 'store1';
   // Netlify's scheduler calls this with no query string.
@@ -236,4 +237,4 @@ exports.handler = async (event) => {
       body: JSON.stringify({ error: err.message, where: 'daily-brief' }),
     };
   }
-};
+});

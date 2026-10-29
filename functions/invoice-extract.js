@@ -14,7 +14,7 @@
 // off a photograph is never treated as a fact.
 
 const { createClient } = require('@supabase/supabase-js');
-const { requireUser } = require('./lib/guard');
+const { requireUser, safely } = require('./lib/guard');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -112,7 +112,7 @@ Rules:
 - Numbers: digits only, no currency symbols, no thousands separators.`,
 };
 
-exports.handler = async (event) => {
+exports.handler = safely('invoice-extract', async (event) => {
   // Nobody sees any of this without signing in. Before this, the URL was
   // the only thing between a stranger and the bank position, and a URL is
   // not a secret: it is in browser history, in a chat message, on a screen
@@ -337,4 +337,4 @@ exports.handler = async (event) => {
   } catch (err) {
     return json(500, { error: err.message, where: 'invoice-extract' });
   }
-};
+});

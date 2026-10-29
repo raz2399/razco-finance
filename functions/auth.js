@@ -13,7 +13,7 @@
 // never has to carry a Supabase key of any kind.
 
 const { createClient } = require('@supabase/supabase-js');
-const { requireUser } = require('./lib/guard');
+const { requireUser, safely } = require('./lib/guard');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -39,7 +39,7 @@ async function gotrue(path, body) {
   return { ok: res.ok, status: res.status, data };
 }
 
-exports.handler = async (event) => {
+exports.handler = safely('auth', async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: CORS, body: '' };
 
   try {
@@ -127,4 +127,4 @@ exports.handler = async (event) => {
     // what the server knows.
     return json(500, { error: 'Could not sign in just now.' });
   }
-};
+});

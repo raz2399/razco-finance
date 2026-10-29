@@ -22,7 +22,7 @@
 // would produce a balance that means nothing.
 
 const { createClient } = require('@supabase/supabase-js');
-const { requireUser, storeFor } = require('./lib/guard');
+const { requireUser, storeFor, safely } = require('./lib/guard');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -43,7 +43,7 @@ const METHOD_LABEL = {
   charge_account: 'Charge', check: 'Check', unknown: null,
 };
 
-exports.handler = async (event) => {
+exports.handler = safely('vendor-ledger', async (event) => {
   const auth = await requireUser(event, supabase);
   if (!auth.ok) return json(auth.status, { error: auth.error });
 
@@ -77,6 +77,10 @@ exports.handler = async (event) => {
       const nextDue = {};
       (invRes.data || []).forEach((i) => {
         if (['paid', 'void'].indexOf(i.status) > -1) return;
+        // Nothing left on it is nothing owed, whatever the status says. The
+        // status and the balance can disagree -- a bill marked already paid
+        // keeps whatever status it had -- and the balance is the truth.
+        if (money(i.balance_due) <= 0) return;
         owed[i.vendor_id] = money((owed[i.vendor_id] || 0) + money(i.balance_due));
         openCount[i.vendor_id] = (openCount[i.vendor_id] || 0) + 1;
         if (i.due_date && (!nextDue[i.vendor_id] || i.due_date < nextDue[i.vendor_id])) {
@@ -146,12 +150,29 @@ exports.handler = async (event) => {
       (settles[a.payment_id] = settles[a.payment_id] || []).push(a.invoice_id);
     });
 
+    // How much of each invoice a payment recorded HERE accounts for.
+    //
+    // This matters because amount_paid on an invoice can move without any
+    // payment row behind it: a bill settled before this system existed, or
+    // one he marks as already paid. Left out of the sum, such an invoice
+    // reads as owed in full for ever, however many times it is marked paid.
+    const allocatedTo = {};
+    (allocRes.data || []).forEach((a) => {
+      allocatedTo[a.invoice_id] = money((allocatedTo[a.invoice_id] || 0) + money(a.amount));
+    });
+
     const entries = [];
 
     (invRes.data || []).forEach((i) => {
+      // A voided invoice stays visible -- he needs to see that it was
+      // entered and killed, or he enters it again -- but it moves no money.
+      // Left counting, a mistake he already corrected would go on being
+      // owed, which is how a ledger ends up disagreeing with the vendor.
+      const dead = i.status === 'void';
       entries.push({
         kind: 'invoice',
         id: i.invoice_id,
+        voided: dead,
         // The day the goods arrived is the day it counts against him, and
         // that is what a vendor's statement is dated by.
         date: i.invoice_date || i.received_date,
@@ -159,9 +180,17 @@ exports.handler = async (event) => {
         label: i.invoice_number === 'QB-OPEN'
           ? 'Opening balance from QuickBooks'
           : ('Invoice ' + (i.invoice_number || '(no number)')),
-        charge: money(i.total_amount),
+        charge: dead ? 0 : money(i.total_amount),
         paid: 0,
-        balance_due: money(i.balance_due),
+        // Money against this invoice that no payment here accounts for:
+        // settled before this system, or marked already paid. It comes off
+        // the balance at the invoice's own line, because that is when it
+        // stopped being owed -- there is no payment line to take it off at.
+        paid_outside: dead ? 0 : Math.max(0,
+          money(money(i.amount_paid) - (allocatedTo[i.invoice_id] || 0))),
+        // What it was for, kept for the screen even when it counts nothing.
+        face_amount: money(i.total_amount),
+        balance_due: dead ? 0 : money(i.balance_due),
         status: i.status,
         due_date: i.due_date,
         method: i.payment_type,
@@ -174,9 +203,13 @@ exports.handler = async (event) => {
 
     (payRes.data || []).forEach((p) => {
       const against = settles[p.payment_id] || [];
+      // A voided or stopped check never left the building. Same reasoning
+      // as a voided invoice: it shows, it counts nothing.
+      const dead = p.status === 'void' || p.status === 'stopped';
       entries.push({
         kind: 'payment',
         id: p.payment_id,
+        voided: dead,
         date: p.payment_date,
         number: p.check_number ? String(p.check_number) : null,
         label: (p.method === 'check' ? 'Check #' + (p.check_number || '?')
@@ -184,7 +217,9 @@ exports.handler = async (event) => {
                : p.method === 'cod_draft' ? 'COD draft'
                : 'Payment') + (p.memo ? ' — ' + p.memo : ''),
         charge: 0,
-        paid: money(p.amount),
+        paid: dead ? 0 : money(p.amount),
+        paid_outside: 0,
+        face_amount: money(p.amount),
         status: p.status,
         cleared_date: p.cleared_date || null,
         // A check written but not yet cashed is money promised, not money
@@ -211,7 +246,7 @@ exports.handler = async (event) => {
 
     let running = 0;
     entries.forEach((e) => {
-      running = money(running + e.charge - e.paid);
+      running = money(running + e.charge - e.paid - e.paid_outside);
       e.balance_after = running;
     });
 
@@ -246,7 +281,9 @@ exports.handler = async (event) => {
     });
 
     const open = entries.filter((e) => e.kind === 'invoice' && e.balance_due > 0);
-    const uncashed = entries.filter((e) => e.kind === 'payment' && !e.settled);
+    const uncashed = entries.filter((e) =>
+      e.kind === 'payment' && !e.settled && !e.voided);
+    const voided = entries.filter((e) => e.voided);
 
     return json(200, {
       store_id,
@@ -263,10 +300,16 @@ exports.handler = async (event) => {
       totals: {
         charged: money(entries.reduce((s, e) => s + e.charge, 0)),
         paid: money(entries.reduce((s, e) => s + e.paid, 0)),
+        // Settled with no payment recorded here -- paid before this system,
+        // or marked already paid. Shown on its own line because it is not
+        // money this system ever saw move, and adding it to "paid" would
+        // claim a payment it cannot show him.
+        paid_outside: money(entries.reduce((s, e) => s + e.paid_outside, 0)),
         // What he owes right now: the balance after the last line in date
         // order, which is why the running balance is computed before any
         // sorting is applied.
         owed: running,
+        voided_lines: voided.length,
         open_invoices: open.length,
         open_total: money(open.reduce((s, e) => s + e.balance_due, 0)),
         checks_not_cashed: uncashed.length,
@@ -285,4 +328,4 @@ exports.handler = async (event) => {
   } catch (err) {
     return json(500, { error: err.message, where: 'vendor-ledger' });
   }
-};
+});

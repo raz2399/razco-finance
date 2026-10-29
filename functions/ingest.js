@@ -16,7 +16,7 @@
 // duplicates rather than replace.
 
 const { createClient } = require('@supabase/supabase-js');
-const { requireUser } = require('./lib/guard');
+const { requireUser, safely } = require('./lib/guard');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -39,7 +39,7 @@ const int = (v) => {
 };
 const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
-exports.handler = async (event) => {
+exports.handler = safely('ingest', async (event) => {
   // The store PC posts here on a schedule at six in the morning with
   // nobody sitting at it, so this one accepts its token as well as a
   // signed-in person.
@@ -175,4 +175,4 @@ exports.handler = async (event) => {
 
     return json(500, { error: err.message, where: 'ingest', written: report });
   }
-};
+});

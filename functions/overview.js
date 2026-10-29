@@ -12,7 +12,7 @@
 //   freshness - how current each source is
 
 const { createClient } = require('@supabase/supabase-js');
-const { requireUser } = require('./lib/guard');
+const { requireUser, safely } = require('./lib/guard');
 
 // The store is in Lindsay, California. Its day ends when the store closes,
 // not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
@@ -56,7 +56,7 @@ function daysBetween(a, b) {
   return Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 86400000);
 }
 
-exports.handler = async (event) => {
+exports.handler = safely('overview', async (event) => {
   // Nobody sees any of this without signing in. Before this, the URL was
   // the only thing between a stranger and the bank position, and a URL is
   // not a secret: it is in browser history, in a chat message, on a screen
@@ -422,4 +422,4 @@ exports.handler = async (event) => {
       body: JSON.stringify({ error: err.message, where: 'overview' }),
     };
   }
-};
+});

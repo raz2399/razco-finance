@@ -9,7 +9,7 @@
 // instead of a blank screen.
 
 const { createClient } = require('@supabase/supabase-js');
-const { requireUser } = require('./lib/guard');
+const { requireUser, safely } = require('./lib/guard');
 
 // The store is in Lindsay, California. Its day ends when the store closes,
 // not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
@@ -27,7 +27,7 @@ const supabase = createClient(
 const sum = (rows, field) =>
   (rows || []).reduce((total, row) => total + (Number(row[field]) || 0), 0);
 
-exports.handler = async (event) => {
+exports.handler = safely('cash-position', async (event) => {
   // Nobody sees any of this without signing in. Before this, the URL was
   // the only thing between a stranger and the bank position, and a URL is
   // not a secret: it is in browser history, in a chat message, on a screen
@@ -231,4 +231,4 @@ exports.handler = async (event) => {
     console.error('Cash position error:', error);
     return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
   }
-};
+});
