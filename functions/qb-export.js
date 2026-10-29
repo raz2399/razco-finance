@@ -7,6 +7,24 @@
 const { createClient } = require('@supabase/supabase-js');
 const { requireUser, safely } = require('./lib/guard');
 
+// A refusal, in the shape every endpoint here already answers in.
+//
+// The auth guard was added to all of these at once with `return json(...)`,
+// and eight of them had no json helper -- they build their replies inline.
+// So the moment the guard needed to say no, the function threw
+// "json is not defined" instead of answering 401, and the screen showed
+// that sentence to Raz. A refusal that crashes is not a refusal.
+const json = (statusCode, body) => ({
+  statusCode,
+  headers: {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  },
+  body: JSON.stringify(body),
+});
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
