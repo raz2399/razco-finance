@@ -19,6 +19,8 @@ import ChecksScreen from './src/ChecksScreen';
 import VendorsScreen from './src/VendorsScreen';
 import LoginScreen from './src/LoginScreen';
 import { isSignedIn, clearSession } from './src/api';
+import { useAutoUpdate } from './src/updates';
+import UpdateBar from './src/UpdateBar';
 import { C } from './src/theme';
 
 export default function App() {
@@ -31,6 +33,12 @@ export default function App() {
   const [version, setVersion] = useState(0);
   const refreshHome = () => setVersion((v) => v + 1);
   const home = () => setScreen('home');
+
+  // A new version applies itself the moment doing so costs nothing. Signed
+  // out, that is immediately -- there is nothing on the screen to lose.
+  // Signed in, a reload is a cold start and would drop the session, so the
+  // update waits and says so, and he takes it when he is ready.
+  const update = useAutoUpdate(!signedIn);
 
   if (!signedIn) {
     return (
@@ -109,6 +117,7 @@ export default function App() {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <StatusBar style="dark" />
       <SafeAreaView style={{ backgroundColor: C.white }}>
+        {update.waiting ? <UpdateBar onApply={update.apply} /> : null}
         <View style={st.header}>
           <Image source={require('./assets/icon.png')} style={st.logo} />
           <Text style={st.title}>

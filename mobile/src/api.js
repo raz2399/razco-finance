@@ -16,7 +16,7 @@ let STORE_ID = 'store1';
 // AsyncStorage -- are native modules, which means a new build and another
 // trip through TestFlight. So this ships without them: he signs in again
 // when the app has been fully closed. The next build will remember him.
-let session = { access: null, refresh: null, user: null };
+let session = { access: null, refresh: null, user: null, expires_at: null };
 
 export const getSession = () => session;
 export const isSignedIn = () => !!session.access;
@@ -26,13 +26,52 @@ function setSession(d) {
     access: d.access_token || null,
     refresh: d.refresh_token || null,
     user: d.user || null,
+    // When this token stops working. Supabase hands out an hour, and an
+    // hour is exactly how long it took for the app to start failing on
+    // him while he was using it.
+    expires_at: d.expires_at
+      ? Number(d.expires_at) * 1000
+      : (d.expires_in ? Date.now() + Number(d.expires_in) * 1000 : null),
   };
   if (d.user && d.user.stores && d.user.stores.length) STORE_ID = d.user.stores[0];
   return session;
 }
 
+// Renew before it dies rather than after.
+//
+// Waiting for a 401 and then renewing works, but only if the server is
+// well enough to say 401. The night this was written it was not: it
+// crashed instead, the app saw a 502, and a 502 is not a reason to renew
+// a session -- so nothing renewed, and every screen stayed broken until
+// he signed in again by hand. Renewing a minute early needs nothing to go
+// right.
+const RENEW_WITHIN_MS = 120000;
+let renewing = null;
+
+async function freshEnough() {
+  if (!session.refresh || !session.expires_at) return;
+  if (Date.now() < session.expires_at - RENEW_WITHIN_MS) return;
+  // One renewal at a time, however many calls notice at once.
+  if (!renewing) {
+    renewing = (async () => {
+      try {
+        const d = await call('/auth', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'refresh', refresh_token: session.refresh }),
+        }, true);
+        if (d && d.access_token) setSession(d);
+      } catch (e) {
+        // Leave the old token in place and let the call fail honestly.
+      } finally {
+        renewing = null;
+      }
+    })();
+  }
+  await renewing;
+}
+
 export function clearSession() {
-  session = { access: null, refresh: null, user: null };
+  session = { access: null, refresh: null, user: null, expires_at: null };
 }
 
 // Raised when the server says the session is over. The app shows the
@@ -46,6 +85,8 @@ export class NotSignedIn extends Error {
 }
 
 async function call(path, options = {}, retrying = false) {
+  if (!retrying && path !== '/auth') await freshEnough();
+
   const url = `${BASE}${path}${path.includes('?') ? '&' : '?'}store_id=${encodeURIComponent(STORE_ID)}`;
   let res;
   try {

@@ -241,6 +241,43 @@ const checkTrue = (n, c, note) => {
     authSrc.indexOf('body.email') > -1 && authSrc.indexOf('body.password') > -1);
   checkTrue('and the same refresh field',
     authSrc.indexOf('body.refresh_token') > -1 && api.indexOf('refresh_token: session.refresh') > -1);
+
+  // Renewing only on a 401 needs the server to be well enough to say 401.
+  // The night the guard crashed it said 502 instead, nothing renewed, and
+  // he was locked out of his own numbers until he signed in by hand.
+  checkTrue('the session is renewed before it dies, not after',
+    /freshEnough/.test(api) && /RENEW_WITHIN_MS/.test(api));
+  checkTrue('using the expiry the server actually sent',
+    /expires_in/.test(api) && authSrc.indexOf('expires_in: out.data.expires_in') > -1);
+  checkTrue('and only one renewal runs at a time',
+    /if \(!renewing\)/.test(api));
+}());
+
+
+// ---- a push has to reach the phone without being asked twice ---------
+//
+// expo-updates, left alone, downloads an update and applies it on the NEXT
+// cold boot. So a push landed and sat there until the app was force-closed
+// and reopened -- the manual step the one-push setup existed to remove.
+(function () {
+  const upd = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'updates.js'), 'utf8');
+  const app = fs.readFileSync(path.join(ROOT, 'mobile', 'App.js'), 'utf8');
+
+  console.log('\nUpdates applying themselves');
+  checkTrue('it looks for an update', /checkForUpdateAsync/.test(upd));
+  checkTrue('downloads it', /fetchUpdateAsync/.test(upd));
+  checkTrue('and puts it on without being asked', /reloadAsync/.test(upd));
+  checkTrue('looking again whenever the app comes back to the front',
+    /AppState\.addEventListener/.test(upd) && /'active'/.test(upd));
+  checkTrue('never reloading from the background, which Expo call experimental',
+    !/background/i.test(upd.split('addEventListener')[1] || '') ||
+    /state === 'active'/.test(upd));
+  checkTrue('the app wires it in', /useAutoUpdate/.test(app));
+  // Signed in, a reload is a cold start and the session is in memory, so
+  // taking it silently would dump him at the sign-in screen.
+  checkTrue('and only reloads on its own when nothing would be lost',
+    /useAutoUpdate\(!signedIn\)/.test(app), 'reload must be gated on having nothing to lose');
+  checkTrue('otherwise it says a version is waiting', /UpdateBar/.test(app));
 }());
 
 
