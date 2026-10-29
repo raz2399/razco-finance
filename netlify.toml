@@ -6,3 +6,9 @@
 # a brief that lands before he gets in is the point.
 [functions."daily-brief"]
   schedule = "0 13 * * *"
+
+# The bank, before the brief reads it. Banks post overnight, so by 11:30 UTC
+# -- half four Pacific -- yesterday has settled and the morning brief an hour
+# later is reading today's balance rather than the day before's.
+[functions."plaid-sync"]
+  schedule = "30 11 * * *"
