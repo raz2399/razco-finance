@@ -1,89 +1,240 @@
-// Who Razco buys from, and on what terms.
+// Who Razco buys from, what is owed, and every line behind it.
 //
-// 255 of them, so the search box does the work. The ones whose payment type
-// was never recorded are gathered at the top rather than buried: until that
-// is answered, an invoice from one of them cannot be given a due date, and
-// a due date nobody chose is worse than no due date at all.
+// Two screens in one. Search finds the vendor; tapping the vendor opens his
+// ledger. The ledger shows LINES -- this invoice on that day, that check on
+// this day -- not a total. A total is what QuickBooks gives and it is no use
+// when the question is "which invoice is this".
+//
+// The sort chips change the order of the lines. What they never change is
+// the balance on each line: that is the balance as of that line's own date,
+// worked out on the server in date order before any sorting happens. Sort by
+// amount and add the column up in your head and you would get a number that
+// means nothing -- so the number shown is never that.
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, TextInput, RefreshControl, ActivityIndicator,
   TouchableOpacity, SafeAreaView, StyleSheet,
 } from 'react-native';
-import { getVendorList } from './api';
+import { findVendors, getVendorLedger, money } from './api';
 import { C, S } from './theme';
 
-const METHOD = {
-  cod: { label: 'COD', note: 'check at the door' },
-  cod_draft: { label: 'COD draft', note: 'bank takes it next day' },
-  auto_debit: { label: 'Auto-draft', note: 'bank takes it on the due date' },
-  charge_account: { label: 'Charge', note: 'we write a check on terms' },
-  check: { label: 'Check', note: 'we write a check on terms' },
+const METHOD_NOTE = {
+  COD: 'check at the door',
+  'COD draft': 'bank takes it next day',
+  'Auto-draft': 'bank takes it on the due date',
+  Charge: 'we write a check on terms',
+  Check: 'we write a check on terms',
 };
 
-export default function VendorsScreen({ onBack }) {
-  const [all, setAll] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
-  const [q, setQ] = useState('');
+const SORTS = [
+  { key: 'date', label: 'Date' },
+  { key: 'number', label: 'Number' },
+  { key: 'entered', label: 'Entered' },
+  { key: 'amount', label: 'Amount' },
+];
 
-  const load = useCallback(async (isRefresh) => {
-    isRefresh ? setRefreshing(true) : setLoading(true);
+// The day the line is dated, short. Dates arrive as plain YYYY-MM-DD, which
+// is not an instant, so it is read apart rather than handed to Date -- a
+// date string parsed as UTC comes back a day early in California.
+function shortDate(ymd) {
+  if (!ymd) return '';
+  const p = String(ymd).split('-');
+  if (p.length !== 3) return String(ymd);
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return (MON[Number(p[1]) - 1] || p[1]) + ' ' + Number(p[2]);
+}
+
+// The moment it was keyed in, in Lindsay time. This is a real instant, so it
+// is converted properly.
+function enteredAt(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  try {
+    return d.toLocaleString('en-US', {
+      timeZone: 'America/Los_Angeles',
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    }).replace(' AM', 'am').replace(' PM', 'pm');
+  } catch (e) {
+    return String(iso).slice(0, 10);
+  }
+}
+
+export default function VendorsScreen({ onBack }) {
+  const [q, setQ] = useState('');
+  const [list, setList] = useState(null);
+  const [listError, setListError] = useState(null);
+  const [searching, setSearching] = useState(true);
+
+  const [vendorId, setVendorId] = useState(null);
+  const [ledger, setLedger] = useState(null);
+  const [ledgerError, setLedgerError] = useState(null);
+  const [loadingLedger, setLoadingLedger] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [sort, setSort] = useState('date');
+  const [dir, setDir] = useState('desc');
+  const [openOnly, setOpenOnly] = useState(false);
+
+  // Typing shouldn't fire a request per keystroke. A short pause does.
+  useEffect(() => {
+    let dead = false;
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const r = await findVendors(q.trim());
+        if (!dead) { setList(r); setListError(null); }
+      } catch (e) {
+        if (!dead) setListError(e.message);
+      } finally {
+        if (!dead) setSearching(false);
+      }
+    }, q ? 280 : 0);
+    return () => { dead = true; clearTimeout(t); };
+  }, [q]);
+
+  const loadLedger = useCallback(async (id, s, d, open, isRefresh) => {
+    if (!id) return;
+    isRefresh ? setRefreshing(true) : setLoadingLedger(true);
     try {
-      const r = await getVendorList();
-      setAll((r && r.vendor_list) || []);
-      setError(null);
+      const r = await getVendorLedger(id, s, d, open);
+      setLedger(r);
+      setLedgerError(null);
     } catch (e) {
-      setError(e.message);
+      setLedgerError(e.message);
     } finally {
-      setLoading(false);
+      setLoadingLedger(false);
       setRefreshing(false);
     }
   }, []);
 
-  React.useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (vendorId) loadLedger(vendorId, sort, dir, openOnly);
+  }, [vendorId, sort, dir, openOnly, loadLedger]);
 
-  const { unset, known } = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    const match = (v) => {
-      if (!needle) return true;
-      if (String(v.vendor_name || '').toLowerCase().indexOf(needle) > -1) return true;
-      return (v.aliases || []).some((a) => String(a).toLowerCase().indexOf(needle) > -1);
-    };
-    const hits = all.filter(match);
-    return {
-      unset: hits.filter((v) => !v.pay_method),
-      known: hits.filter((v) => v.pay_method),
-    };
-  }, [all, q]);
+  const openVendor = (id) => { setLedger(null); setVendorId(id); };
+  const backToList = () => { setVendorId(null); setLedger(null); setLedgerError(null); };
 
-  if (loading) {
+  function pickSort(key) {
+    if (key === sort) { setDir(dir === 'asc' ? 'desc' : 'asc'); return; }
+    setSort(key);
+    setDir(key === 'date' || key === 'entered' ? 'desc' : 'asc');
+  }
+
+  // ---------------- one vendor's ledger ----------------
+
+  if (vendorId) {
+    const v = ledger && ledger.vendor;
+    const t = (ledger && ledger.totals) || {};
     return (
-      <SafeAreaView style={st.center}>
-        <ActivityIndicator size="large" color={C.red} />
-        <Text style={st.loadingText}>Loading your vendors</Text>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
+        <View style={st.bar}>
+          <TouchableOpacity onPress={backToList} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Text style={st.back}>‹ Vendors</Text>
+          </TouchableOpacity>
+          <Text style={st.barTitle} numberOfLines={1}>
+            {v ? v.name : 'Loading'}
+          </Text>
+          <View style={{ width: 70 }} />
+        </View>
+
+        {loadingLedger && !ledger ? (
+          <View style={st.center}>
+            <ActivityIndicator size="large" color={C.red} />
+          </View>
+        ) : (
+          <ScrollView
+            contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => loadLedger(vendorId, sort, dir, openOnly, true)}
+                tintColor={C.red}
+              />
+            }
+          >
+            {ledgerError ? (
+              <View style={st.errorBox}><Text style={st.errorText}>{ledgerError}</Text></View>
+            ) : null}
+
+            {ledger ? (
+              <>
+                <View style={S.card}>
+                  <Text style={st.owedLabel}>Owed to {v.name}</Text>
+                  <Text style={st.owed}>{money(t.owed, true)}</Text>
+                  <Text style={st.owedSub}>
+                    {v.method_label
+                      ? v.method_label + (METHOD_NOTE[v.method_label] ? ' — ' + METHOD_NOTE[v.method_label] : '')
+                      : 'Payment type never recorded'}
+                    {v.terms ? '  ·  ' + v.terms : ''}
+                  </Text>
+
+                  <View style={st.tiles}>
+                    <Tile label="Charged" value={money(t.charged)} />
+                    <Tile label="Paid" value={money(t.paid)} />
+                  </View>
+                  {t.checks_not_cashed ? (
+                    <Text style={st.flag}>
+                      {t.checks_not_cashed} check{t.checks_not_cashed > 1 ? 's' : ''} written
+                      but not cashed — {money(t.checks_not_cashed_total, true)}
+                    </Text>
+                  ) : null}
+                  {t.from_quickbooks ? (
+                    <Text style={st.qb}>
+                      {money(t.from_quickbooks, true)} of that is the opening balance
+                      carried over from QuickBooks, not an invoice anyone has seen.
+                    </Text>
+                  ) : null}
+                </View>
+
+                <View style={st.chipRow}>
+                  {SORTS.map((s) => (
+                    <TouchableOpacity
+                      key={s.key}
+                      style={[st.chip, sort === s.key && st.chipOn]}
+                      onPress={() => pickSort(s.key)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[st.chipText, sort === s.key && st.chipTextOn]}>
+                        {s.label}{sort === s.key ? (dir === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity
+                    style={[st.chip, openOnly && st.chipOn]}
+                    onPress={() => setOpenOnly(!openOnly)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[st.chipText, openOnly && st.chipTextOn]}>Still open</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={S.card}>
+                  <Text style={S.label}>
+                    {ledger.count} line{ledger.count === 1 ? '' : 's'}
+                  </Text>
+                  {ledger.entries.map((e) => <Line key={e.kind + e.id} e={e} />)}
+                  {!ledger.entries.length ? (
+                    <Text style={st.none}>
+                      {openOnly ? 'Nothing still open for this vendor.' : 'Nothing on this vendor yet.'}
+                    </Text>
+                  ) : null}
+                </View>
+              </>
+            ) : null}
+          </ScrollView>
+        )}
       </SafeAreaView>
     );
   }
 
-  const Row = ({ v }) => {
-    const m = METHOD[v.pay_method];
-    return (
-      <View style={st.row}>
-        <View style={{ flex: 1, paddingRight: 10 }}>
-          <Text style={st.name} numberOfLines={1}>{v.vendor_name}</Text>
-          <Text style={st.sub}>
-            {m ? m.label + ' — ' + m.note : 'Payment type never recorded'}
-            {v.terms ? '  ·  ' + v.terms : ''}
-          </Text>
-          {v.aliases && v.aliases.length ? (
-            <Text style={st.alias} numberOfLines={1}>also {v.aliases.join(', ')}</Text>
-          ) : null}
-        </View>
-      </View>
-    );
-  };
+  // ---------------- finding the vendor ----------------
+
+  const vendors = (list && list.vendors) || [];
+  const owing = vendors.filter((v) => v.owed !== 0);
+  const clear = vendors.filter((v) => v.owed === 0);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
@@ -100,7 +251,7 @@ export default function VendorsScreen({ onBack }) {
           style={st.search}
           value={q}
           onChangeText={setQ}
-          placeholder={'Search ' + all.length + ' vendors'}
+          placeholder="Search a vendor"
           placeholderTextColor="#b6bcc8"
           autoCorrect={false}
           autoCapitalize="none"
@@ -111,55 +262,121 @@ export default function VendorsScreen({ onBack }) {
       <ScrollView
         contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
         keyboardShouldPersistTaps="handled"
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={C.red} />
-        }
       >
-        {error ? (
-          <View style={st.errorBox}><Text style={st.errorText}>{error}</Text></View>
+        {listError ? (
+          <View style={st.errorBox}><Text style={st.errorText}>{listError}</Text></View>
         ) : null}
 
-        {unset.length ? (
-          <View style={S.card}>
-            <Text style={S.label}>Needs a payment type ({unset.length})</Text>
-            <Text style={st.explain}>
-              These came from QuickBooks with no terms. Record an invoice from one and
-              the app will ask you how they get paid.
-            </Text>
-            {unset.map((v) => <Row key={v.vendor_id} v={v} />)}
+        {searching && !list ? (
+          <View style={{ paddingTop: 40 }}>
+            <ActivityIndicator size="large" color={C.red} />
           </View>
         ) : null}
 
-        {known.length ? (
+        {list && !q.trim() ? (
+          <Text style={st.totalLine}>
+            {money(list.total_owed, true)} owed across {owing.length} vendor
+            {owing.length === 1 ? '' : 's'}
+          </Text>
+        ) : null}
+
+        {owing.length ? (
           <View style={S.card}>
-            <Text style={S.label}>Set up ({known.length})</Text>
-            {known.map((v) => <Row key={v.vendor_id} v={v} />)}
+            <Text style={S.label}>Money against them ({owing.length})</Text>
+            {owing.map((v) => <VendorRow key={v.vendor_id} v={v} onPress={openVendor} />)}
           </View>
         ) : null}
 
-        {!unset.length && !known.length ? (
+        {clear.length ? (
+          <View style={S.card}>
+            <Text style={S.label}>Nothing owed ({clear.length})</Text>
+            {clear.map((v) => <VendorRow key={v.vendor_id} v={v} onPress={openVendor} />)}
+          </View>
+        ) : null}
+
+        {list && !vendors.length ? (
           <View style={S.card}>
             <Text style={st.none}>
               {q.trim() ? 'No vendor matches “' + q.trim() + '”.' : 'No vendors on file yet.'}
             </Text>
           </View>
         ) : null}
+
+        {list && list.truncated ? (
+          <Text style={st.more}>
+            Showing the first 60. Type a few letters of the name to narrow it.
+          </Text>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+function Tile({ label, value }) {
+  return (
+    <View style={st.tile}>
+      <Text style={st.tileLabel}>{label}</Text>
+      <Text style={st.tileValue}>{value}</Text>
+    </View>
+  );
+}
+
+function VendorRow({ v, onPress }) {
+  return (
+    <TouchableOpacity style={st.row} onPress={() => onPress(v.vendor_id)} activeOpacity={0.6}>
+      <View style={{ flex: 1, paddingRight: 10 }}>
+        <Text style={st.name} numberOfLines={1}>{v.name}</Text>
+        <Text style={st.sub}>
+          {v.method_label || 'Payment type never recorded'}
+          {v.terms ? '  ·  ' + v.terms : ''}
+          {v.open_count ? '  ·  ' + v.open_count + ' open' : ''}
+        </Text>
+        {v.aliases && v.aliases.length ? (
+          <Text style={st.alias} numberOfLines={1}>also {v.aliases.join(', ')}</Text>
+        ) : null}
+      </View>
+      {v.owed ? <Text style={st.rowOwed}>{money(v.owed)}</Text> : null}
+      <Text style={st.chev}>›</Text>
+    </TouchableOpacity>
+  );
+}
+
+function Line({ e }) {
+  const isPay = e.kind === 'payment';
+  return (
+    <View style={st.line}>
+      <View style={{ flex: 1, paddingRight: 10 }}>
+        <Text style={[st.lineWhat, e.opening && { color: '#8D6E00' }]} numberOfLines={1}>
+          {e.opening ? 'Opening balance' : e.label}
+        </Text>
+        <Text style={st.lineMeta}>
+          {shortDate(e.date)}
+          {e.number ? '  ·  #' + e.number : ''}
+          {e.due_date ? '  ·  due ' + shortDate(e.due_date) : ''}
+          {isPay && !e.settled ? '  ·  not cashed' : ''}
+        </Text>
+        <Text style={st.lineEntered}>keyed in {enteredAt(e.entered_at)}</Text>
+      </View>
+      <View style={{ alignItems: 'flex-end' }}>
+        <Text style={[st.lineAmount, isPay && { color: '#168a5a' }]}>
+          {isPay ? '− ' + money(e.paid, true) : money(e.charge, true)}
+        </Text>
+        <Text style={st.lineBalance}>{money(e.balance_after, true)}</Text>
+      </View>
+    </View>
+  );
+}
+
 const st = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg },
-  loadingText: { marginTop: 12, color: C.mute, fontSize: 13 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   bar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 14, paddingVertical: 11,
     backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.line,
   },
-  back: { color: C.blue, fontSize: 15, fontWeight: '700', width: 52 },
-  barTitle: { fontSize: 15.5, fontWeight: '800', color: C.ink },
+  back: { color: C.blue, fontSize: 15, fontWeight: '700', width: 70 },
+  barTitle: { flex: 1, textAlign: 'center', fontSize: 15.5, fontWeight: '800', color: C.ink },
 
   searchWrap: {
     paddingHorizontal: 12, paddingVertical: 9,
@@ -171,11 +388,55 @@ const st = StyleSheet.create({
     backgroundColor: C.bg,
   },
 
-  explain: { fontSize: 11.5, color: C.mute, lineHeight: 16, marginTop: 4, marginBottom: 2 },
-  row: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f1f3f7' },
+  totalLine: {
+    fontSize: 12.5, color: C.mute, marginBottom: 10, marginLeft: 3, fontWeight: '600',
+  },
+  more: { fontSize: 11.5, color: C.mute, textAlign: 'center', marginTop: 4 },
+
+  row: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#f1f3f7',
+  },
   name: { fontSize: 14, fontWeight: '600', color: C.ink },
   sub: { fontSize: 11.5, color: C.mute, marginTop: 2 },
   alias: { fontSize: 10.5, color: '#9aa3b2', marginTop: 1, fontStyle: 'italic' },
+  rowOwed: { fontSize: 14, fontWeight: '800', color: C.ink },
+  chev: { fontSize: 20, color: '#c3cad6', marginLeft: 8 },
+
+  owedLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.8, color: C.mute, textTransform: 'uppercase' },
+  owed: { fontSize: 30, fontWeight: '800', color: C.ink, letterSpacing: -1, marginTop: 3 },
+  owedSub: { fontSize: 12, color: C.mute, marginTop: 3 },
+
+  tiles: { flexDirection: 'row', marginTop: 13, marginHorizontal: -4 },
+  tile: {
+    flex: 1, marginHorizontal: 4, padding: 10,
+    backgroundColor: C.bg, borderRadius: 10,
+  },
+  tileLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 0.7, color: C.mute, textTransform: 'uppercase' },
+  tileValue: { fontSize: 16, fontWeight: '800', color: C.ink, marginTop: 2 },
+
+  flag: { fontSize: 11.5, color: '#bf7b0a', marginTop: 11, lineHeight: 16, fontWeight: '600' },
+  qb: { fontSize: 11.5, color: C.mute, marginTop: 9, lineHeight: 16 },
+
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', marginVertical: 11, marginHorizontal: -3 },
+  chip: {
+    paddingHorizontal: 12, paddingVertical: 7, margin: 3,
+    borderRadius: 999, borderWidth: 1, borderColor: C.line, backgroundColor: C.white,
+  },
+  chipOn: { backgroundColor: C.ink, borderColor: C.ink },
+  chipText: { fontSize: 12.5, fontWeight: '700', color: C.mute },
+  chipTextOn: { color: C.white },
+
+  line: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#f1f3f7',
+  },
+  lineWhat: { fontSize: 13.5, fontWeight: '700', color: C.ink },
+  lineMeta: { fontSize: 11.5, color: C.mute, marginTop: 2 },
+  lineEntered: { fontSize: 10.5, color: '#9aa3b2', marginTop: 1 },
+  lineAmount: { fontSize: 14.5, fontWeight: '800', color: C.ink },
+  lineBalance: { fontSize: 11, color: C.mute, marginTop: 2 },
+
   none: { fontSize: 13, color: C.mute, paddingVertical: 8 },
 
   errorBox: {

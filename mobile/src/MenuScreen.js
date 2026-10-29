@@ -24,7 +24,7 @@ const GROUPS = [
       { key: 'checks', name: 'Checks still out',
         sub: 'Written but not cashed yet' },
       { key: 'vendors', name: 'Vendors',
-        sub: 'Who you buy from, and on what terms' },
+        sub: 'Search one, see every invoice and check against him' },
     ],
   },
   {

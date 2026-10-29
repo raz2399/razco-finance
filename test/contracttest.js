@@ -243,6 +243,54 @@ const checkTrue = (n, c, note) => {
     authSrc.indexOf('body.refresh_token') > -1 && api.indexOf('refresh_token: session.refresh') > -1);
 }());
 
+
+// ---- the vendor ledger, on both screens ------------------------------
+//
+// Three places have to agree on the sort keys: the server's whitelist, the
+// desktop's column headers and the phone's chips. A key offered on a screen
+// that the server does not accept silently falls back to date order, which
+// looks like a sort that does nothing.
+(function () {
+  const srv = fs.readFileSync(path.join(ROOT, 'functions', 'vendor-ledger.js'), 'utf8');
+  const desk = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const phone = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'VendorsScreen.js'), 'utf8');
+  const api = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'api.js'), 'utf8');
+
+  console.log('\nThe vendor ledger');
+
+  const allowed = (srv.match(/\['date', 'number', 'amount', 'type', 'entered'\]/) || [])[0];
+  checkTrue('the server accepts five sorts', !!allowed);
+
+  ['date', 'number', 'amount', 'type'].forEach((k) => {
+    checkTrue('the desktop offers ' + k, desk.indexOf("key: '" + k + "'") > -1);
+  });
+  checkTrue('the desktop offers entered', desk.indexOf("key: 'entered'") > -1);
+
+  ['date', 'number', 'entered', 'amount'].forEach((k) => {
+    checkTrue('the phone offers ' + k, phone.indexOf("key: '" + k + "'") > -1);
+  });
+
+  // The whole point of the screen. A balance per line, from the server,
+  // worked out in date order -- never a total either screen added up from
+  // the rows it happens to be showing.
+  checkTrue('both screens read the balance off the line',
+    desk.indexOf('e.balance_after') > -1 && phone.indexOf('e.balance_after') > -1);
+  checkTrue('and neither one sums the column itself',
+    !/balance_after[^\n]*\+=/.test(desk) && !/balance_after[^\n]*\+=/.test(phone));
+  checkTrue('the server works the balance out in date order first',
+    /balance_after/.test(srv) && srv.indexOf('Running balance in date order') > -1);
+
+  checkTrue('what came from QuickBooks is labelled on both',
+    desk.indexOf('Opening balance') > -1 && phone.indexOf('Opening balance') > -1);
+  checkTrue('and kept apart in the totals',
+    srv.indexOf('from_quickbooks') > -1 && phone.indexOf('from_quickbooks') > -1);
+
+  checkTrue('the phone asks the server to search, not the phone',
+    api.indexOf("'/vendor-ledger' + (q ? '?q='") > -1);
+  checkTrue('and asks for one vendor by id',
+    api.indexOf("'/vendor-ledger?vendor_id='") > -1);
+}());
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

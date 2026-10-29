@@ -154,6 +154,18 @@ export const voidEntry = (kind, id, note) =>
   });
 
 
+// Vendors, with what is owed against each. The search runs on the server so
+// the phone is never holding all 255 of them to filter.
+export const findVendors = (q) =>
+  call('/vendor-ledger' + (q ? '?q=' + encodeURIComponent(q) : ''));
+
+// One vendor's lines -- every invoice and every payment, not a total.
+// sort is date | number | amount | type | entered.
+export const getVendorLedger = (vendorId, sort, dir, openOnly) =>
+  call('/vendor-ledger?vendor_id=' + encodeURIComponent(vendorId) +
+       '&sort=' + (sort || 'date') + '&dir=' + (dir || 'desc') +
+       (openOnly ? '&include=open' : ''));
+
 // A day at the register: by tender, by department, by cashier.
 export const getDay = (date) => call('/day' + (date ? '?date=' + date : ''));
 

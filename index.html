@@ -1670,6 +1670,24 @@ var APP = {
     document.getElementById('vl-ledger-card').style.display = 'none';
   },
 
+  // The moment a line was keyed in, in Lindsay time rather than the
+  // server's. Short, because it sits in a narrow column: "Oct 28, 7:14pm".
+  vlWhen: function(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    try {
+      var s = d.toLocaleString('en-US', {
+        timeZone: 'America/Los_Angeles',
+        month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit'
+      });
+      return s.replace(' AM', 'am').replace(' PM', 'pm');
+    } catch (e) {
+      return iso.slice(0, 10);
+    }
+  },
+
   openVendor: function(vendorId) {
     if (!vendorId) return;
     var self = this;
@@ -1719,6 +1737,11 @@ var APP = {
         { key: 'date', label: 'Date' },
         { key: 'type', label: 'What' },
         { key: 'number', label: 'Number' },
+        // Two different times matter and they are not the same time. The date
+        // is the day the goods came or the cheque was written; this is the
+        // moment it was keyed in. When two entries share a date, this is the
+        // only thing that puts them in order.
+        { key: 'entered', label: 'Entered' },
         { key: 'amount', label: 'Amount' },
         { key: null, label: 'Balance after' }
       ];
@@ -1726,7 +1749,7 @@ var APP = {
       for (var c = 0; c < cols.length; c++) {
         var col = cols[c];
         var arrow = (col.key && col.key === d.sort) ? (d.dir === 'asc' ? ' \u2191' : ' \u2193') : '';
-        hh += '<th style="text-align:' + (c >= 3 ? 'right' : 'left') +
+        hh += '<th style="text-align:' + (c >= 4 ? 'right' : 'left') +
               ';padding:0 8px 8px 0;font-size:10.5px;font-weight:800;letter-spacing:.7px;' +
               'text-transform:uppercase;color:var(--text-light)' +
               (col.key ? ';cursor:pointer' : '') + '"' +
@@ -1753,6 +1776,8 @@ var APP = {
           '<td style="padding:9px 8px 9px 0">' + what + '</td>' +
           '<td style="padding:9px 8px 9px 0;color:var(--text-light)">' +
             self.escHtml(e.number || '') + '</td>' +
+          '<td style="padding:9px 8px 9px 0;color:var(--text-light);white-space:nowrap">' +
+            self.escHtml(self.vlWhen(e.entered_at)) + '</td>' +
           '<td style="text-align:right;padding:9px 0;font-weight:600' +
             (isPay ? ';color:#1B5E20' : '') + '">' +
             (isPay ? '&minus; ' + self.money(e.paid) : self.money(e.charge)) + '</td>' +
