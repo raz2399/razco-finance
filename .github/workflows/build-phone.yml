@@ -24,7 +24,8 @@ on:
       - 'mobile/package.json'
       - 'mobile/app.json'
       - 'mobile/eas.json'
-      - '.github/workflows/build-phone.yml'
+      # Deliberately NOT this file. Editing the recipe is not a reason to
+      # bake another cake, and a build is one Raz has to install.
   workflow_dispatch:
     inputs:
       profile:
@@ -81,20 +82,45 @@ jobs:
         # --non-interactive because nobody is sitting here to answer it,
         # and --no-wait so the job is not billed for twenty minutes of
         # watching a queue. The build carries on at EAS either way.
+        #
+        # The fallback matters. --auto-submit needs App Store Connect
+        # credentials on EAS, and in non-interactive mode it will not stop
+        # and ask for them -- it refuses the whole command, so NO build is
+        # queued at all. That is the worse failure of the two: a binary
+        # that finishes and waits to be sent on still beats no binary.
+        # So: try to go all the way, and if submission cannot be set up,
+        # build anyway and say so.
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          PROFILE: ${{ github.event.inputs.profile || 'production' }}
         run: |
+          set +e
           npx eas-cli@latest build \
-            --platform ios \
-            --profile "${{ github.event.inputs.profile || 'production' }}" \
-            --auto-submit \
-            --non-interactive \
-            --no-wait
+            --platform ios --profile "$PROFILE" \
+            --auto-submit --non-interactive --no-wait
+          if [ $? -eq 0 ]; then
+            echo "SUBMITTED=yes" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "::warning::Could not queue with --auto-submit. Building"
+          echo "::warning::without it; the binary will need sending to Apple."
+          npx eas-cli@latest build \
+            --platform ios --profile "$PROFILE" \
+            --non-interactive --no-wait || exit 1
+          echo "SUBMITTED=no" >> "$GITHUB_ENV"
 
       - name: Where to watch it
         run: |
-          echo "Build queued. It appears at:"
-          echo "  https://expo.dev/accounts/[account]/projects/razi-nova-finance/builds"
-          echo
-          echo "When it finishes it goes to TestFlight, and Apple takes a"
-          echo "few more minutes to process it before it can be installed."
+          echo "Build queued. It appears under Builds on expo.dev."
+          if [ "$SUBMITTED" = "yes" ]; then
+            echo "It goes on to TestFlight by itself; Apple takes a few"
+            echo "more minutes to process it before it can be installed."
+          else
+            echo
+            echo "It will NOT go to TestFlight on its own: EAS has no App"
+            echo "Store Connect credentials to submit with. Setting those"
+            echo "up once -- 'eas credentials', or an App Store Connect API"
+            echo "key on the EAS project -- makes every build after this"
+            echo "one go all the way through."
+          fi
