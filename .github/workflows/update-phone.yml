@@ -40,8 +40,15 @@ jobs:
 
     steps:
       - name: Check for EXPO_TOKEN
+        # The secret arrives through the environment, never pasted into the
+        # script text. Written inline, a token holding a $ or a quote either
+        # gets expanded away -- reading as empty when it is not -- or breaks
+        # the line it sits in. Both fail here, claiming the secret is
+        # missing while it sits in the repository exactly as it should.
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+          if [ -z "$EXPO_TOKEN" ]; then
             echo "No EXPO_TOKEN secret is set on this repository, so there is"
             echo "nothing to authenticate with. Create one at"
             echo "https://expo.dev/settings/access-tokens and add it under"
@@ -71,4 +78,13 @@ jobs:
       # The production channel is the one the TestFlight build listens on;
       # it is named in eas.json against the production build profile.
       - name: Publish the update
-        run: eas update --channel production --message "${{ github.event.head_commit.message }}" --non-interactive
+        # Same rule for the commit message, and here it matters more: a
+        # message is text anyone with push access writes. Pasted into the
+        # command it would be read as part of the command.
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          MESSAGE="${COMMIT_MESSAGE:-Manual update}"
+          # One line of it. Commit messages here run to twenty.
+          MESSAGE="$(printf '%s' "$MESSAGE" | head -n 1)"
+          eas update --channel production --message "$MESSAGE" --non-interactive
