@@ -355,6 +355,31 @@ function checkTrue(name, cond, note) {
   checkTrue('and 401 ends the session rather than painting an error',
     /signedOut[\s\S]{0,400}showLogin/.test(pageSrc));
 
+  console.log('\nThe vendor ledger screen');
+  checkTrue('there is a Vendors screen', !!$('vendors-tab'));
+  checkTrue('reachable from the tab bar',
+    !!win.document.querySelector('[data-tab="vendors"]'));
+  checkTrue('with a search box', !!$('vl-search'));
+  checkTrue('and somewhere for the lines', !!$('vl-body'));
+
+  const led = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  // Every column he asked to sort by.
+  ['date', 'number', 'amount', 'type'].forEach(function (k) {
+    checkTrue('sortable by ' + k, led.indexOf("key: '" + k + "'") > -1);
+  });
+  checkTrue('and by a date range', led.indexOf('vl-from') > -1 && led.indexOf('vl-to') > -1);
+  checkTrue('clicking the same column turns it around',
+    /vl_sort === key[\s\S]{0,120}'asc'\)\s*\?\s*'desc'/.test(led));
+
+  // The lines are the point. A screen that adds them up and shows one
+  // number is the thing he already has in QuickBooks.
+  checkTrue('every line shows its own balance after',
+    led.indexOf('balance_after') > -1);
+  checkTrue('a payment reads as money going out',
+    led.indexOf('&minus; ') > -1);
+  checkTrue('and an opening balance is never called an invoice',
+    led.indexOf('Opening balance') > -1);
+
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

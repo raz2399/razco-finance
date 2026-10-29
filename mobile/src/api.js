@@ -9,15 +9,53 @@ const BASE =
     Constants.expoConfig.extra.apiBase) ||
   'https://famous-caramel-1cf571.netlify.app/.netlify/functions';
 
-const STORE_ID = 'store1';
+let STORE_ID = 'store1';
 
-async function call(path, options = {}) {
+// The session lives in memory for now. React Native has no localStorage,
+// and the two ways to keep something on the device -- expo-secure-store and
+// AsyncStorage -- are native modules, which means a new build and another
+// trip through TestFlight. So this ships without them: he signs in again
+// when the app has been fully closed. The next build will remember him.
+let session = { access: null, refresh: null, user: null };
+
+export const getSession = () => session;
+export const isSignedIn = () => !!session.access;
+
+function setSession(d) {
+  session = {
+    access: d.access_token || null,
+    refresh: d.refresh_token || null,
+    user: d.user || null,
+  };
+  if (d.user && d.user.stores && d.user.stores.length) STORE_ID = d.user.stores[0];
+  return session;
+}
+
+export function clearSession() {
+  session = { access: null, refresh: null, user: null };
+}
+
+// Raised when the server says the session is over. The app shows the
+// sign-in screen rather than painting it on a card as if it were a
+// problem with the data.
+export class NotSignedIn extends Error {
+  constructor(message) {
+    super(message || 'Sign in to see this.');
+    this.name = 'NotSignedIn';
+  }
+}
+
+async function call(path, options = {}, retrying = false) {
   const url = `${BASE}${path}${path.includes('?') ? '&' : '?'}store_id=${encodeURIComponent(STORE_ID)}`;
   let res;
   try {
     res = await fetch(url, {
       ...options,
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(session.access ? { Authorization: `Bearer ${session.access}` } : {}),
+        ...(options.headers || {}),
+      },
     });
   } catch (e) {
     // A dead phone signal and a dead server are different problems and the
@@ -29,10 +67,46 @@ async function call(path, options = {}) {
   let data = null;
   try { data = JSON.parse(text); } catch (e) { /* not json */ }
 
+  if (res.status === 401 || res.status === 403) {
+    // One attempt to renew, then the session really is over. Retrying
+    // forever would spin while he stares at a blank screen.
+    if (!retrying && session.refresh && path !== '/auth') {
+      try {
+        const fresh = await call('/auth', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'refresh', refresh_token: session.refresh }),
+        }, true);
+        if (fresh && fresh.access_token) {
+          setSession(fresh);
+          return call(path, options, true);
+        }
+      } catch (e) { /* fall through to signing out */ }
+    }
+    clearSession();
+    throw new NotSignedIn((data && data.error) || 'Sign in again.');
+  }
+
   if (!res.ok || (data && data.error)) {
     throw new Error((data && data.error) || `The server returned ${res.status}.`);
   }
   return data;
+}
+
+// Signing in. The password goes straight to the server and is not kept
+// anywhere on the phone, not even for the length of this call.
+export async function login(email, password) {
+  const d = await call('/auth', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'login', email: String(email).trim(), password }),
+  });
+  return setSession(d);
+}
+
+export async function logout() {
+  try {
+    await call('/auth', { method: 'POST', body: JSON.stringify({ action: 'logout' }) });
+  } catch (e) { /* going either way */ }
+  clearSession();
 }
 
 export const getOverview = (weekStart) =>
@@ -105,4 +179,4 @@ export const money = (n, cents = false) => {
   );
 };
 
-export const STORE = STORE_ID;
+export const STORE = () => STORE_ID;

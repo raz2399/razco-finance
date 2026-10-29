@@ -34,6 +34,13 @@ const GROUPS = [
         sub: 'Count the drawer, correct the bank, and say why' },
     ],
   },
+  {
+    title: 'This phone',
+    items: [
+      { key: 'signout', name: 'Sign out',
+        sub: 'Ends the session here and on the server' },
+    ],
+  },
 ];
 
 export default function MenuScreen({ onPick, onBack }) {

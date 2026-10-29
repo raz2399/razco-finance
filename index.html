@@ -756,6 +756,7 @@
     <button class="tab active" data-tab="home">Today</button>
     <button class="tab" data-tab="receive">Receive</button>
     <button class="tab" data-tab="pay">Pay</button>
+    <button class="tab" data-tab="vendors">Vendors</button>
     <button class="tab" data-tab="money">Money</button>
     <button class="tab" data-tab="week">Week</button>
     <button class="tab" data-tab="settings">Settings</button>
@@ -1100,6 +1101,55 @@
       <div id="calendar-data">
         <p>Loading calendar...</p>
       </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="vendors-tab">
+      <div class="rn-wrap">
+        <div class="rn-screenhead">
+          <h2 class="rn-screentitle">Vendors</h2>
+          <p class="rn-screensub">Every line against a vendor, in order, with the balance after each one.</p>
+        </div>
+
+        <div class="card">
+          <input id="vl-search" type="text" autocomplete="off"
+                 placeholder="Type a vendor name — Salters, Sysco, Cargil…"
+                 style="width:100%;box-sizing:border-box;font-size:15px;padding:12px">
+          <div id="vl-list" style="margin-top:12px"></div>
+        </div>
+
+        <div class="card" id="vl-ledger-card" style="display:none">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div>
+              <h3 id="vl-name" style="margin:0"></h3>
+              <div id="vl-sub" style="font-size:12px;color:var(--text-light);margin-top:3px"></div>
+            </div>
+            <button class="btn-ghost" id="vl-back" style="width:auto">&lsaquo; All vendors</button>
+          </div>
+
+          <div id="vl-totals" style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0"></div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+            <label style="font-size:11px;font-weight:700;color:var(--text-light)">FROM</label>
+            <input id="vl-from" type="date" style="font-size:13px;padding:6px">
+            <label style="font-size:11px;font-weight:700;color:var(--text-light)">TO</label>
+            <input id="vl-to" type="date" style="font-size:13px;padding:6px">
+            <label style="font-size:13px;margin-left:6px">
+              <input id="vl-openonly" type="checkbox"> Only what is still open
+            </label>
+            <button class="btn-ghost" id="vl-clear" style="width:auto;margin-left:auto">Clear</button>
+          </div>
+
+          <div style="overflow-x:auto">
+            <table id="vl-table" style="width:100%;border-collapse:collapse;font-size:13.5px">
+              <thead>
+                <tr id="vl-head"></tr>
+              </thead>
+              <tbody id="vl-body"></tbody>
+            </table>
+          </div>
+          <div id="vl-empty" style="display:none;font-size:13px;color:var(--text-light);padding:14px 0"></div>
+        </div>
       </div>
     </div>
 
@@ -1500,6 +1550,7 @@ var APP = {
     if (tabName === 'home') this.loadHome();
     if (tabName === 'receive') this.loadInvoices();
     if (tabName === 'pay') { this.loadChecks(); this.loadAPCalendar(); this.loadInvoices(); }
+    if (tabName === 'vendors') this.loadVendorList();
     if (tabName === 'money') { this.loadCashPosition(); this.loadCorrections(); this.loadBankLink(); }
     if (tabName === 'week') { this.loadPL(); this.loadSales(); this.loadClose(); }
     if (tabName === 'home') this.loadHome();
@@ -1525,6 +1576,211 @@ var APP = {
   todayISO: function() {
     var d = new Date(), p = function(n) { return n < 10 ? '0' + n : '' + n; };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  },
+
+  // ---------- the vendor ledger ----------
+  // QuickBooks gives a vendor as a total, and a total cannot be argued
+  // with. These are the lines: this invoice, that check, on this date, for
+  // this amount -- which is what gets compared against a vendor's own
+  // statement when they phone up.
+
+  vl_sort: 'date',
+  vl_dir: 'desc',
+  vl_vendor: null,
+
+  loadVendorList: function() {
+    var self = this;
+    var box = document.getElementById('vl-search');
+    if (box && !box.getAttribute('data-wired')) {
+      box.setAttribute('data-wired', '1');
+      var timer = null;
+      box.addEventListener('input', function() {
+        if (timer) window.clearTimeout(timer);
+        // Waits for him to stop typing rather than firing on every letter.
+        timer = window.setTimeout(function() { self.searchVendors(box.value); }, 180);
+      });
+    }
+    this.bind2('vl-back', function() { self.showVendorList(); });
+    this.bind2('vl-clear', function() {
+      document.getElementById('vl-from').value = '';
+      document.getElementById('vl-to').value = '';
+      document.getElementById('vl-openonly').checked = false;
+      self.openVendor(self.vl_vendor);
+    });
+    var refresh = function() { if (self.vl_vendor) self.openVendor(self.vl_vendor); };
+    ['vl-from', 'vl-to', 'vl-openonly'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el && !el.getAttribute('data-wired')) {
+        el.setAttribute('data-wired', '1');
+        el.addEventListener('change', refresh);
+      }
+    });
+    this.searchVendors(box ? box.value : '');
+  },
+
+  searchVendors: function(q) {
+    var self = this;
+    this.get('/vendor-ledger' + (q ? '?q=' + encodeURIComponent(q) : ''), function(status, d) {
+      var list = document.getElementById('vl-list');
+      if (!list) return;
+      if (status !== 200 || !d) {
+        list.innerHTML = '<p style="font-size:13px;color:var(--text-light)">Could not load vendors.</p>';
+        return;
+      }
+      if (!d.vendors.length) {
+        list.innerHTML = '<p style="font-size:13px;color:var(--text-light)">No vendor matches that.</p>';
+        return;
+      }
+      var h = '<div style="font-size:11px;color:var(--text-light);margin-bottom:8px">' +
+              d.count + ' vendor' + (d.count === 1 ? '' : 's') +
+              (d.total_owed ? ' &middot; ' + self.money(d.total_owed) + ' owed' : '') +
+              (d.truncated ? ' &middot; showing the first 60' : '') + '</div>';
+      h += '<table style="width:100%;border-collapse:collapse;font-size:13.5px">';
+      for (var i = 0; i < d.vendors.length; i++) {
+        var v = d.vendors[i];
+        h += '<tr class="vl-row" data-vendor="' + self.escHtml(v.vendor_id) + '" ' +
+             'style="cursor:pointer;border-top:1px solid #F1F3F5">' +
+             '<td style="padding:10px 8px 10px 0"><strong>' + self.escHtml(v.name) + '</strong>' +
+             (v.aliases && v.aliases.length
+               ? '<div style="font-size:10.5px;color:#9aa3b2">also ' +
+                 self.escHtml(v.aliases.join(', ')) + '</div>' : '') +
+             '<div style="font-size:11px;color:var(--text-light)">' +
+             (v.method_label ? self.escHtml(v.method_label) : 'Payment type not set') +
+             (v.terms ? ' &middot; ' + self.escHtml(v.terms) : '') +
+             (v.open_count ? ' &middot; ' + v.open_count + ' open' : '') +
+             (v.next_due ? ' &middot; due ' + self.escHtml(v.next_due) : '') +
+             '</div></td>' +
+             '<td style="text-align:right;padding:10px 0;font-weight:700' +
+             (v.owed < 0 ? ';color:#1B5E20' : '') + '">' +
+             (v.owed ? self.money(v.owed) : '<span style="color:#9aa3b2;font-weight:400">&mdash;</span>') +
+             '</td></tr>';
+      }
+      h += '</table>';
+      list.innerHTML = h;
+
+      var rows = document.querySelectorAll('.vl-row');
+      for (var k = 0; k < rows.length; k++) {
+        rows[k].onclick = function() { self.openVendor(this.getAttribute('data-vendor')); };
+      }
+    });
+  },
+
+  showVendorList: function() {
+    this.vl_vendor = null;
+    document.getElementById('vl-ledger-card').style.display = 'none';
+  },
+
+  openVendor: function(vendorId) {
+    if (!vendorId) return;
+    var self = this;
+    this.vl_vendor = vendorId;
+
+    var from = document.getElementById('vl-from').value;
+    var to = document.getElementById('vl-to').value;
+    var openOnly = document.getElementById('vl-openonly').checked;
+
+    var url = '/vendor-ledger?vendor_id=' + encodeURIComponent(vendorId) +
+              '&sort=' + this.vl_sort + '&dir=' + this.vl_dir +
+              (from ? '&from=' + from : '') + (to ? '&to=' + to : '') +
+              (openOnly ? '&include=open' : '');
+
+    this.get(url, function(status, d) {
+      if (status !== 200 || !d || d.error) {
+        window.alert((d && d.error) || 'Could not load that vendor.');
+        return;
+      }
+      document.getElementById('vl-ledger-card').style.display = 'block';
+      document.getElementById('vl-name').innerHTML = self.escHtml(d.vendor.name);
+      document.getElementById('vl-sub').innerHTML =
+        (d.vendor.method_label ? self.escHtml(d.vendor.method_label) : 'Payment type not set') +
+        (d.vendor.terms ? ' &middot; ' + self.escHtml(d.vendor.terms) : '') +
+        (d.vendor.account_number ? ' &middot; acct ' + self.escHtml(d.vendor.account_number) : '');
+
+      var t = d.totals;
+      var tile = function(label, value, tone) {
+        return '<div style="flex:1;min-width:130px;border:1px solid #E9EDF3;border-radius:10px;padding:10px 12px">' +
+          '<div style="font-size:10px;font-weight:800;letter-spacing:.8px;color:var(--text-light);text-transform:uppercase">' +
+          label + '</div><div style="font-size:19px;font-weight:800;margin-top:3px' +
+          (tone ? ';color:' + tone : '') + '">' + value + '</div></div>';
+      };
+      var tiles = tile('Owed now', self.money(t.owed), t.owed > 0 ? '#922B21' : '#1B5E20') +
+        tile('Charged', self.money(t.charged)) +
+        tile('Paid', self.money(t.paid));
+      if (t.checks_not_cashed) {
+        tiles += tile('Checks not cashed', self.money(t.checks_not_cashed_total), '#8D6E00');
+      }
+      if (t.from_quickbooks) {
+        tiles += tile('Of that, from QuickBooks', self.money(t.from_quickbooks), '#8D6E00');
+      }
+      document.getElementById('vl-totals').innerHTML = tiles;
+
+      // Sortable headers. Clicking the one already sorted turns it around.
+      var cols = [
+        { key: 'date', label: 'Date' },
+        { key: 'type', label: 'What' },
+        { key: 'number', label: 'Number' },
+        { key: 'amount', label: 'Amount' },
+        { key: null, label: 'Balance after' }
+      ];
+      var hh = '';
+      for (var c = 0; c < cols.length; c++) {
+        var col = cols[c];
+        var arrow = (col.key && col.key === d.sort) ? (d.dir === 'asc' ? ' \u2191' : ' \u2193') : '';
+        hh += '<th style="text-align:' + (c >= 3 ? 'right' : 'left') +
+              ';padding:0 8px 8px 0;font-size:10.5px;font-weight:800;letter-spacing:.7px;' +
+              'text-transform:uppercase;color:var(--text-light)' +
+              (col.key ? ';cursor:pointer' : '') + '"' +
+              (col.key ? ' class="vl-sort" data-key="' + col.key + '"' : '') + '>' +
+              col.label + arrow + '</th>';
+      }
+      document.getElementById('vl-head').innerHTML = hh;
+
+      var body = '';
+      for (var i = 0; i < d.entries.length; i++) {
+        var e = d.entries[i];
+        var isPay = e.kind === 'payment';
+        var what = e.opening
+          ? '<span style="color:#8D6E00;font-weight:700">Opening balance</span>'
+          : isPay
+            ? self.escHtml(e.label) + (e.settled
+                ? '' : ' <span style="color:#8D6E00;font-size:11px">not cashed</span>')
+            : 'Invoice' + (e.status === 'paid'
+                ? ' <span style="color:#1B5E20;font-size:11px">paid</span>' : '') +
+              (e.due_date ? ' <span style="font-size:11px;color:var(--text-light)">due ' +
+                self.escHtml(e.due_date) + '</span>' : '');
+        body += '<tr style="border-top:1px solid #F1F3F5">' +
+          '<td style="padding:9px 8px 9px 0;white-space:nowrap">' + self.escHtml(e.date || '') + '</td>' +
+          '<td style="padding:9px 8px 9px 0">' + what + '</td>' +
+          '<td style="padding:9px 8px 9px 0;color:var(--text-light)">' +
+            self.escHtml(e.number || '') + '</td>' +
+          '<td style="text-align:right;padding:9px 0;font-weight:600' +
+            (isPay ? ';color:#1B5E20' : '') + '">' +
+            (isPay ? '&minus; ' + self.money(e.paid) : self.money(e.charge)) + '</td>' +
+          '<td style="text-align:right;padding:9px 0 9px 8px;color:var(--text-light)">' +
+            self.money(e.balance_after) + '</td>' +
+          '</tr>';
+      }
+      document.getElementById('vl-body').innerHTML = body;
+
+      var empty = document.getElementById('vl-empty');
+      empty.style.display = d.entries.length ? 'none' : 'block';
+      empty.innerHTML = 'Nothing on this vendor' +
+        ((from || to || openOnly) ? ' for what you have filtered to.' : ' yet.');
+
+      var heads = document.querySelectorAll('.vl-sort');
+      for (var h2 = 0; h2 < heads.length; h2++) {
+        heads[h2].onclick = function() {
+          var key = this.getAttribute('data-key');
+          if (self.vl_sort === key) {
+            self.vl_dir = (self.vl_dir === 'asc') ? 'desc' : 'asc';
+          } else {
+            self.vl_sort = key;
+            self.vl_dir = (key === 'date') ? 'desc' : 'asc';
+          }
+          self.openVendor(self.vl_vendor);
+        };
+      }
+    });
   },
 
   // ---------- the bank connection ----------

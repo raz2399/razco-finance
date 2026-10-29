@@ -211,6 +211,38 @@ const checkTrue = (n, c, note) => {
     fsrc.indexOf("'/invoices&vendors_only") === -1);
 }());
 
+
+// ---- the phone signs in too ------------------------------------------
+(function () {
+  const api = fs.readFileSync(path.join(__dirname, '..', 'mobile', 'src', 'api.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'mobile', 'App.js'), 'utf8');
+  const login = fs.readFileSync(path.join(__dirname, '..', 'mobile', 'src', 'LoginScreen.js'), 'utf8');
+
+  console.log('\nThe phone');
+  checkTrue('there is a sign-in screen', login.indexOf('export default function LoginScreen') > -1);
+  checkTrue('nothing shows until somebody signs in',
+    /if \(!signedIn\)[\s\S]{0,200}LoginScreen/.test(app), 'App must gate on the session');
+  checkTrue('every request carries the token',
+    /Authorization: `Bearer \$\{session\.access\}`/.test(api));
+  checkTrue('the password is sent, not stored',
+    /action: 'login'[\s\S]{0,120}password/.test(api) &&
+    !/session\s*=\s*\{[^}]*password/.test(api));
+  checkTrue('a dead session is renewed, once',
+    /if \(!retrying && session\.refresh/.test(api));
+  checkTrue('and when that fails the session ends rather than spinning',
+    /clearSession\(\);\s*\n\s*throw new NotSignedIn/.test(api));
+  checkTrue('and signing out is reachable',
+    fs.readFileSync(path.join(__dirname, '..', 'mobile', 'src', 'MenuScreen.js'), 'utf8')
+      .indexOf("key: 'signout'") > -1);
+
+  // The field names the phone sends must be the ones /auth reads.
+  const authSrc = fs.readFileSync(path.join(__dirname, '..', 'functions', 'auth.js'), 'utf8');
+  checkTrue('the server reads the same field names',
+    authSrc.indexOf('body.email') > -1 && authSrc.indexOf('body.password') > -1);
+  checkTrue('and the same refresh field',
+    authSrc.indexOf('body.refresh_token') > -1 && api.indexOf('refresh_token: session.refresh') > -1);
+}());
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
