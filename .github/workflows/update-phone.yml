@@ -39,6 +39,9 @@ jobs:
         working-directory: mobile
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
       - name: Check for EXPO_TOKEN
         # The secret arrives through the environment, never pasted into the
         # script text. Written inline, a token holding a $ or a quote either
@@ -55,9 +58,6 @@ jobs:
             echo "Settings -> Secrets and variables -> Actions."
             exit 1
           fi
-
-      - name: Checkout repository
-        uses: actions/checkout@v5
 
       - name: Setup Node
         uses: actions/setup-node@v6
