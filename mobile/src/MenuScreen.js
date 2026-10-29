@@ -16,6 +16,8 @@ const GROUPS = [
         sub: 'Photograph the invoices, stack them, save together' },
       { key: 'sales', name: 'Sales',
         sub: 'By tender, by department, by cashier' },
+      { key: 'check', name: 'Log a check',
+        sub: 'Who, how much, which number — it finds the bills itself' },
     ],
   },
   {

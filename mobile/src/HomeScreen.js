@@ -10,7 +10,7 @@ import {
 import { getOverview, money } from './api';
 import { C, S } from './theme';
 
-export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks, onFixNumbers }) {
+export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks, onFixNumbers, onLogCheck }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -124,6 +124,10 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
 
         <TouchableOpacity style={S.big} onPress={onRecordDelivery} activeOpacity={0.85}>
           <Text style={S.bigText}>Record a delivery</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={st.secondary} onPress={onLogCheck} activeOpacity={0.8}>
+          <Text style={st.secondaryText}>Log a check</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={st.secondary} onPress={onOpenSales} activeOpacity={0.8}>

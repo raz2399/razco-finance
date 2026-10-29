@@ -504,6 +504,31 @@ const checkTrue = (n, c, note) => {
     /input: 'Check number'/.test(vs) && /ask\.input/.test(confirm));
 }());
 
+// ---- logging a check has to be quick, or it does not get logged -----
+(function () {
+  const chk = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'CheckScreen.js'), 'utf8');
+  const app = fs.readFileSync(path.join(ROOT, 'mobile', 'App.js'), 'utf8');
+  const menu = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'MenuScreen.js'), 'utf8');
+  const home = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'HomeScreen.js'), 'utf8');
+  const desk = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+
+  console.log('\nLogging a check');
+  checkTrue('there is one screen for it', /export default function CheckScreen/.test(chk));
+  checkTrue('with the vendor search built in', /findVendors/.test(chk));
+  checkTrue('and it records a check, not something else',
+    /method: 'check'/.test(chk) && /addVendorPayment/.test(chk));
+  checkTrue('reachable from Home', /onLogCheck/.test(home) && /onLogCheck/.test(app));
+  checkTrue('and from the Menu', /key: 'check'/.test(menu));
+  checkTrue('the desktop has had it all along, on Pay',
+    /Log a check/.test(desk) && /id="chk-save"/.test(desk));
+
+  // A check that quietly closes four invoices is not something to find
+  // out about a week later.
+  checkTrue('it says how many bills the check settled',
+    /applied_to/.test(chk) && /against/.test(chk));
+  checkTrue('and whether any of it is left over', /left_over/.test(chk));
+}());
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
