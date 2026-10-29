@@ -66,12 +66,6 @@ jobs:
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
       - name: Install dependencies
         run: npm ci
 
@@ -83,8 +77,16 @@ jobs:
         # command it would be read as part of the command.
         env:
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          # eas-cli reads this itself. No action in between, which is one
+          # less thing that can be broken on a runner we do not control:
+          # the action this replaced is built for a Node the runners have
+          # stopped carrying.
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           MESSAGE="${COMMIT_MESSAGE:-Manual update}"
           # One line of it. Commit messages here run to twenty.
           MESSAGE="$(printf '%s' "$MESSAGE" | head -n 1)"
-          eas update --channel production --message "$MESSAGE" --non-interactive
+          # Say who we are first. When the token is the problem, this fails
+          # with Expo's own words instead of an exit code from a wrapper.
+          npx eas-cli@latest whoami
+          npx eas-cli@latest update --channel production --message "$MESSAGE" --non-interactive
