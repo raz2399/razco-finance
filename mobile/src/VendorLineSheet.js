@@ -20,6 +20,29 @@ import {
 } from './api';
 import { C, S } from './theme';
 
+// Plain words for what the database calls things. He should never have to
+// read "partially_paid" off his own screen.
+const INVOICE_STATUS = [
+  { key: 'approved', label: 'Open' },
+  { key: 'partially_paid', label: 'Part paid' },
+  { key: 'paid', label: 'Paid' },
+  { key: 'needs_review', label: 'Needs a look' },
+  { key: 'disputed', label: 'Disputed' },
+];
+
+const PAYMENT_STATUS = [
+  { key: 'outstanding', label: 'Not cashed' },
+  { key: 'cleared', label: 'Cleared' },
+  { key: 'stopped', label: 'Stopped' },
+];
+
+const PAY_TYPE = [
+  { key: 'charge_account', label: 'Charge' },
+  { key: 'check', label: 'Check' },
+  { key: 'cod', label: 'COD' },
+  { key: 'auto_debit', label: 'Auto-draft' },
+];
+
 const METHODS = [
   { key: 'check', label: 'Check' },
   { key: 'ach', label: 'ACH' },
@@ -43,6 +66,14 @@ export default function VendorLineSheet({ visible, vendor, editing, onClose, onS
   const [method, setMethod] = useState('check');
   const [note, setNote] = useState('');
   const [alreadyPaid, setAlreadyPaid] = useState(false);
+  // Everything else the server will take. Shown when correcting a line,
+  // because a correction is exactly the moment any of them may be the
+  // thing that is wrong.
+  const [paidSoFar, setPaidSoFar] = useState('');
+  const [status, setStatus] = useState('');
+  const [payType, setPayType] = useState('');
+  const [received, setReceived] = useState('');
+  const [cleared, setCleared] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [loadedFor, setLoadedFor] = useState(null);
@@ -64,6 +95,19 @@ export default function VendorLineSheet({ visible, vendor, editing, onClose, onS
       setDue(editing.due_date || '');
       setNote((editing.kind === 'payment' ? editing.memo : editing.note) || '');
       setAlreadyPaid(false);
+      setStatus(editing.status || '');
+      setPayType(editing.method || '');
+      setMethod(editing.method && editing.kind === 'payment' ? editing.method : 'check');
+      setReceived(editing.received_date || '');
+      setCleared(editing.cleared_date || '');
+      // What has been paid against it so far, whether through this system
+      // or settled elsewhere. Editable, because a part payment keyed wrong
+      // is as common as an amount keyed wrong.
+      setPaidSoFar(String(
+        editing.kind === 'invoice'
+          ? Math.round(((Number(editing.face_amount) || 0) -
+                        (Number(editing.balance_due) || 0)) * 100) / 100
+          : ''));
     } else {
       setKind('invoice');
       setDate(todayPacific());
@@ -73,6 +117,7 @@ export default function VendorLineSheet({ visible, vendor, editing, onClose, onS
       setMethod('check');
       setNote('');
       setAlreadyPaid(false);
+      setPaidSoFar(''); setStatus(''); setPayType(''); setReceived(''); setCleared('');
     }
   }
 
@@ -98,10 +143,19 @@ export default function VendorLineSheet({ visible, vendor, editing, onClose, onS
     try {
       let r;
       if (correcting) {
+        // Everything the server will take, so a correction can reach
+        // whichever field is actually the wrong one.
         const fields = paying
-          ? { payment_date: date, check_number: number, amount: money, memo: note }
-          : { invoice_date: date, invoice_number: number, total_amount: money,
-              due_date: due, notes: note };
+          ? {
+              payment_date: date, check_number: number, amount: money, memo: note,
+              method, status, cleared_date: cleared,
+            }
+          : {
+              invoice_date: date, invoice_number: number, total_amount: money,
+              due_date: due, notes: note, received_date: received,
+              amount_paid: String(paidSoFar).replace(/[$,\s]/g, ''),
+              status, payment_type: payType,
+            };
         r = await editVendorLine(kind, editing.id, fields);
       } else if (paying) {
         r = await addVendorPayment({
@@ -245,6 +299,64 @@ export default function VendorLineSheet({ visible, vendor, editing, onClose, onS
             </>
           ) : null}
 
+          {correcting && !paying ? (
+            <>
+              <Text style={[S.label, { marginTop: 13 }]}>Paid against it so far</Text>
+              <TextInput style={st.input} value={paidSoFar} onChangeText={setPaidSoFar}
+                         placeholder="0.00" placeholderTextColor="#b6bcc8"
+                         keyboardType="decimal-pad" />
+              <Text style={st.hint}>
+                What is left is worked out from this — the amount less what is paid.
+              </Text>
+
+              <Text style={[S.label, { marginTop: 13 }]}>Received</Text>
+              <TextInput style={st.input} value={received} onChangeText={setReceived}
+                         placeholder="2026-10-29" placeholderTextColor="#b6bcc8"
+                         autoCorrect={false} keyboardType="numbers-and-punctuation" />
+
+              <Text style={[S.label, { marginTop: 13 }]}>How it gets paid</Text>
+              <View style={st.chipRow}>
+                {PAY_TYPE.map((m) => (
+                  <Chip key={m.key} on={payType === m.key} label={m.label}
+                        onPress={() => setPayType(m.key)} small />
+                ))}
+              </View>
+
+              <Text style={[S.label, { marginTop: 13 }]}>Where it stands</Text>
+              <View style={st.chipRow}>
+                {INVOICE_STATUS.map((m) => (
+                  <Chip key={m.key} on={status === m.key} label={m.label}
+                        onPress={() => setStatus(m.key)} small />
+                ))}
+              </View>
+            </>
+          ) : null}
+
+          {correcting && paying ? (
+            <>
+              <Text style={[S.label, { marginTop: 13 }]}>How it was paid</Text>
+              <View style={st.chipRow}>
+                {METHODS.map((m) => (
+                  <Chip key={m.key} on={method === m.key} label={m.label}
+                        onPress={() => setMethod(m.key)} small />
+                ))}
+              </View>
+
+              <Text style={[S.label, { marginTop: 13 }]}>Where it stands</Text>
+              <View style={st.chipRow}>
+                {PAYMENT_STATUS.map((m) => (
+                  <Chip key={m.key} on={status === m.key} label={m.label}
+                        onPress={() => setStatus(m.key)} small />
+                ))}
+              </View>
+
+              <Text style={[S.label, { marginTop: 13 }]}>Cleared the bank on</Text>
+              <TextInput style={st.input} value={cleared} onChangeText={setCleared}
+                         placeholder="blank until it clears" placeholderTextColor="#b6bcc8"
+                         autoCorrect={false} keyboardType="numbers-and-punctuation" />
+            </>
+          ) : null}
+
           <Text style={[S.label, { marginTop: 13 }]}>Note</Text>
           <TextInput style={st.input} value={note} onChangeText={setNote} />
 
@@ -337,6 +449,7 @@ const st = StyleSheet.create({
   checkLabel: { fontSize: 14.5, fontWeight: '700', color: C.ink },
   checkSub: { fontSize: 11.5, color: C.mute, lineHeight: 16, marginTop: 2 },
 
+  hint: { fontSize: 11.5, color: C.mute, marginTop: 5, lineHeight: 16 },
   void: { marginTop: 16, alignItems: 'center', paddingVertical: 10 },
   voidText: { fontSize: 14, fontWeight: '700', color: C.red },
 
