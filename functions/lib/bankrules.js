@@ -94,6 +94,19 @@ const RULES = [
     kind: 'settles',
     why: 'A check you wrote. Matching it marks that check cleared.',
   },
+  {
+    // A check that came back. On the statement these read as plain
+    // credits with wording like "RETURN SIGNATURE IRREGULAR" or
+    // "SIGNATURE MISSING", and left unnamed they look exactly like
+    // income -- money arriving, no vendor, no explanation. They are not
+    // income. They are a payment that failed and still has to be made,
+    // which makes them worth seeing rather than quietly banking.
+    code: 'returned_item',
+    test: /RETURN\s+(DUPLICATE|UNUSABLE|SIGNATURE|UNCOLLECTED|NSF)|SIGNATURE\s+MISSING|DUPLICATE\s+PRESENTMENT|RETURNED\s+ITEM|REDEPOSIT/,
+    label: 'Check came back',
+    kind: 'settles',
+    why: 'A check was returned unpaid. The money is back, and so is the bill.',
+  },
 
   // ---- vendors that draft the account themselves ----
   // Named from a year of real statements rather than guessed at, so a
@@ -108,6 +121,20 @@ const RULES = [
   },
 
   // ---- running the place ----
+  {
+    // Above plain payroll on purpose. "TAXDRAFT ASURE PAYROLL TA" reads
+    // as payroll to any rule looking for the word, and reads as tax to
+    // any rule looking for TAXDRAFT -- so it would land wherever the
+    // list happened to be ordered, which is not a decision anyone made.
+    // It is both, it is labour cost, and it gets a name of its own so
+    // nobody has to wonder which bucket it fell into.
+    code: 'payroll_tax',
+    test: /TAXDRAFT|PAYROLL\s+TAX|941\s+PAYMENT|EFTPS/,
+    direction: 'out',
+    label: 'Payroll tax',
+    kind: 'expense',
+    why: 'Payroll taxes remitted by the payroll service. Part of what labour costs.',
+  },
   {
     code: 'payroll',
     test: /PAYROLL|ASURE\s+PAYROLL|FINGERCHECK/,
@@ -126,7 +153,7 @@ const RULES = [
   },
   {
     code: 'utility',
-    test: /EDISON|SOCALGAS|SO\s*CAL\s*GAS|UNWIRED\s+BROADBAN|WATER\s+DEPT|WASTE\s+MANAGEMENT/,
+    test: /EDISON|SOCALGAS|SO\s*CAL\s*GAS|UNWIRED\s+BROADBAN|GETUNWIRED|WIRELESS\s+INTERNET|WATER\s+DEPT|WASTE\s+MANAGEMENT|MID[\s-]*VALLEY\s+DISPOSAL|DISPOSAL/,
     direction: 'out',
     label: 'Utility',
     kind: 'expense',
@@ -134,19 +161,47 @@ const RULES = [
   },
   {
     code: 'insurance',
-    test: /HARTFORD|MERCURY\s+INS|STATE\s+FUND|WORKERS\s+COMP|TRAVELERS|SAGESURE|BUS\s+INSUR/,
+    test: /HARTFORD|MERCURY\s+INS|STATE\s+FUND|WORKERS\s+COMP|TRAVELERS|SAGESURE|BUS\s+INSUR|PROGRESSIVE\s+INS/,
     direction: 'out',
     label: 'Insurance',
     kind: 'expense',
     why: 'Premiums. Usually monthly, and usually the same figure.',
   },
   {
+    // Licences and permits a grocery store has to keep current: the ABC
+    // licence, the county health permit, DMV for the vehicles. They are
+    // not "tax" and they are not "supplies", and filed under either one
+    // they stop being findable the week the renewal is late.
+    code: 'license',
+    test: /ALCBEVCTL|ALC\s*BEV|ENV\s+HEALT|HEALTH\s+DEPT|CA\s*DMV|STATE\s+OF\s+CALIF\s+DMV|DEPARTMENT\s+OF\s+REAL\s+EST|LICENSERNW|ALLPAID|BUSINESS\s+LICEN/,
+    direction: 'out',
+    label: 'Licence or permit',
+    kind: 'expense',
+    why: 'A licence, permit or registration the store has to keep current.',
+  },
+  {
     code: 'subscription',
-    test: /QBOOKS\s+ONL|INTUIT|ADOBE|MICROSOFT|GOOGLE\s|DROPBOX|SQUARE\s*SPACE|SQUARESPACE|GODADDY|NETFLIX|SPOTIFY|ZOOM\.US|SHOPIFY|MAILCHIMP/,
+    test: /QBOOKS\s+ONL|INTUIT|ADOBE|MICROSOFT|GOOGLE\s*\*?\s*CLOUD|GOOGLE\s|DROPBOX|SQUARE\s*SPACE|SQUARESPACE|GODADDY|NETFLIX|SPOTIFY|ZOOM\.US|SHOPIFY|MAILCHIMP|AMAZON\s+WEB\s+SERVICES|AWS\.AMAZON|TWILIO|ANTHROPIC|OPENAI|GLIDE\b|GLIDEAPPS|RAILWAY|DIGITALOCEAN|AIPRM|CAPTIONS\.AI|BOLT\s*\(|STACKBLITZ|ENVATO|OPTISIGNS|MCAFEE|SINCH|PREPLY|H2O\s+WIRELESS|ONLINEED|MY\s+CORPORATION/,
     direction: 'out',
     label: 'Subscription',
     kind: 'expense',
     why: 'A recurring software or service charge. Worth a look now and then.',
+  },
+  {
+    code: 'advertising',
+    test: /FACEBK|FACEBOOK|META\s+PLATFORMS|GOOGLE\s+ADS|NEXO\s*MEDIA|VISTAPRINT|EXACTO\s+MENU/,
+    direction: 'out',
+    label: 'Advertising',
+    kind: 'expense',
+    why: 'Marketing: social ads, printing, menus and signage.',
+  },
+  {
+    code: 'fuel',
+    test: /\bCHEVRON\b|SHELL\s+OIL|\bSHELL\s|\bVALERO\b|\bARCO\b|FASTRIP|GAWFCO|X-PRESS\s+FOOD|\b76\s*-\s*DBA/,
+    direction: 'out',
+    label: 'Fuel',
+    kind: 'expense',
+    why: 'Fuel, usually for the delivery vehicle.',
   },
   {
     code: 'lease',
@@ -158,11 +213,21 @@ const RULES = [
   },
   {
     code: 'bank_fee',
-    test: /ACCOUNT\s+ANALYSIS|SERVICE\s+CHARGE|OVERDRAFT|NSF\s+FEE|WIRE\s+FEE|MONTHLY\s+FEE/,
+    test: /ACCOUNT\s+ANALYSIS|SERVICE\s+CHARGE|OVERDRAFT|NSF\s+FEE|WIRE\s+FEE|MONTHLY\s+FEE|CHANGE\s+ORDER\s+FEE|W\/D\s+SVC/,
     direction: 'out',
     label: 'Bank charge',
     kind: 'expense',
     why: 'What the bank takes for keeping the account.',
+  },
+  {
+    // The bank fixing its own arithmetic. Cents, usually, and in both
+    // directions. Counted as income a correction would be nonsense, so
+    // it is named as what it is and kept out of every total.
+    code: 'bank_correction',
+    test: /DEBIT\s+CORRECTION|CREDIT\s+CORRECTION|ADJUSTMENT\s+TO|ERROR\s+CORRECT/,
+    label: 'Bank correction',
+    kind: 'transfer',
+    why: 'The bank correcting an earlier entry. Not money earned or spent.',
   },
   {
     code: 'card_payment',
@@ -182,20 +247,34 @@ const RULES = [
     why: 'An account that went to collections.',
   },
   {
-    code: 'debit_card',
-    test: /^DBT\s*CRD|DEBIT\s+CARD\s+PURCHASE|POS\s+PURCHASE/,
-    direction: 'out',
-    label: 'Debit card purchase',
-    kind: 'expense',
-    why: 'Bought on the debit card at a till or online.',
-  },
-  {
+    // Named merchants sit above the generic card rule on purpose, so a
+    // card swipe at Home Depot reads "Supplies" rather than the useless
+    // truth that it was a card.
     code: 'supplies',
-    test: /ULINE|WEBSTAURANT|GRAINGER|HOME\s*DEPOT|LOWES|COSTCO\s+WHSE|SAMS\s*CLUB/,
+    test: /ULINE|WEBSTAURANT|GRAINGER|HOME\s*DEPOT|LOWES|COSTCO|SAMS\s*CLUB|OFFICE\s+DEPOT|AMAZON\s+MKTPL|SMART\s+AND\s+FINAL|WAL-?MART|TARGET\s+T|ID\s+IMAGES|DURAFAST|G\s*&\s*I\s+INDUSTRIES|ACTION\s+GLASS|HUSSMANN|MILLENIUM/,
     direction: 'out',
     label: 'Supplies',
     kind: 'expense',
     why: 'Bags, cleaning, shelving, hardware -- things to run the place.',
+  },
+  {
+    code: 'repairs',
+    test: /PYE-?BARKER|FIRE\s+PROTECT|REFRIGERAT|PLUMB|ELECTRIC\s+SERVICE|HVAC|PEST\s+CONTROL|ORKIN|TERMINIX/,
+    direction: 'out',
+    label: 'Repairs and maintenance',
+    kind: 'expense',
+    why: 'Keeping the building and the equipment working.',
+  },
+  {
+    // The catch-all for a card swipe nothing above recognised. It is a
+    // real expense and it says so, but the label is deliberately vague
+    // because the only honest thing left to say is where it happened.
+    code: 'debit_card',
+    test: /^DBT\s*CRD|^POS\s+DEB|^DDA\s+B\/P|^ATM\s+W\/D|DEBIT\s+CARD\s+PURCHASE|POS\s+PURCHASE|CARD#/,
+    direction: 'out',
+    label: 'Card purchase',
+    kind: 'expense',
+    why: 'Bought on the debit card. Open it to say what it was for.',
   },
   {
     code: 'card_chargeback',

@@ -90,7 +90,9 @@ console.log('\nMoney going out, by what it is');
     ['MPV AR PMT PEPSI BEVERAGECO WEB', -17770, 'vendor_draft', 'settles'],
     ['ONLINE FEE REYESCOCACOLA CCD', -8117, 'vendor_draft', 'settles'],
     ['PAYROLL    RAZCO LINDSAY IN CCD', -4580, 'payroll', 'expense'],
-    ['TAXDRAFT   ASURE PAYROLL TA CCD', -6382, 'payroll', 'expense'],
+    // Was 'payroll' only because the payroll rule happened to sit above
+    // the tax rule. It is a payroll TAX draft and now says so.
+    ['TAXDRAFT   ASURE PAYROLL TA CCD', -6382, 'payroll_tax', 'expense'],
     ['CDTFA EPMT CA DEPT TAX FEE CCD', -6904, 'tax', 'expense'],
     ['BILL PAYMT SO CAL EDISON CO WEB', -10605, 'utility', 'expense'],
     ['PAID SCGC  SOCALGAS WEB 123', -216, 'utility', 'expense'],
