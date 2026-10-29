@@ -196,6 +196,7 @@ exports.handler = safely('vendor-ledger', async (event) => {
         method: i.payment_type,
         method_label: METHOD_LABEL[i.payment_type] || null,
         opening: i.invoice_number === 'QB-OPEN',
+        received_date: i.received_date || null,
         note: i.notes || null,
         entered_at: i.created_at,
       });
@@ -225,6 +226,7 @@ exports.handler = safely('vendor-ledger', async (event) => {
         // A check written but not yet cashed is money promised, not money
         // gone. The ledger says which.
         settled: p.status === 'cleared',
+        memo: p.memo || null,
         against_invoices: against.length,
         standalone: against.length === 0,
         entered_at: p.created_at,

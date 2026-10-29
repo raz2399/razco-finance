@@ -1255,10 +1255,50 @@
                 <label class="lbl">DUE</label>
                 <input id="vl-e-due" type="date" style="font-size:13px;padding:7px">
               </div>
+              <div id="vl-e-paidwrap">
+                <label class="lbl">PAID SO FAR</label>
+                <input id="vl-e-paid" type="text" inputmode="decimal" style="font-size:13px;padding:7px;width:110px">
+              </div>
+              <div id="vl-e-recwrap">
+                <label class="lbl">RECEIVED</label>
+                <input id="vl-e-received" type="date" style="font-size:13px;padding:7px">
+              </div>
+              <div id="vl-e-methodwrap" style="display:none">
+                <label class="lbl">HOW PAID</label>
+                <select id="vl-e-method" style="font-size:13px;padding:7px">
+                  <option value="check">Check</option>
+                  <option value="ach">ACH</option>
+                  <option value="auto_debit">Bank draft</option>
+                  <option value="cash">Cash</option>
+                  <option value="card">Card</option>
+                  <option value="wire">Wire</option>
+                </select>
+              </div>
+              <div id="vl-e-typewrap">
+                <label class="lbl">HOW IT GETS PAID</label>
+                <select id="vl-e-type" style="font-size:13px;padding:7px">
+                  <option value="">—</option>
+                  <option value="charge_account">Charge</option>
+                  <option value="check">Check</option>
+                  <option value="cod">COD</option>
+                  <option value="auto_debit">Auto-draft</option>
+                </select>
+              </div>
+              <div>
+                <label class="lbl">WHERE IT STANDS</label>
+                <select id="vl-e-status" style="font-size:13px;padding:7px"></select>
+              </div>
+              <div id="vl-e-clearedwrap" style="display:none">
+                <label class="lbl">CLEARED ON</label>
+                <input id="vl-e-cleared" type="date" style="font-size:13px;padding:7px">
+              </div>
               <div style="flex:1;min-width:150px">
                 <label class="lbl">NOTE</label>
                 <input id="vl-e-note" type="text" style="font-size:13px;padding:7px;width:100%;box-sizing:border-box">
               </div>
+            </div>
+            <div style="font-size:11.5px;color:var(--text-light);margin-top:7px">
+              What is left is worked out from these two &mdash; the amount, less what is paid.
             </div>
             <div style="display:flex;gap:8px;margin-top:13px;flex-wrap:wrap">
               <button class="btn" id="vl-e-save" style="width:auto">Save the correction</button>
@@ -1993,8 +2033,54 @@ var APP = {
       (kind === 'payment' ? (e.face_amount != null ? e.face_amount : e.paid)
                           : (e.face_amount != null ? e.face_amount : e.charge));
     document.getElementById('vl-e-due').value = e.due_date || '';
-    document.getElementById('vl-e-duewrap').style.display = kind === 'payment' ? 'none' : 'block';
     document.getElementById('vl-e-note').value = (kind === 'payment' ? (e.memo || '') : (e.note || ''));
+
+    // Everything the server will take, so a correction can reach whichever
+    // field is actually the wrong one rather than only the obvious few.
+    var pay = kind === 'payment';
+    var swap = function(id, on) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = on ? 'block' : 'none';
+    };
+    swap('vl-e-duewrap', !pay);
+    swap('vl-e-paidwrap', !pay);
+    swap('vl-e-recwrap', !pay);
+    swap('vl-e-typewrap', !pay);
+    swap('vl-e-methodwrap', pay);
+    swap('vl-e-clearedwrap', pay);
+
+    if (pay) {
+      document.getElementById('vl-e-method').value = e.method || 'check';
+      document.getElementById('vl-e-cleared').value = e.cleared_date || '';
+    } else {
+      document.getElementById('vl-e-received').value = e.received_date || '';
+      document.getElementById('vl-e-type').value = e.method || '';
+      // What has been paid against it, however it was paid -- the amount
+      // less what is left.
+      document.getElementById('vl-e-paid').value =
+        Math.round((((Number(e.face_amount) || 0) - (Number(e.balance_due) || 0)) * 100)) / 100;
+    }
+
+    // Plain words. He should never read "partially_paid" off his own screen.
+    var states = pay
+      ? [['outstanding', 'Not cashed'], ['cleared', 'Cleared'], ['stopped', 'Stopped']]
+      : [['approved', 'Open'], ['partially_paid', 'Part paid'], ['paid', 'Paid'],
+         ['needs_review', 'Needs a look'], ['disputed', 'Disputed']];
+    var sel = document.getElementById('vl-e-status');
+    var oh = '';
+    for (var si = 0; si < states.length; si++) {
+      oh += '<option value="' + states[si][0] + '"' +
+            (e.status === states[si][0] ? ' selected' : '') + '>' +
+            states[si][1] + '</option>';
+    }
+    // A status it does not offer is kept rather than silently rewritten.
+    var known = false;
+    for (var sj = 0; sj < states.length; sj++) { if (states[sj][0] === e.status) known = true; }
+    if (!known && e.status) {
+      oh = '<option value="' + this.escHtml(e.status) + '" selected>' +
+           this.escHtml(e.status) + '</option>' + oh;
+    }
+    sel.innerHTML = oh;
     document.getElementById('vl-e-msg').innerHTML = '';
     document.getElementById('vl-edit-box').style.display = 'block';
     document.getElementById('vl-e-amount').focus();
@@ -2012,12 +2098,19 @@ var APP = {
       fields.check_number = document.getElementById('vl-e-number').value;
       fields.amount = document.getElementById('vl-e-amount').value;
       fields.memo = document.getElementById('vl-e-note').value;
+      fields.method = document.getElementById('vl-e-method').value;
+      fields.status = document.getElementById('vl-e-status').value;
+      fields.cleared_date = document.getElementById('vl-e-cleared').value;
     } else {
       fields.invoice_date = document.getElementById('vl-e-date').value;
       fields.invoice_number = document.getElementById('vl-e-number').value;
       fields.total_amount = document.getElementById('vl-e-amount').value;
       fields.due_date = document.getElementById('vl-e-due').value;
       fields.notes = document.getElementById('vl-e-note').value;
+      fields.received_date = document.getElementById('vl-e-received').value;
+      fields.amount_paid = document.getElementById('vl-e-paid').value;
+      fields.payment_type = document.getElementById('vl-e-type').value;
+      fields.status = document.getElementById('vl-e-status').value;
     }
 
     msg.innerHTML = '<span style="color:var(--text-light)">Saving…</span>';
