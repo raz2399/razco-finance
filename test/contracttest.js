@@ -262,6 +262,7 @@ const checkTrue = (n, c, note) => {
 (function () {
   const upd = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'updates.js'), 'utf8');
   const app = fs.readFileSync(path.join(ROOT, 'mobile', 'App.js'), 'utf8');
+  const api = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'api.js'), 'utf8');
 
   console.log('\nUpdates applying themselves');
   checkTrue('it looks for an update', /checkForUpdateAsync/.test(upd));
@@ -273,11 +274,37 @@ const checkTrue = (n, c, note) => {
     !/background/i.test(upd.split('addEventListener')[1] || '') ||
     /state === 'active'/.test(upd));
   checkTrue('the app wires it in', /useAutoUpdate/.test(app));
-  // Signed in, a reload is a cold start and the session is in memory, so
-  // taking it silently would dump him at the sign-in screen.
+  // A reload is a cold start. With the session in the keychain that no
+  // longer signs him out, so the only thing left to lose is something
+  // half-typed -- hence Home and the sign-in screen, not mid-form.
   checkTrue('and only reloads on its own when nothing would be lost',
-    /useAutoUpdate\(!signedIn\)/.test(app), 'reload must be gated on having nothing to lose');
+    /useAutoUpdate\(booting \|\| !signedIn \|\| screen === 'home'\)/.test(app),
+    'reload must be gated on having nothing to lose');
   checkTrue('otherwise it says a version is waiting', /UpdateBar/.test(app));
+
+  console.log('\nThe session survives a restart');
+  checkTrue('it is kept on the device', /SecureStore/.test(api));
+  checkTrue('and brought back on startup', /restoreSession/.test(api) && /restoreSession/.test(app));
+  checkTrue('renewed on the way in, whatever the clock says',
+    /freshEnough\(true\)/.test(api));
+  checkTrue('and wiped when he signs out', /forget\(\)/.test(api));
+  // A bundle importing a native module the installed build does not have
+  // would throw at startup and the app would not open at all.
+  checkTrue('the native module is required, not imported, so a missing one cannot stop the app starting',
+    /require\('expo-secure-store'\)/.test(api) && !/^import .*expo-secure-store/m.test(api));
+
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'mobile', 'package.json'), 'utf8'));
+  const appJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'mobile', 'app.json'), 'utf8'));
+  checkTrue('the module is declared', !!pkg.dependencies['expo-secure-store']);
+  checkTrue('on the same SDK line as the rest',
+    /\b58\./.test(pkg.dependencies['expo-secure-store']),
+    pkg.dependencies['expo-secure-store']);
+  // runtimeVersion follows the app version, so bumping it keeps this
+  // bundle away from the build that has no keychain module in it.
+  checkTrue('and the app version was bumped so the old build is never served this bundle',
+    appJson.expo.version !== '1.0.0' &&
+    appJson.expo.runtimeVersion && appJson.expo.runtimeVersion.policy === 'appVersion',
+    appJson.expo.version);
 }());
 
 

@@ -5,10 +5,10 @@
 // behind Menu, so the screen he opens twenty times a day does not slowly
 // turn into a list of everything the app can do.
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import {
-  View, Text, Image, StyleSheet, SafeAreaView, TouchableOpacity,
+  View, Text, Image, StyleSheet, SafeAreaView, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import HomeScreen from './src/HomeScreen';
 import DeliveryScreen from './src/DeliveryScreen';
@@ -18,7 +18,7 @@ import FixScreen from './src/FixScreen';
 import ChecksScreen from './src/ChecksScreen';
 import VendorsScreen from './src/VendorsScreen';
 import LoginScreen from './src/LoginScreen';
-import { isSignedIn, clearSession } from './src/api';
+import { restoreSession, clearSession } from './src/api';
 import { useAutoUpdate } from './src/updates';
 import UpdateBar from './src/UpdateBar';
 import { C } from './src/theme';
@@ -27,18 +27,49 @@ export default function App() {
   const [screen, setScreen] = useState('home');
   // Nothing is shown until somebody signs in. Not a dimmed screen, not a
   // cached number from last time -- the sign-in screen and nothing else.
-  const [signedIn, setSignedIn] = useState(isSignedIn());
+  //
+  // Whether he IS signed in now takes a moment to answer, because the
+  // answer is in the keychain and the token it holds is renewed before the
+  // first screen asks for anything. Until that comes back the app shows
+  // its own name and nothing else: showing the sign-in screen first and
+  // then yanking it away would have him typing a password he did not need.
+  const [booting, setBooting] = useState(true);
+  const [signedIn, setSignedIn] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    restoreSession()
+      .then((ok) => { if (alive) { setSignedIn(ok); setBooting(false); } })
+      .catch(() => { if (alive) setBooting(false); });
+    return () => { alive = false; };
+  }, []);
   // Bumping this forces Home to refetch, so the numbers move the moment an
   // invoice lands or a figure is corrected.
   const [version, setVersion] = useState(0);
   const refreshHome = () => setVersion((v) => v + 1);
   const home = () => setScreen('home');
 
-  // A new version applies itself the moment doing so costs nothing. Signed
-  // out, that is immediately -- there is nothing on the screen to lose.
-  // Signed in, a reload is a cold start and would drop the session, so the
-  // update waits and says so, and he takes it when he is ready.
-  const update = useAutoUpdate(!signedIn);
+  // A new version applies itself the moment doing so costs nothing.
+  //
+  // Now that the session is kept in the keychain, a reload no longer signs
+  // him out, so the only thing left to lose is something half-typed. At
+  // the sign-in screen or sitting on Home there is nothing: it reloads.
+  // Inside a form -- a delivery being entered, a figure being corrected --
+  // it waits, and the bar says a new version is ready.
+  const update = useAutoUpdate(booting || !signedIn || screen === 'home');
+
+  if (booting) {
+    return (
+      <View style={st.splash}>
+        <StatusBar style="dark" />
+        <Image source={require('./assets/icon.png')} style={st.splashLogo} />
+        <Text style={st.splashTitle}>
+          Razi-Nova <Text style={{ color: C.red }}>Finance</Text>
+        </Text>
+        <ActivityIndicator color={C.red} style={{ marginTop: 18 }} />
+      </View>
+    );
+  }
 
   if (!signedIn) {
     return (
@@ -145,6 +176,12 @@ export default function App() {
 }
 
 const st = StyleSheet.create({
+  splash: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg,
+  },
+  splashLogo: { width: 54, height: 54, resizeMode: 'contain', marginBottom: 10 },
+  splashTitle: { fontSize: 20, fontWeight: '800', color: C.ink, letterSpacing: -0.5 },
+
   header: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 14, paddingVertical: 10,

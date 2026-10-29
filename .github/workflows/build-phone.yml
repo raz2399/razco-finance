@@ -1,0 +1,95 @@
+# A new binary, when JavaScript alone cannot do it.
+#
+# Nearly every change ships as an update: update-phone.yml sends the new
+# JavaScript and the installed app applies it on its own. That covers
+# screens, calculations, endpoints -- almost everything.
+#
+# What it cannot cover is native code. A new native library, a permission
+# string, an icon, an SDK bump: none of those live in the JavaScript
+# bundle, so the app has to be built and go through TestFlight again.
+#
+# This runs when one of those things changes, and on demand. It does not
+# run on an ordinary push, because a build Raz has to install is a cost and
+# is not paid unless something needs it.
+#
+# Requires the same EXPO_TOKEN secret the update workflow uses.
+
+name: Build the phone app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # The three files that decide what goes into a binary.
+      - 'mobile/package.json'
+      - 'mobile/app.json'
+      - 'mobile/eas.json'
+      - '.github/workflows/build-phone.yml'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Which EAS build profile'
+        required: false
+        default: 'production'
+        type: choice
+        options: [production, preview]
+
+jobs:
+  build:
+    name: EAS Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Check for EXPO_TOKEN
+        # Through the environment, never pasted into the script text: a
+        # token holding a $ or a quote would either be expanded away --
+        # reading as empty when it is not -- or break the line it sits in.
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "No EXPO_TOKEN secret is set on this repository."
+            echo "Create one at https://expo.dev/settings/access-tokens and"
+            echo "add it under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build for iOS
+        # --non-interactive because nobody is sitting here to answer it,
+        # and --no-wait so the job is not billed for twenty minutes of
+        # watching a queue. The build carries on at EAS either way and the
+        # link below is where it is watched.
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          npx eas-cli@latest build \
+            --platform ios \
+            --profile "${{ github.event.inputs.profile || 'production' }}" \
+            --non-interactive \
+            --no-wait
+
+      - name: Where to watch it
+        run: |
+          echo "Build queued. It appears at:"
+          echo "  https://expo.dev/accounts/[account]/projects/razi-nova-finance/builds"
+          echo
+          echo "When it finishes it goes to TestFlight, and Apple takes a"
+          echo "few more minutes to process it before it can be installed."

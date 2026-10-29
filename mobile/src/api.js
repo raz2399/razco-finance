@@ -11,15 +11,82 @@ const BASE =
 
 let STORE_ID = 'store1';
 
-// The session lives in memory for now. React Native has no localStorage,
-// and the two ways to keep something on the device -- expo-secure-store and
-// AsyncStorage -- are native modules, which means a new build and another
-// trip through TestFlight. So this ships without them: he signs in again
-// when the app has been fully closed. The next build will remember him.
+// The session is kept on the device, in the keychain.
+//
+// It used to live in memory only, which meant every restart of the app put
+// him back at the sign-in screen -- and a restart is not a rare thing: iOS
+// kills a backgrounded app whenever it likes, and applying an update is a
+// restart too. That turned every new version into a password prompt, which
+// is why updates could not simply apply themselves.
+//
+// Required rather than imported, and null-checked at every use. The module
+// is native, so a JavaScript bundle carrying this code must never run on a
+// build that does not have it: an import would throw at startup and the
+// app would not open at all. The app version was bumped for this build so
+// the runtime versions differ and the old binary is never served this
+// bundle -- but a missing module here degrades to an in-memory session
+// rather than a phone that will not start.
+let SecureStore = null;
+try {
+  // eslint-disable-next-line global-require
+  SecureStore = require('expo-secure-store');
+} catch (e) {
+  SecureStore = null;
+}
+
+const SESSION_KEY = 'razinova_session';
+
 let session = { access: null, refresh: null, user: null, expires_at: null };
 
 export const getSession = () => session;
 export const isSignedIn = () => !!session.access;
+
+function remember() {
+  if (!SecureStore || !SecureStore.setItemAsync) return;
+  // Not awaited. Nothing the person does should wait on a disk write, and
+  // a failed write costs them a sign-in, not their data.
+  SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session)).catch(() => {});
+}
+
+function forget() {
+  if (!SecureStore || !SecureStore.deleteItemAsync) return;
+  SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {});
+}
+
+/**
+ * Brings back the session from the last time, if there is one.
+ *
+ * The access token will nearly always be stale by now -- it only lasts an
+ * hour and the phone has been in a pocket -- so this renews it on the spot
+ * rather than letting the first screen fail and sort itself out.
+ *
+ * Returns true if he is signed in.
+ */
+export async function restoreSession() {
+  if (!SecureStore || !SecureStore.getItemAsync) return false;
+  try {
+    const raw = await SecureStore.getItemAsync(SESSION_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (!saved || !saved.refresh) return false;
+
+    session = {
+      access: saved.access || null,
+      refresh: saved.refresh,
+      user: saved.user || null,
+      expires_at: saved.expires_at || null,
+    };
+    if (saved.user && saved.user.stores && saved.user.stores.length) {
+      STORE_ID = saved.user.stores[0];
+    }
+
+    await freshEnough(true);
+    return !!session.access;
+  } catch (e) {
+    // A keychain that will not open is not a reason to fail to start.
+    return false;
+  }
+}
 
 function setSession(d) {
   session = {
@@ -34,6 +101,7 @@ function setSession(d) {
       : (d.expires_in ? Date.now() + Number(d.expires_in) * 1000 : null),
   };
   if (d.user && d.user.stores && d.user.stores.length) STORE_ID = d.user.stores[0];
+  remember();
   return session;
 }
 
@@ -48,9 +116,13 @@ function setSession(d) {
 const RENEW_WITHIN_MS = 120000;
 let renewing = null;
 
-async function freshEnough() {
-  if (!session.refresh || !session.expires_at) return;
-  if (Date.now() < session.expires_at - RENEW_WITHIN_MS) return;
+async function freshEnough(force) {
+  if (!session.refresh) return;
+  // force is for waking the app up: whatever the clock says, a token that
+  // has been sitting on a shelf since last night is renewed before the
+  // first screen asks for anything.
+  if (!force && !session.expires_at) return;
+  if (!force && Date.now() < session.expires_at - RENEW_WITHIN_MS) return;
   // One renewal at a time, however many calls notice at once.
   if (!renewing) {
     renewing = (async () => {
@@ -72,6 +144,7 @@ async function freshEnough() {
 
 export function clearSession() {
   session = { access: null, refresh: null, user: null, expires_at: null };
+  forget();
 }
 
 // Raised when the server says the session is over. The app shows the
