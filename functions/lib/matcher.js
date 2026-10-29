@@ -160,6 +160,28 @@ function matchOne(txn, ctx) {
     }
   }
 
+  // ---- 1b. a check that came back ------------------------------------
+  // The bank hands the money back and says so in passing: "SIGNATURE
+  // MISSING", "RETURN UNUSABLE IMAGE". On the statement it is a credit
+  // like any other, and the natural reading is that money arrived.
+  //
+  // What actually happened is that a bill did not get paid. Nobody is
+  // told. The vendor waits, the books say paid, and the only trace is
+  // one line among thousands. So it is raised every time, by name.
+  if (out.code === 'returned_item') {
+    out.status = 'recognized';
+    out.kind = 'settles';
+    out.exception = {
+      severity: 'warn',
+      what: 'check_returned_unpaid',
+      detail: 'A check for ' + abs(amount).toFixed(2) + ' came back unpaid'
+        + (txn.check_number ? ' (check ' + txn.check_number + ')' : '')
+        + '. Whoever it was to has not been paid.',
+    };
+    out.note = out.exception.detail;
+    return out;
+  }
+
   // ---- 2 & 3. a check number is a serial number ----------------------
   if (txn.check_number != null && txn.check_number !== '') {
     const hits = free(ctx.byCheck[String(Number(txn.check_number))]);

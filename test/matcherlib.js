@@ -271,5 +271,20 @@ check('a paid invoice is never re-matched', () => {
     'a paid invoice must not be a candidate');
 });
 
+
+check('a check that came back unpaid is raised, not banked as income', () => {
+  const classified = { code: 'returned_item', label: 'Check came back',
+                       kind: 'settles', why: 'came back', confident: true };
+  const d = matchOne(
+    base({ check_number: 9761, amount: 637.35,
+           description: 'RETURN SIGNATURE IRREGULAR W/O 09-18-2026 9761' }),
+    { byCheck: ctx0.byCheck, byVendor: ctx0.byVendor, rules: [],
+      classified: classified });
+  assert.strictEqual(d.kind, 'settles', 'must not read as income');
+  assert.ok(d.exception, 'must be raised');
+  assert.strictEqual(d.exception.what, 'check_returned_unpaid');
+  assert.ok(d.exception.detail.indexOf('has not been paid') > -1);
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
