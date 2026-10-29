@@ -283,6 +283,37 @@ function checkTrue(name, cond, note) {
   checkTrue('rather than a blank page',
     win.document.querySelectorAll('.tab-content.active').length === 1);
 
+  console.log('\nThe bank connection card');
+  const bankSrc = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  checkTrue('the card is on the Money screen', !!$('bank-link-card'));
+  checkTrue('with somewhere to say what is connected', !!$('bank-link-state'));
+
+  // The page must never be handed anything that can read the account. It
+  // asks the server for a link token, which opens Plaid's window and can do
+  // nothing else; the client id and the secret stay in Netlify.
+  checkTrue('the page asks for a link token', bankSrc.indexOf("action: 'token'") > -1);
+  // The names may appear in a message telling Raz what to put in Netlify.
+  // What must never appear is a value, or a request that carries one.
+  checkTrue('it never sends a client id or secret to Plaid',
+    !/client_id\s*:/.test(bankSrc) && !/\bsecret\s*:/.test(bankSrc));
+  checkTrue('nor holds an access token', bankSrc.indexOf('access_token') === -1);
+  // A Plaid client id is 24 hex characters and a secret is 30. Anything of
+  // that shape sitting in the page is a credential that has leaked into it.
+  const creds = bankSrc.match(/['"][0-9a-f]{24,32}['"]/g) || [];
+  checkTrue('and no credential-shaped literal is in the page',
+    creds.length === 0, creds.join(' '));
+
+  console.log('\nWhat it shows after a read');
+  APP.bankMsg('ok', 'test message');
+  checkTrue('messages are shown', $('bank-link-msg').style.display === 'block');
+  checkTrue('and say what they say', txt('bank-link-msg').indexOf('test message') > -1);
+  // Posted and available are different numbers and the screen must name
+  // which is which: on this account they were $95,420 apart in a morning.
+  checkTrue('the read names both balances',
+    bankSrc.indexOf('Posted balance') > -1 && bankSrc.indexOf('available') > -1);
+  checkTrue('and explains what available means',
+    bankSrc.indexOf('what the bank will let you spend') > -1);
+
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

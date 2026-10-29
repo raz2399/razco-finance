@@ -720,6 +720,7 @@
     .rn-capture-state.bad{background:#fdf1f1;color:#a32226}
     .rn-thumb{margin-top:10px;max-height:120px;border-radius:8px;border:1px solid var(--rn-line)}
   </style>
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
 </head>
 <body>
 
@@ -1115,6 +1116,17 @@
           <h2 class="rn-screentitle">Money</h2>
           <p class="rn-screensub">What is actually in the bank and the drawer. Correct anything the system has wrong.</p>
         </div>
+        <div class="card" id="bank-link-card">
+          <h3>The bank itself</h3>
+          <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+            Connect the account and the balance looks after itself: both figures every
+            morning, and checks clear themselves off the bank&rsquo;s own check numbers.
+          </p>
+          <div id="bank-link-state" style="font-size:13px;line-height:1.6"></div>
+          <div id="bank-link-actions" style="margin-top:12px"></div>
+          <div id="bank-link-msg" style="display:none;border-radius:9px;padding:11px 13px;font-size:13px;margin-top:12px;line-height:1.5"></div>
+        </div>
+
         <div class="card" id="fix-card">
           <h3>Correct a figure</h3>
           <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
@@ -1417,7 +1429,7 @@ var APP = {
     if (tabName === 'home') this.loadHome();
     if (tabName === 'receive') this.loadInvoices();
     if (tabName === 'pay') { this.loadChecks(); this.loadAPCalendar(); this.loadInvoices(); }
-    if (tabName === 'money') { this.loadCashPosition(); this.loadCorrections(); }
+    if (tabName === 'money') { this.loadCashPosition(); this.loadCorrections(); this.loadBankLink(); }
     if (tabName === 'week') { this.loadPL(); this.loadSales(); this.loadClose(); }
     if (tabName === 'home') this.loadHome();
   },
@@ -1442,6 +1454,200 @@ var APP = {
   todayISO: function() {
     var d = new Date(), p = function(n) { return n < 10 ? '0' + n : '' + n; };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  },
+
+  // ---------- the bank connection ----------
+  // Raz's bank login is typed into Plaid's own window. It never touches this
+  // page, this server or the database. What this page holds for a minute is
+  // a link token, which can do nothing but open that window.
+
+  loadBankLink: function() {
+    var self = this;
+    this.get('/plaid-link', function(status, d) {
+      var state = document.getElementById('bank-link-state');
+      var actions = document.getElementById('bank-link-actions');
+      if (!state || !actions) return;
+
+      if (status !== 200 || !d) {
+        state.innerHTML = '<span style="color:var(--text-light)">Could not check the connection.</span>';
+        actions.innerHTML = '';
+        return;
+      }
+
+      if (!d.configured) {
+        state.innerHTML = '<strong>Not set up yet.</strong><br>' +
+          '<span style="color:var(--text-light)">PLAID_CLIENT_ID and PLAID_SECRET ' +
+          'need adding to the Netlify environment before this can connect.</span>';
+        actions.innerHTML = '';
+        return;
+      }
+
+      if (d.connected && d.accounts && d.accounts.length) {
+        var a = d.accounts[0];
+        var when = a.last_synced_at
+          ? new Date(a.last_synced_at).toLocaleString()
+          : 'not yet';
+        state.innerHTML = '<strong>' + self.escHtml(a.bank || 'Bank') + '</strong> ' +
+          self.escHtml(a.mask || '') + ' &mdash; connected.<br>' +
+          '<span style="color:var(--text-light)">Last read: ' + self.escHtml(when) +
+          '. Runs by itself at 4:30am.</span>' +
+          (a.last_error ? '<br><span style="color:var(--danger)">' +
+            self.escHtml(a.last_error) + '</span>' : '');
+        actions.innerHTML =
+          '<button class="btn" id="bank-sync-now" style="width:auto">Read the bank now</button> ' +
+          '<button class="btn-ghost" id="bank-disconnect" style="width:auto;margin-left:8px">Disconnect</button>';
+        self.bind2('bank-sync-now', function() { self.syncBankNow(); });
+        self.bind2('bank-disconnect', function() { self.disconnectBank(); });
+        return;
+      }
+
+      state.innerHTML = '<span style="color:var(--text-light)">No bank connected. ' +
+        (d.environment === 'sandbox'
+          ? 'Running against Plaid&rsquo;s test banks, not the real one.'
+          : 'This connects to Bank of the Sierra directly.') + '</span>';
+      actions.innerHTML = '<button class="btn" id="bank-connect" style="width:auto">Connect the bank</button>';
+      self.bind2('bank-connect', function() { self.connectBank(); });
+    });
+  },
+
+  connectBank: function() {
+    var self = this;
+    if (typeof window.Plaid === 'undefined') {
+      this.bankMsg('bad', 'Plaid&rsquo;s window did not load. Check the connection and refresh.');
+      return;
+    }
+    var btn = document.getElementById('bank-connect');
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Opening...'; }
+
+    this.post('/plaid-link', { store_id: this.store_id, action: 'token' }, function(status, d) {
+      if (btn) { btn.disabled = false; btn.innerHTML = 'Connect the bank'; }
+      if (status !== 200 || !d || !d.link_token) {
+        self.bankMsg('bad', 'Could not start: ' + self.escHtml((d && d.error) || ('HTTP ' + status)));
+        return;
+      }
+      var handler = window.Plaid.create({
+        token: d.link_token,
+        onSuccess: function(public_token, metadata) {
+          self.bankMsg('ok', 'Saving the connection...');
+          self.post('/plaid-link', {
+            store_id: self.store_id,
+            action: 'exchange',
+            public_token: public_token,
+            institution: metadata && metadata.institution ? metadata.institution.name : null
+          }, function(st2, d2) {
+            if (st2 !== 200 || !d2 || d2.error) {
+              self.bankMsg('bad', 'Connected at the bank but not saved here: ' +
+                self.escHtml((d2 && d2.error) || ('HTTP ' + st2)));
+              return;
+            }
+            self.bankMsg('ok', 'Connected. Reading the account now &mdash; the first ' +
+              'read pulls two years, so give it a minute.');
+            self.loadBankLink();
+            self.syncBankNow();
+          });
+        },
+        onExit: function(err) {
+          // Closing the window on purpose is not a failure and should not
+          // be reported as one.
+          if (err) {
+            self.bankMsg('bad', self.escHtml(
+              (err.display_message || err.error_message || 'The bank window closed.')));
+          }
+        }
+      });
+      handler.open();
+    });
+  },
+
+  syncBankNow: function() {
+    var self = this;
+    var btn = document.getElementById('bank-sync-now');
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Reading...'; }
+    this.bankMsg('info', 'Reading the bank...');
+
+    this.post('/plaid-sync', { store_id: this.store_id }, function(status, d) {
+      if (btn) { btn.disabled = false; btn.innerHTML = 'Read the bank now'; }
+      if (status !== 200 || !d || d.error) {
+        self.bankMsg('bad', 'Could not read the bank: ' +
+          self.escHtml((d && d.error) || ('HTTP ' + status)));
+        return;
+      }
+      var lines = [];
+      var synced = d.synced || [];
+      for (var i = 0; i < synced.length; i++) {
+        var r = synced[i];
+        if (r.error) { lines.push('<strong>' + self.escHtml(r.error) + '</strong>'); continue; }
+        lines.push(r.written + ' transaction' + (r.written === 1 ? '' : 's') + ' read' +
+          (r.pending ? ', ' + r.pending + ' still pending' : ''));
+        if (r.balances) {
+          lines.push('Posted balance ' + self.money(r.balances.current) +
+            (r.balances.available === null || r.balances.available === undefined
+              ? ''
+              : ' &middot; available ' + self.money(r.balances.available) +
+                ' <span style="color:var(--text-light)">(what the bank will let you spend, ' +
+                'after pending)</span>'));
+        }
+      }
+      var n = d.checks_cleared_count || 0;
+      lines.push(n
+        ? n + ' check' + (n === 1 ? '' : 's') + ' cleared automatically'
+        : 'No checks cleared this time');
+      if (d.checks_differing && d.checks_differing.length) {
+        for (var k = 0; k < d.checks_differing.length; k++) {
+          var c = d.checks_differing[k];
+          lines.push('<strong>Check #' + c.check_number + ' was written for ' +
+            self.money(c.written_for) + ' and cleared for ' + self.money(c.cleared_for) +
+            '.</strong>');
+        }
+      }
+      self.bankMsg('ok', lines.join('<br>'));
+      self.loadBankLink();
+      self.loadCashPosition();
+      self.loadHome();
+    });
+  },
+
+  disconnectBank: function() {
+    var self = this;
+    if (!window.confirm('Disconnect the bank? Nothing already read is deleted.')) return;
+    this.post('/plaid-link', { store_id: this.store_id, action: 'disconnect' }, function(status, d) {
+      if (status !== 200) {
+        self.bankMsg('bad', 'Could not disconnect: ' + self.escHtml((d && d.error) || ('HTTP ' + status)));
+        return;
+      }
+      self.bankMsg('ok', 'Disconnected.');
+      self.loadBankLink();
+    });
+  },
+
+  bankMsg: function(kind, html) {
+    var el = document.getElementById('bank-link-msg');
+    if (!el) return;
+    el.style.display = 'block';
+    el.style.background = kind === 'bad' ? '#FDECEA' : kind === 'ok' ? '#E8F5E9' : '#EEF2F7';
+    el.style.color = kind === 'bad' ? '#922B21' : kind === 'ok' ? '#1B5E20' : '#44506A';
+    el.innerHTML = html;
+  },
+
+  bind2: function(id, fn) {
+    var el = document.getElementById(id);
+    if (el) el.onclick = fn;
+  },
+
+  // A plain GET, the way everything else here does one.
+  get: function(path, cb) {
+    var x = new XMLHttpRequest();
+    var joiner = path.indexOf('?') > -1 ? '&' : '?';
+    x.open('GET', this.api_url + path + joiner + 'store_id=' +
+           encodeURIComponent(this.store_id), true);
+    x.onreadystatechange = function() {
+      if (x.readyState !== 4) return;
+      var d = null;
+      try { d = JSON.parse(x.responseText); } catch (e) {}
+      cb(x.status, d);
+    };
+    x.onerror = function() { cb(0, null); };
+    x.send();
   },
 
   post: function(path, body, cb) {
