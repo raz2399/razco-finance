@@ -41,6 +41,18 @@ function query(table) {
         if (table === 'invoices' && 'balance_due' in r) {
           throw new Error('cannot insert a non-DEFAULT value into column "balance_due"');
         }
+        // Postgres enforces this and the mock did not, so a correction that
+        // could never be saved looked saved in every test run. The screen
+        // answered 'violates check constraint "cash_ledger_entry_type_check"'
+        // the first time Raz counted a drawer.
+        if (table === 'cash_ledger') {
+          const allowed = ['drawer_float', 'pickup', 'safe_in', 'safe_out',
+                           'bank_deposit', 'paid_out', 'cod_payment', 'count'];
+          if (allowed.indexOf(r.entry_type) < 0) {
+            throw new Error('new row for relation "cash_ledger" violates check '
+              + 'constraint "cash_ledger_entry_type_check"');
+          }
+        }
         DB[table].push(Object.assign(
           { created_at: new Date().toISOString(),
             entry_id: String(10000 + (DB[table] || []).length) }, r));

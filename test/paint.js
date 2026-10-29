@@ -260,6 +260,29 @@ function checkTrue(name, cond, note) {
   checkTrue('and asks him to pick one', $('inv-setup').style.display === 'block');
   checkTrue('nothing is carried forward as a method', !APP.pending_method);
 
+  console.log('\nEvery button that changes screen lands somewhere');
+  // "Record a delivery" and "Write checks that are due" called screens by
+  // names from the nine-tab layout. The restructure renamed them, these
+  // were missed, and the call hid every panel and then threw -- a blank
+  // white page.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const asked = (src.match(/switchTab\('([a-z-]+)'\)/g) || [])
+    .map((m) => m.replace(/switchTab\('|'\)/g, ''));
+  checkTrue('some buttons do switch screens', asked.length > 0);
+  asked.forEach((n) => {
+    checkTrue('"' + n + '" is a screen that exists', !!$(n + '-tab'), n);
+  });
+
+  console.log('\nAnd a name that is not a screen leaves him where he was');
+  APP.switchTab('money');
+  const before = $('money-tab').className;
+  let badTabThrew = null;
+  try { APP.switchTab('charges'); } catch (e) { badTabThrew = e; }
+  checkTrue('it does not throw', !badTabThrew, badTabThrew && badTabThrew.message);
+  check('the screen he was on is still showing', $('money-tab').className, before);
+  checkTrue('rather than a blank page',
+    win.document.querySelectorAll('.tab-content.active').length === 1);
+
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

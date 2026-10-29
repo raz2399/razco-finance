@@ -1268,9 +1268,12 @@ var APP = {
     bind('rn-prev', function() { self.shiftWeek(-7); });
     bind('rn-next', function() { self.shiftWeek(7); });
     bind('rn-this', function() { self.week_start = null; self.loadHome(); });
-    bind('rn-record',   function() { self.switchTab('charges'); });
-    bind('rn-record-m', function() { self.switchTab('charges'); });
-    bind('rn-paysome',  function() { self.switchTab('checks'); });
+    // 'charges' and 'checks' were tab names from the nine-tab layout. The
+    // restructure into six screens renamed them and these three were left
+    // pointing at screens that no longer exist.
+    bind('rn-record',   function() { self.switchTab('receive'); });
+    bind('rn-record-m', function() { self.switchTab('receive'); });
+    bind('rn-paysome',  function() { self.switchTab('pay'); });
 
     var chkSave = document.getElementById('chk-save');
     if (chkSave) chkSave.addEventListener('click', function() { self.saveCheck(false); });
@@ -1390,14 +1393,25 @@ var APP = {
   },
 
   switchTab: function(tabName) {
+    // Find the screen BEFORE hiding anything. Hiding first and then asking
+    // for a screen that does not exist throws halfway through and leaves
+    // every panel hidden -- a blank white page, with no clue what happened.
+    // A name that is wrong should leave him where he was.
+    var panel = document.getElementById(tabName + '-tab');
+    var button = document.querySelector('[data-tab="' + tabName + '"]');
+    if (!panel) {
+      if (window.console && console.warn) console.warn('No screen named ' + tabName);
+      return;
+    }
+
     var tabs = document.querySelectorAll('.tab-content');
     for (var ti = 0; ti < tabs.length; ti++) tabs[ti].classList.remove('active');
 
     var buttons = document.querySelectorAll('.tab');
     for (var bi = 0; bi < buttons.length; bi++) buttons[bi].classList.remove('active');
 
-    document.getElementById(tabName + '-tab').classList.add('active');
-    document.querySelector('[data-tab="' + tabName + '"]').classList.add('active');
+    panel.classList.add('active');
+    if (button) button.classList.add('active');
 
     // Each screen is several of the old ones, so each loads all its parts.
     if (tabName === 'home') this.loadHome();
