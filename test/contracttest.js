@@ -282,29 +282,56 @@ const checkTrue = (n, c, note) => {
     'reload must be gated on having nothing to lose');
   checkTrue('otherwise it says a version is waiting', /UpdateBar/.test(app));
 
-  console.log('\nThe session survives a restart');
-  checkTrue('it is kept on the device', /SecureStore/.test(api));
-  checkTrue('and brought back on startup', /restoreSession/.test(api) && /restoreSession/.test(app));
-  checkTrue('renewed on the way in, whatever the clock says',
-    /freshEnough\(true\)/.test(api));
-  checkTrue('and wiped when he signs out', /forget\(\)/.test(api));
-  // A bundle importing a native module the installed build does not have
-  // would throw at startup and the app would not open at all.
-  checkTrue('the native module is required, not imported, so a missing one cannot stop the app starting',
-    /require\('expo-secure-store'\)/.test(api) && !/^import .*expo-secure-store/m.test(api));
-
+  console.log('\nThe session, and the native module it needs');
+  //
+  // Two shapes are legitimate and a third would break the app at launch.
+  //
+  //   1.1.0 and up: the keychain module is declared, the code uses it, and
+  //   the app version carries a runtime of its own so the bundle is never
+  //   served to a build without the module in it.
+  //
+  //   1.0.0: no module declared, no reference to it anywhere, session in
+  //   memory. This is what his installed build runs.
+  //
+  // The third shape -- code reaching for a module the build has not got --
+  // throws at startup and the app does not open at all. So this asserts
+  // that the three move together, rather than pinning one state: the
+  // 1.0.0 line has to stay shippable for as long as that is what is on
+  // his phone.
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'mobile', 'package.json'), 'utf8'));
   const appJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'mobile', 'app.json'), 'utf8'));
-  checkTrue('the module is declared', !!pkg.dependencies['expo-secure-store']);
-  checkTrue('on the same SDK line as the rest',
-    /\b58\./.test(pkg.dependencies['expo-secure-store']),
-    pkg.dependencies['expo-secure-store']);
-  // runtimeVersion follows the app version, so bumping it keeps this
-  // bundle away from the build that has no keychain module in it.
-  checkTrue('and the app version was bumped so the old build is never served this bundle',
-    appJson.expo.version !== '1.0.0' &&
-    appJson.expo.runtimeVersion && appJson.expo.runtimeVersion.policy === 'appVersion',
-    appJson.expo.version);
+  const declared = !!pkg.dependencies['expo-secure-store'];
+  // A require, not the words. The 1.0.0 file names the module in a comment
+  // to say why it is not there, and a comment is not a dependency.
+  const used = /require\('expo-secure-store'\)/.test(api);
+  const ownRuntime = appJson.expo.version !== '1.0.0';
+
+  checkTrue('the module, the code and the app version agree',
+    (declared && used && ownRuntime) || (!declared && !used && !ownRuntime),
+    'declared=' + declared + ' used=' + used + ' version=' + appJson.expo.version +
+    ' — code must never reach for a module the build has not got');
+
+  checkTrue('runtimeVersion follows the app version, so the two lines stay apart',
+    appJson.expo.runtimeVersion && appJson.expo.runtimeVersion.policy === 'appVersion');
+
+  if (declared) {
+    checkTrue('on the same SDK line as the rest',
+      /\b58\./.test(pkg.dependencies['expo-secure-store']),
+      pkg.dependencies['expo-secure-store']);
+    checkTrue('required inside a try, not imported, so a missing one cannot stop the app starting',
+      /require\('expo-secure-store'\)/.test(api) &&
+      !/^import .*expo-secure-store/m.test(api));
+    checkTrue('renewed on the way in, whatever the clock says',
+      /freshEnough\(true\)/.test(api));
+  } else {
+    checkTrue('the session is honest about living in memory',
+      /lives in memory/i.test(api));
+  }
+
+  // True on both lines: the app asks, rather than assuming.
+  checkTrue('and the app asks before showing anything',
+    /restoreSession/.test(api) && /restoreSession/.test(app));
+  checkTrue('and wipes it when he signs out', /forget\(\)/.test(api));
 }());
 
 

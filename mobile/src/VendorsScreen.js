@@ -172,12 +172,12 @@ export default function VendorsScreen({ onBack }) {
       <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
         <View style={st.bar}>
           <TouchableOpacity onPress={backToList} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={st.back}>‹ Vendors</Text>
+            <Text style={st.back} numberOfLines={1}>‹ Vendors</Text>
           </TouchableOpacity>
           <Text style={st.barTitle} numberOfLines={1}>
             {v ? v.name : 'Loading'}
           </Text>
-          <View style={{ width: 70 }} />
+          <View style={{ width: 84 }} />
         </View>
 
         {loadingLedger && !ledger ? (
@@ -410,7 +410,7 @@ export default function VendorsScreen({ onBack }) {
 
         {owing.length ? (
           <View style={S.card}>
-            <Text style={S.label}>Money against them ({owing.length})</Text>
+            <Text style={S.label}>Money against them</Text>
             {owing.map((v) => <VendorRow key={v.vendor_id} v={v} onPress={openVendor} />)}
           </View>
         ) : null}
@@ -450,18 +450,23 @@ function Tile({ label, value }) {
 }
 
 function VendorRow({ v, onPress }) {
+  // Name and money, and nothing else unless it earns its line.
+  //
+  // It used to print the payment type, the terms, the open count and the
+  // other spellings of the name under every single vendor -- four lines
+  // apiece, two hundred and fifty-five times. All of it true and almost
+  // none of it what he came to the screen for. The aliases in particular
+  // are how the importer matches a name on paper; they are not something
+  // anyone reads.
+  const bits = [];
+  if (!v.pay_method) bits.push('no payment type');
+  if (v.open_count > 1) bits.push(v.open_count + ' open');
+
   return (
     <TouchableOpacity style={st.row} onPress={() => onPress(v.vendor_id)} activeOpacity={0.6}>
       <View style={{ flex: 1, paddingRight: 10 }}>
         <Text style={st.name} numberOfLines={1}>{v.name}</Text>
-        <Text style={st.sub}>
-          {v.method_label || 'Payment type never recorded'}
-          {v.terms ? '  ·  ' + v.terms : ''}
-          {v.open_count ? '  ·  ' + v.open_count + ' open' : ''}
-        </Text>
-        {v.aliases && v.aliases.length ? (
-          <Text style={st.alias} numberOfLines={1}>also {v.aliases.join(', ')}</Text>
-        ) : null}
+        {bits.length ? <Text style={st.sub}>{bits.join('  ·  ')}</Text> : null}
       </View>
       {v.owed ? <Text style={st.rowOwed}>{money(v.owed)}</Text> : null}
       <Text style={st.chev}>›</Text>
@@ -554,7 +559,8 @@ const st = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 11,
     backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.line,
   },
-  back: { color: C.blue, fontSize: 15, fontWeight: '700', width: 70 },
+  // Wide enough for the word. At 70 it broke after 'Vendor'.
+  back: { color: C.blue, fontSize: 15, fontWeight: '700', minWidth: 84 },
   barTitle: { flex: 1, textAlign: 'center', fontSize: 15.5, fontWeight: '800', color: C.ink },
 
   searchWrap: {
@@ -574,12 +580,12 @@ const st = StyleSheet.create({
 
   row: {
     flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#f1f3f7',
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f1f3f7',
   },
-  name: { fontSize: 14, fontWeight: '600', color: C.ink },
+  name: { fontSize: 14.5, fontWeight: '600', color: C.ink },
   sub: { fontSize: 11.5, color: C.mute, marginTop: 2 },
   alias: { fontSize: 10.5, color: '#9aa3b2', marginTop: 1, fontStyle: 'italic' },
-  rowOwed: { fontSize: 14, fontWeight: '800', color: C.ink },
+  rowOwed: { fontSize: 15, fontWeight: '800', color: C.ink },
   chev: { fontSize: 20, color: '#c3cad6', marginLeft: 8 },
 
   owedLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.8, color: C.mute, textTransform: 'uppercase' },
