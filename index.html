@@ -2095,9 +2095,10 @@ var APP = {
       ? (pos.bank_label + (pos.balance_as_of ? ' as of ' + pos.balance_as_of : ''))
       : 'No account on file';
     if (pos.balance_age_days !== null && pos.balance_age_days !== undefined &&
-        pos.balance_age_days > 2) {
+        pos.balance_age_days > 0) {
       bankNote += ' &mdash; <strong style="color:#8a6414">' +
-        pos.balance_age_days + ' days old</strong>';
+        (pos.balance_age_days === 1 ? 'a day' : pos.balance_age_days + ' days') +
+        ' old</strong>';
     }
     this.setKpi('k-bank', pos.in_bank, bankNote);
     this.setKpi('k-out', pos.checks_outstanding,

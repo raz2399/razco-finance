@@ -85,10 +85,10 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
               one looks exactly like this morning's. Every figure above is
               built on it. */}
           {pos.balance_age_days !== null && pos.balance_age_days !== undefined
-            && pos.balance_age_days > 2 ? (
+            && pos.balance_age_days > 0 ? (
             <Text style={st.staleBank}>
-              That bank figure is {pos.balance_age_days} days old
-              {pos.balance_as_of ? ' — from ' + pos.balance_as_of : ''}
+              Bank figure is {pos.balance_age_days === 1 ? 'a day' : pos.balance_age_days + ' days'} old
+              {pos.balance_as_of ? ' — ' + pos.balance_as_of : ''}
             </Text>
           ) : null}
           {/* Right under the number it corrects. Buried in a settings screen
