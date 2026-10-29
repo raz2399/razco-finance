@@ -292,6 +292,35 @@ function checkTrue(name, cond, note) {
   checkTrue('rather than a blank page',
     win.document.querySelectorAll('.tab-content.active').length === 1);
 
+  console.log('\nThe Reconcile screen');
+  // The work that makes every other screen truer: matching the bank,
+  // and the two facts about a vendor nothing can infer. Each tested for
+  // the thing that would make it useless -- a tab with no panel, a
+  // button with nothing behind it, a list with nowhere to draw into.
+  checkTrue('there is a tab for it', !!win.document.querySelector('[data-tab="reconcile"]'));
+  checkTrue('and a panel behind the tab', !!$('reconcile-tab'));
+  let recThrew = null;
+  try { APP.switchTab('reconcile'); } catch (e) { recThrew = e; }
+  checkTrue('opening it does not throw', !recThrew, recThrew && recThrew.message);
+  checkTrue('it is the screen now showing',
+    $('reconcile-tab').className.indexOf('active') > -1);
+  checkTrue('somewhere to start the match', !!$('rec-preview'));
+  checkTrue('somewhere to put the tally', !!$('rec-tally'));
+  checkTrue('somewhere to say what went wrong', !!$('rec-msg'));
+  checkTrue('a place for disagreements', !!$('rec-problems'));
+  checkTrue('a place to name unknown lines', !!$('rec-unknowns'));
+  checkTrue('a place for vendors with no category', !!$('rec-cats'));
+  checkTrue('a place for vendors with no terms', !!$('rec-terms'));
+  checkTrue('a place for the 1099s', !!$('rec-1099'));
+
+  // The preview button must not write. This is the one that touches 2,660
+  // rows of real books, so the default has to be "show me".
+  checkTrue('preview asks for a preview, not an apply',
+    /action:\s*apply\s*\?\s*'apply'\s*:\s*'preview'/.test(src)
+    || /apply\s*\?\s*'apply'\s*:\s*'preview'/.test(src));
+  checkTrue('and the screen opens without having applied anything',
+    !!$('rec-tally') && $('rec-tally').innerHTML.indexOf('Apply this') === -1);
+
   console.log('\nThe bank connection card');
   const bankSrc = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   checkTrue('the card is on the Money screen', !!$('bank-link-card'));
