@@ -72,17 +72,22 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Build for iOS
+      - name: Build for iOS and send it to TestFlight
+        # --auto-submit is the point of the whole file. Without it the
+        # build finishes and sits on EAS as a file, and somebody has to go
+        # and push it to Apple by hand -- which is the manual step this
+        # exists to remove, just moved one stage later.
+        #
         # --non-interactive because nobody is sitting here to answer it,
         # and --no-wait so the job is not billed for twenty minutes of
-        # watching a queue. The build carries on at EAS either way and the
-        # link below is where it is watched.
+        # watching a queue. The build carries on at EAS either way.
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           npx eas-cli@latest build \
             --platform ios \
             --profile "${{ github.event.inputs.profile || 'production' }}" \
+            --auto-submit \
             --non-interactive \
             --no-wait
 
