@@ -16,6 +16,7 @@ import SalesScreen from './src/SalesScreen';
 import MenuScreen from './src/MenuScreen';
 import FixScreen from './src/FixScreen';
 import ChecksScreen from './src/ChecksScreen';
+import CheckScreen from './src/CheckScreen';
 import VendorsScreen from './src/VendorsScreen';
 import LoginScreen from './src/LoginScreen';
 import { restoreSession, clearSession } from './src/api';
@@ -103,6 +104,17 @@ export default function App() {
     );
   }
 
+  if (screen === 'check') {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <StatusBar style="dark" />
+        {/* A check logged is money leaving, so Home is told to refetch on
+            the way out rather than showing the figure from before it. */}
+        <CheckScreen onBack={() => { refreshHome(); home(); }} onDone={refreshHome} />
+      </View>
+    );
+  }
+
   if (screen === 'checks') {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -169,6 +181,7 @@ export default function App() {
         onRecordDelivery={() => setScreen('delivery')}
         onOpenSales={() => setScreen('sales')}
         onOpenChecks={() => setScreen('checks')}
+        onLogCheck={() => setScreen('check')}
         onFixNumbers={() => setScreen('fix')}
       />
     </View>
