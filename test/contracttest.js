@@ -457,6 +457,53 @@ const checkTrue = (n, c, note) => {
     /adds_to_what_you_owe/.test(srv) && /adds_to_what_you_owe/.test(desk));
 }());
 
+// ---- a confirmation that cannot fail to appear -----------------------
+//
+// Alert.alert wrapped in a Promise was the control flow for every
+// destructive action. It has one failure mode worse than a crash: if the
+// alert does not present -- and on iOS it does not when a Modal is still
+// in the view hierarchy, which is where this app called it from --
+// neither button ever fires, the promise never settles, and the function
+// just stops. No error, no request, no message. The button does nothing.
+//
+// Six taps went through and were logged. The next one made no request at
+// all, and nothing on the screen or in the logs said why.
+//
+// Alert.prompt is the same bug with a second head: it does not exist on
+// Android, so that whole branch was dead there.
+(function () {
+  const vs = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'VendorsScreen.js'), 'utf8');
+  const sheet = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'VendorLineSheet.js'), 'utf8');
+  const confirm = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'Confirm.js'), 'utf8');
+
+  console.log('\nAsking before doing');
+
+  checkTrue('the confirmation is a view the screen renders',
+    /export default function Confirm/.test(confirm) &&
+    /<Confirm/.test(vs) && /<Confirm/.test(sheet));
+
+  // The actual regression guard.
+  checkTrue('no promise is left waiting on an OS alert',
+    !/new Promise\([\s\S]{0,200}Alert\.alert/.test(vs) &&
+    !/new Promise\([\s\S]{0,200}Alert\.alert/.test(sheet),
+    'an alert that never presents never resolves, and the button dies silently');
+
+  checkTrue('and neither screen calls Alert at all any more',
+    !/\bAlert\.(alert|prompt)\(/.test(vs) && !/\bAlert\.(alert|prompt)\(/.test(sheet),
+    'Alert.prompt does not exist on Android');
+
+  checkTrue('what happened is shown on the screen too',
+    /Notice/.test(vs) && /setNotice/.test(vs),
+    'a silent success is nearly as bad as a silent failure');
+
+  checkTrue('a failure inside the sheet is reported, not swallowed',
+    /onFailed/.test(sheet) && /onFailed/.test(vs));
+
+  // The check number used to come through Alert.prompt.
+  checkTrue('the check number is typed into the confirmation itself',
+    /input: 'Check number'/.test(vs) && /ask\.input/.test(confirm));
+}());
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
