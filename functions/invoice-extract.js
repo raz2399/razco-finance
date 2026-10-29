@@ -14,6 +14,7 @@
 // off a photograph is never treated as a fact.
 
 const { createClient } = require('@supabase/supabase-js');
+const { requireUser } = require('./lib/guard');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -112,6 +113,12 @@ Rules:
 };
 
 exports.handler = async (event) => {
+  // Nobody sees any of this without signing in. Before this, the URL was
+  // the only thing between a stranger and the bank position, and a URL is
+  // not a secret: it is in browser history, in a chat message, on a screen
+  // in a stockroom.
+  const auth = await requireUser(event, supabase);
+  if (!auth.ok) return json(auth.status, { error: auth.error });
   if (event.httpMethod !== 'POST') return json(405, { error: 'POST only.' });
   if (!process.env.ANTHROPIC_API_KEY) {
     return json(500, { error: 'No ANTHROPIC_API_KEY is configured on the site.' });

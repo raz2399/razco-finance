@@ -7,6 +7,9 @@
 const path = require('path');
 const fs = require('fs');
 const Module = require('module');
+// Signed in. The endpoints refuse anyone who is not; that is tested on
+// its own in authtest, not again in every suite.
+require('./stub-guard');
 
 let pass = 0, fail = 0;
 const check = (n, a, b) => {

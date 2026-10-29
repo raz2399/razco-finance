@@ -739,14 +739,7 @@
         <label for="password">Password</label>
         <input type="password" id="password" placeholder="••••••••" required>
       </div>
-      <div class="form-group">
-        <label for="role">Role</label>
-        <select id="role">
-          <option value="owner">Owner</option>
-          <option value="manager">Manager</option>
-          <option value="bookkeeper">Bookkeeper</option>
-        </select>
-      </div>
+      <div id="login-error" style="display:none;background:#FDECEA;color:#922B21;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px"></div>
       <button type="submit">Sign In</button>
     </form>
   </div>
@@ -1354,41 +1347,117 @@ var APP = {
   },
 
   login: function() {
+    var self = this;
     var email = document.getElementById('email').value;
-    var role = document.getElementById('role').value;
+    var password = document.getElementById('password').value;
+    var err = document.getElementById('login-error');
+    var hide = function() { if (err) err.style.display = 'none'; };
+    var show = function(m) {
+      if (!err) { window.alert(m); return; }
+      err.innerHTML = self.escHtml(m); err.style.display = 'block';
+    };
+    hide();
 
-    if (!email) {
-      alert('Please enter email');
-      return;
+    if (!email || !password) { show('Email and password, please.'); return; }
+
+    var btn = document.querySelector('#login-form button[type="submit"]');
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Signing in...'; }
+
+    // The password goes to the server and nowhere else. It is never put in
+    // localStorage, never in a URL, never kept on this page after this call.
+    this.post('/auth', { action: 'login', email: email, password: password }, function(status, d) {
+      if (btn) { btn.disabled = false; btn.innerHTML = 'Sign in'; }
+      if (status !== 200 || !d || !d.access_token) {
+        show((d && d.error) || 'Could not sign in just now.');
+        return;
+      }
+      self.keepSession(d);
+      self.showApp();
+    });
+  },
+
+  // Tokens, and only tokens. The access token expires on its own; the
+  // refresh token is what keeps him signed in without typing it again.
+  keepSession: function(d) {
+    this.auth_token = d.access_token;
+    this.refresh_token = d.refresh_token;
+    this.user_id = d.user ? d.user.user_id : null;
+    this.user_role = d.user ? d.user.role : null;
+    this.user_name = d.user ? d.user.name : null;
+    if (d.user && d.user.stores && d.user.stores.length) {
+      // Which store this account may see is the server's answer, not a
+      // value this page gets to choose.
+      this.store_id = d.user.stores[0];
     }
+    try {
+      localStorage.setItem('rn_auth_token', d.access_token);
+      localStorage.setItem('rn_refresh_token', d.refresh_token || '');
+      localStorage.setItem('rn_user_role', this.user_role || '');
+      localStorage.setItem('rn_user_name', this.user_name || '');
+      localStorage.setItem('rn_store_id', this.store_id || '');
+    } catch (e) { /* private window: stay signed in for this tab only */ }
+  },
 
-    this.user_id = 'user_' + Date.now();
-    this.user_role = role;
-    this.auth_token = 'token_' + Date.now();
-
-    localStorage.setItem('rn_user_id', this.user_id);
-    localStorage.setItem('rn_user_role', this.user_role);
-    localStorage.setItem('rn_auth_token', this.auth_token);
-    localStorage.setItem('rn_email', email);
-    localStorage.setItem('rn_cash_floor', this.cash_floor);
-
-    this.showApp();
+  dropSession: function() {
+    this.auth_token = null;
+    this.refresh_token = null;
+    this.user_role = null;
+    try {
+      localStorage.removeItem('rn_auth_token');
+      localStorage.removeItem('rn_refresh_token');
+      localStorage.removeItem('rn_user_role');
+      localStorage.removeItem('rn_user_name');
+    } catch (e) {}
   },
 
   logout: function() {
-    localStorage.clear();
+    var self = this;
+    // Tell the server as well, so the refresh token cannot be used again by
+    // anyone who has a copy of it.
+    this.post('/auth', { action: 'logout' }, function() {});
+    this.dropSession();
     this.showLogin();
   },
 
   restoreSession: function() {
-    var token = localStorage.getItem('rn_auth_token');
-    if (token) {
-      this.user_id = localStorage.getItem('rn_user_id');
-      this.user_role = localStorage.getItem('rn_user_role');
-      this.auth_token = token;
+    var self = this;
+    var token = null, refresh = null;
+    try {
+      token = localStorage.getItem('rn_auth_token');
+      refresh = localStorage.getItem('rn_refresh_token');
+      this.store_id = localStorage.getItem('rn_store_id') || this.store_id;
       this.cash_floor = parseFloat(localStorage.getItem('rn_cash_floor') || 3000);
-      this.showApp();
-    }
+    } catch (e) {}
+
+    if (!token && !refresh) { this.showLogin(); return; }
+    this.auth_token = token;
+    this.refresh_token = refresh;
+
+    // A token sitting in this browser proves nothing -- it may be expired,
+    // or the account may have been turned off since. Ask.
+    this.get('/auth', function(status, d) {
+      if (status === 200 && d && d.signed_in) {
+        self.user_role = d.user.role;
+        self.user_name = d.user.name;
+        if (d.user.stores && d.user.stores.length) self.store_id = d.user.stores[0];
+        self.showApp();
+        return;
+      }
+      if (refresh) {
+        self.post('/auth', { action: 'refresh', refresh_token: refresh }, function(st, d2) {
+          if (st === 200 && d2 && d2.access_token) {
+            self.keepSession(d2);
+            self.showApp();
+          } else {
+            self.dropSession();
+            self.showLogin();
+          }
+        });
+        return;
+      }
+      self.dropSession();
+      self.showLogin();
+    });
   },
 
   showLogin: function() {
@@ -1399,7 +1468,9 @@ var APP = {
   showApp: function() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
-    document.getElementById('user-display').textContent = (this.user_role.charAt(0).toUpperCase() + this.user_role.slice(1));
+    var who = this.user_name || this.user_role || '';
+    document.getElementById('user-display').textContent =
+      who ? (who.charAt(0).toUpperCase() + who.slice(1)) : '';
     document.getElementById('cash-floor').value = this.cash_floor;
     this.loadHome();
   },
@@ -1634,16 +1705,38 @@ var APP = {
     if (el) el.onclick = fn;
   },
 
+  // Every request carries it. Missed on one call, that call is the hole.
+  addAuth: function(x) {
+    if (this.auth_token) x.setRequestHeader('Authorization', 'Bearer ' + this.auth_token);
+  },
+
+  // The server said no. Not an error to paint on a card -- it means the
+  // session is over, and the only honest screen is the sign-in one.
+  signedOut: function(status) {
+    if (status !== 401 && status !== 403) return false;
+    this.dropSession();
+    this.showLogin();
+    var err = document.getElementById('login-error');
+    if (err) {
+      err.innerHTML = 'That session has ended. Sign in again.';
+      err.style.display = 'block';
+    }
+    return true;
+  },
+
   // A plain GET, the way everything else here does one.
   get: function(path, cb) {
     var x = new XMLHttpRequest();
     var joiner = path.indexOf('?') > -1 ? '&' : '?';
     x.open('GET', this.api_url + path + joiner + 'store_id=' +
            encodeURIComponent(this.store_id), true);
+    this.addAuth(x);
+    var self = this;
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;
       var d = null;
       try { d = JSON.parse(x.responseText); } catch (e) {}
+      if (path !== '/auth' && self.signedOut(x.status)) return;
       cb(x.status, d);
     };
     x.onerror = function() { cb(0, null); };
@@ -1654,10 +1747,15 @@ var APP = {
     var x = new XMLHttpRequest();
     x.open('POST', this.api_url + path, true);
     x.setRequestHeader('Content-Type', 'application/json');
+    this.addAuth(x);
+    var self = this;
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;
       var d = null;
       try { d = JSON.parse(x.responseText); } catch (e) {}
+      // /auth answers 401 for a wrong password; that is the login screen
+      // doing its job, not a session ending.
+      if (path !== '/auth' && self.signedOut(x.status)) return;
       cb(x.status, d);
     };
     x.onerror = function() { cb(0, null); };
@@ -1698,6 +1796,7 @@ var APP = {
 
     var x = new XMLHttpRequest();
     x.open('GET', this.api_url + '/checks?store_id=' + encodeURIComponent(this.store_id), true);
+    this.addAuth(x);
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;
       var d = null;
@@ -1820,6 +1919,7 @@ var APP = {
 
     var x = new XMLHttpRequest();
     x.open('GET', this.api_url + '/invoices?store_id=' + encodeURIComponent(this.store_id), true);
+    this.addAuth(x);
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;
       var d = null;
@@ -2202,6 +2302,7 @@ var APP = {
   getJSON: function(path, onOk, onErr) {
     var x = new XMLHttpRequest();
     x.open('GET', this.api_url + path, true);
+    this.addAuth(x);
     if (this.auth_token) x.setRequestHeader('Authorization', 'Bearer ' + this.auth_token);
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;
@@ -2264,7 +2365,7 @@ var APP = {
 
     var x = new XMLHttpRequest();
     x.open('GET', url, true);
-    if (this.auth_token) x.setRequestHeader('Authorization', 'Bearer ' + this.auth_token);
+    this.addAuth(x);
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;
       var data;
@@ -2586,6 +2687,7 @@ var APP = {
     var x = new XMLHttpRequest();
     x.open('POST', this.api_url + path, true);
     x.setRequestHeader('Content-Type', 'application/json');
+    this.addAuth(x);
     if (this.auth_token) x.setRequestHeader('Authorization', 'Bearer ' + this.auth_token);
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;

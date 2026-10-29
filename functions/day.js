@@ -15,6 +15,7 @@
 // label, because it gets believed.
 
 const { createClient } = require('@supabase/supabase-js');
+const { requireUser } = require('./lib/guard');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -31,6 +32,12 @@ const json = (s, b) => ({ statusCode: s, headers: CORS, body: JSON.stringify(b) 
 const money = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 exports.handler = async (event) => {
+  // Nobody sees any of this without signing in. Before this, the URL was
+  // the only thing between a stranger and the bank position, and a URL is
+  // not a secret: it is in browser history, in a chat message, on a screen
+  // in a stockroom.
+  const auth = await requireUser(event, supabase);
+  if (!auth.ok) return json(auth.status, { error: auth.error });
   const q = event.queryStringParameters || {};
   const store_id = q.store_id || 'store1';
 

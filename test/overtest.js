@@ -3,6 +3,9 @@
 // database returns for that week, so the arithmetic is what gets checked.
 
 const Module = require('module');
+// Signed in. The endpoints refuse anyone who is not; that is tested on
+// its own in authtest, not again in every suite.
+require('./stub-guard');
 const path = require('path');
 
 const DATA = {

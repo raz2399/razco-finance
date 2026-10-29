@@ -4,6 +4,9 @@
 
 const path = require('path');
 const Module = require('module');
+// Signed in. The endpoints refuse anyone who is not; that is tested on
+// its own in authtest, not again in every suite.
+require('./stub-guard');
 
 // ---- a Supabase stand-in that records every write ------------------------
 const DB = {
