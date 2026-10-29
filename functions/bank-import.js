@@ -83,6 +83,7 @@ function fillRequired(row, def, text, today) {
   return filled;
 }
 const { createClient } = require('@supabase/supabase-js');
+const { requireUser } = require('./lib/guard');
 
 
 // Banks write a check line a dozen ways: "CHECK 5101", "CHECK# 5101",
@@ -322,6 +323,12 @@ const CHUNK = 200;
 exports.parseCSV = parseCSV;
 
 exports.handler = async (event) => {
+  // Nobody sees any of this without signing in. Before this, the URL was
+  // the only thing between a stranger and the bank position, and a URL is
+  // not a secret: it is in browser history, in a chat message, on a screen
+  // in a stockroom.
+  const auth = await requireUser(event, supabase);
+  if (!auth.ok) return json(auth.status, { error: auth.error });
   try {
     const { store_id, account_id, csv_text, ending_balance, account_label } =
       JSON.parse(event.body || '{}');

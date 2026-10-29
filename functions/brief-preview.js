@@ -1,3 +1,4 @@
+const { requireUser } = require('./lib/guard');
 // Netlify Function: brief-preview
 // The morning brief, on demand.
 //
@@ -12,6 +13,12 @@
 const { build } = require('./daily-brief');
 
 exports.handler = async (event) => {
+  // Nobody sees any of this without signing in. Before this, the URL was
+  // the only thing between a stranger and the bank position, and a URL is
+  // not a secret: it is in browser history, in a chat message, on a screen
+  // in a stockroom.
+  const auth = await requireUser(event, supabase);
+  if (!auth.ok) return json(auth.status, { error: auth.error });
   const q = (event && event.queryStringParameters) || {};
   const store_id = q.store_id || 'store1';
   try {

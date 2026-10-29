@@ -9,6 +9,7 @@
 // instead of a blank screen.
 
 const { createClient } = require('@supabase/supabase-js');
+const { requireUser } = require('./lib/guard');
 
 // The store is in Lindsay, California. Its day ends when the store closes,
 // not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
@@ -27,6 +28,12 @@ const sum = (rows, field) =>
   (rows || []).reduce((total, row) => total + (Number(row[field]) || 0), 0);
 
 exports.handler = async (event) => {
+  // Nobody sees any of this without signing in. Before this, the URL was
+  // the only thing between a stranger and the bank position, and a URL is
+  // not a secret: it is in browser history, in a chat message, on a screen
+  // in a stockroom.
+  const auth = await requireUser(event, supabase);
+  if (!auth.ok) return json(auth.status, { error: auth.error });
   try {
     const { store_id, floor } = event.queryStringParameters || {};
     const cashFloor = parseFloat(floor || 3000);

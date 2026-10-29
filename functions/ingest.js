@@ -16,6 +16,7 @@
 // duplicates rather than replace.
 
 const { createClient } = require('@supabase/supabase-js');
+const { requireUser } = require('./lib/guard');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -39,6 +40,11 @@ const int = (v) => {
 const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 exports.handler = async (event) => {
+  // The store PC posts here on a schedule at six in the morning with
+  // nobody sitting at it, so this one accepts its token as well as a
+  // signed-in person.
+  const auth = await requireUser(event, supabase, { allowSyncToken: true });
+  if (!auth.ok) return json(auth.status, { error: auth.error });
   if (event.httpMethod !== 'POST') return json(405, { error: 'POST only.' });
 
   let body;

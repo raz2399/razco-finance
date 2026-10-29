@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+require('./stub-guard');
 const { JSDOM } = require('jsdom');
 
 const ROOT = path.join(__dirname, '..');
@@ -296,7 +297,17 @@ function checkTrue(name, cond, note) {
   // What must never appear is a value, or a request that carries one.
   checkTrue('it never sends a client id or secret to Plaid',
     !/client_id\s*:/.test(bankSrc) && !/\bsecret\s*:/.test(bankSrc));
-  checkTrue('nor holds an access token', bankSrc.indexOf('access_token') === -1);
+  // The page does hold a session token from signing in -- that is what a
+  // session is. What it must never hold is Plaid's access token, which can
+  // read the bank account itself. The page's bank code deals only in a link
+  // token and a public token, both of which are short-lived and harmless.
+  const bankCode = bankSrc.slice(
+    bankSrc.indexOf('connectBank: function'),
+    bankSrc.indexOf('bankMsg: function'));
+  checkTrue('the bank code never touches a Plaid access token',
+    bankCode.indexOf('access_token') === -1);
+  checkTrue('it deals in a link token and a public token only',
+    bankCode.indexOf('link_token') > -1 && bankCode.indexOf('public_token') > -1);
   // A Plaid client id is 24 hex characters and a secret is 30. Anything of
   // that shape sitting in the page is a credential that has leaked into it.
   const creds = bankSrc.match(/['"][0-9a-f]{24,32}['"]/g) || [];
@@ -313,6 +324,61 @@ function checkTrue(name, cond, note) {
     bankSrc.indexOf('Posted balance') > -1 && bankSrc.indexOf('available') > -1);
   checkTrue('and explains what available means',
     bankSrc.indexOf('what the bank will let you spend') > -1);
+
+  console.log('\nSigning in');
+  const pageSrc = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+
+  // The old login ignored the password entirely, invented a token from the
+  // clock, and let whoever was typing choose their own role from a
+  // dropdown. Any one of those three is the whole door.
+  checkTrue('the password is actually sent',
+    /action: 'login'[\s\S]{0,200}password: password/.test(pageSrc));
+  checkTrue('no token is invented in the page',
+    !/token_['"]?\s*\+\s*Date\.now/.test(pageSrc));
+  checkTrue('and the role is not chosen by whoever is signing in',
+    pageSrc.indexOf('<option value="owner">') === -1);
+  checkTrue('the role comes back from the server',
+    /d\.user\.role|user_role = d\.user/.test(pageSrc));
+
+  console.log('\nThe session');
+  checkTrue('a stored token is checked with the server, not trusted',
+    /restoreSession[\s\S]{0,900}this\.get\('\/auth'/.test(pageSrc));
+  checkTrue('the password is never stored',
+    !/setItem\(['"]rn_password|localStorage[\s\S]{0,40}password/.test(pageSrc));
+  checkTrue('signing out tells the server too',
+    /logout[\s\S]{0,300}action: 'logout'/.test(pageSrc));
+
+  console.log('\nEvery request carries the token');
+  const opens = (pageSrc.match(/x\.open\(/g) || []).length;
+  const auths = (pageSrc.match(/this\.addAuth\(x\)/g) || []).length;
+  check('one addAuth per request', auths, opens);
+  checkTrue('and 401 ends the session rather than painting an error',
+    /signedOut[\s\S]{0,400}showLogin/.test(pageSrc));
+
+  console.log('\nThe vendor ledger screen');
+  checkTrue('there is a Vendors screen', !!$('vendors-tab'));
+  checkTrue('reachable from the tab bar',
+    !!win.document.querySelector('[data-tab="vendors"]'));
+  checkTrue('with a search box', !!$('vl-search'));
+  checkTrue('and somewhere for the lines', !!$('vl-body'));
+
+  const led = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  // Every column he asked to sort by.
+  ['date', 'number', 'amount', 'type'].forEach(function (k) {
+    checkTrue('sortable by ' + k, led.indexOf("key: '" + k + "'") > -1);
+  });
+  checkTrue('and by a date range', led.indexOf('vl-from') > -1 && led.indexOf('vl-to') > -1);
+  checkTrue('clicking the same column turns it around',
+    /vl_sort === key[\s\S]{0,120}'asc'\)\s*\?\s*'desc'/.test(led));
+
+  // The lines are the point. A screen that adds them up and shows one
+  // number is the thing he already has in QuickBooks.
+  checkTrue('every line shows its own balance after',
+    led.indexOf('balance_after') > -1);
+  checkTrue('a payment reads as money going out',
+    led.indexOf('&minus; ') > -1);
+  checkTrue('and an opening balance is never called an invoice',
+    led.indexOf('Opening balance') > -1);
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);

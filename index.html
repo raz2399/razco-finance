@@ -739,14 +739,7 @@
         <label for="password">Password</label>
         <input type="password" id="password" placeholder="••••••••" required>
       </div>
-      <div class="form-group">
-        <label for="role">Role</label>
-        <select id="role">
-          <option value="owner">Owner</option>
-          <option value="manager">Manager</option>
-          <option value="bookkeeper">Bookkeeper</option>
-        </select>
-      </div>
+      <div id="login-error" style="display:none;background:#FDECEA;color:#922B21;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px"></div>
       <button type="submit">Sign In</button>
     </form>
   </div>
@@ -763,6 +756,7 @@
     <button class="tab active" data-tab="home">Today</button>
     <button class="tab" data-tab="receive">Receive</button>
     <button class="tab" data-tab="pay">Pay</button>
+    <button class="tab" data-tab="vendors">Vendors</button>
     <button class="tab" data-tab="money">Money</button>
     <button class="tab" data-tab="week">Week</button>
     <button class="tab" data-tab="settings">Settings</button>
@@ -1110,6 +1104,55 @@
       </div>
     </div>
 
+    <div class="tab-content" id="vendors-tab">
+      <div class="rn-wrap">
+        <div class="rn-screenhead">
+          <h2 class="rn-screentitle">Vendors</h2>
+          <p class="rn-screensub">Every line against a vendor, in order, with the balance after each one.</p>
+        </div>
+
+        <div class="card">
+          <input id="vl-search" type="text" autocomplete="off"
+                 placeholder="Type a vendor name — Salters, Sysco, Cargil…"
+                 style="width:100%;box-sizing:border-box;font-size:15px;padding:12px">
+          <div id="vl-list" style="margin-top:12px"></div>
+        </div>
+
+        <div class="card" id="vl-ledger-card" style="display:none">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div>
+              <h3 id="vl-name" style="margin:0"></h3>
+              <div id="vl-sub" style="font-size:12px;color:var(--text-light);margin-top:3px"></div>
+            </div>
+            <button class="btn-ghost" id="vl-back" style="width:auto">&lsaquo; All vendors</button>
+          </div>
+
+          <div id="vl-totals" style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0"></div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+            <label style="font-size:11px;font-weight:700;color:var(--text-light)">FROM</label>
+            <input id="vl-from" type="date" style="font-size:13px;padding:6px">
+            <label style="font-size:11px;font-weight:700;color:var(--text-light)">TO</label>
+            <input id="vl-to" type="date" style="font-size:13px;padding:6px">
+            <label style="font-size:13px;margin-left:6px">
+              <input id="vl-openonly" type="checkbox"> Only what is still open
+            </label>
+            <button class="btn-ghost" id="vl-clear" style="width:auto;margin-left:auto">Clear</button>
+          </div>
+
+          <div style="overflow-x:auto">
+            <table id="vl-table" style="width:100%;border-collapse:collapse;font-size:13.5px">
+              <thead>
+                <tr id="vl-head"></tr>
+              </thead>
+              <tbody id="vl-body"></tbody>
+            </table>
+          </div>
+          <div id="vl-empty" style="display:none;font-size:13px;color:var(--text-light);padding:14px 0"></div>
+        </div>
+      </div>
+    </div>
+
     <div class="tab-content" id="money-tab">
       <div class="rn-wrap">
         <div class="rn-screenhead">
@@ -1354,41 +1397,117 @@ var APP = {
   },
 
   login: function() {
+    var self = this;
     var email = document.getElementById('email').value;
-    var role = document.getElementById('role').value;
+    var password = document.getElementById('password').value;
+    var err = document.getElementById('login-error');
+    var hide = function() { if (err) err.style.display = 'none'; };
+    var show = function(m) {
+      if (!err) { window.alert(m); return; }
+      err.innerHTML = self.escHtml(m); err.style.display = 'block';
+    };
+    hide();
 
-    if (!email) {
-      alert('Please enter email');
-      return;
+    if (!email || !password) { show('Email and password, please.'); return; }
+
+    var btn = document.querySelector('#login-form button[type="submit"]');
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Signing in...'; }
+
+    // The password goes to the server and nowhere else. It is never put in
+    // localStorage, never in a URL, never kept on this page after this call.
+    this.post('/auth', { action: 'login', email: email, password: password }, function(status, d) {
+      if (btn) { btn.disabled = false; btn.innerHTML = 'Sign in'; }
+      if (status !== 200 || !d || !d.access_token) {
+        show((d && d.error) || 'Could not sign in just now.');
+        return;
+      }
+      self.keepSession(d);
+      self.showApp();
+    });
+  },
+
+  // Tokens, and only tokens. The access token expires on its own; the
+  // refresh token is what keeps him signed in without typing it again.
+  keepSession: function(d) {
+    this.auth_token = d.access_token;
+    this.refresh_token = d.refresh_token;
+    this.user_id = d.user ? d.user.user_id : null;
+    this.user_role = d.user ? d.user.role : null;
+    this.user_name = d.user ? d.user.name : null;
+    if (d.user && d.user.stores && d.user.stores.length) {
+      // Which store this account may see is the server's answer, not a
+      // value this page gets to choose.
+      this.store_id = d.user.stores[0];
     }
+    try {
+      localStorage.setItem('rn_auth_token', d.access_token);
+      localStorage.setItem('rn_refresh_token', d.refresh_token || '');
+      localStorage.setItem('rn_user_role', this.user_role || '');
+      localStorage.setItem('rn_user_name', this.user_name || '');
+      localStorage.setItem('rn_store_id', this.store_id || '');
+    } catch (e) { /* private window: stay signed in for this tab only */ }
+  },
 
-    this.user_id = 'user_' + Date.now();
-    this.user_role = role;
-    this.auth_token = 'token_' + Date.now();
-
-    localStorage.setItem('rn_user_id', this.user_id);
-    localStorage.setItem('rn_user_role', this.user_role);
-    localStorage.setItem('rn_auth_token', this.auth_token);
-    localStorage.setItem('rn_email', email);
-    localStorage.setItem('rn_cash_floor', this.cash_floor);
-
-    this.showApp();
+  dropSession: function() {
+    this.auth_token = null;
+    this.refresh_token = null;
+    this.user_role = null;
+    try {
+      localStorage.removeItem('rn_auth_token');
+      localStorage.removeItem('rn_refresh_token');
+      localStorage.removeItem('rn_user_role');
+      localStorage.removeItem('rn_user_name');
+    } catch (e) {}
   },
 
   logout: function() {
-    localStorage.clear();
+    var self = this;
+    // Tell the server as well, so the refresh token cannot be used again by
+    // anyone who has a copy of it.
+    this.post('/auth', { action: 'logout' }, function() {});
+    this.dropSession();
     this.showLogin();
   },
 
   restoreSession: function() {
-    var token = localStorage.getItem('rn_auth_token');
-    if (token) {
-      this.user_id = localStorage.getItem('rn_user_id');
-      this.user_role = localStorage.getItem('rn_user_role');
-      this.auth_token = token;
+    var self = this;
+    var token = null, refresh = null;
+    try {
+      token = localStorage.getItem('rn_auth_token');
+      refresh = localStorage.getItem('rn_refresh_token');
+      this.store_id = localStorage.getItem('rn_store_id') || this.store_id;
       this.cash_floor = parseFloat(localStorage.getItem('rn_cash_floor') || 3000);
-      this.showApp();
-    }
+    } catch (e) {}
+
+    if (!token && !refresh) { this.showLogin(); return; }
+    this.auth_token = token;
+    this.refresh_token = refresh;
+
+    // A token sitting in this browser proves nothing -- it may be expired,
+    // or the account may have been turned off since. Ask.
+    this.get('/auth', function(status, d) {
+      if (status === 200 && d && d.signed_in) {
+        self.user_role = d.user.role;
+        self.user_name = d.user.name;
+        if (d.user.stores && d.user.stores.length) self.store_id = d.user.stores[0];
+        self.showApp();
+        return;
+      }
+      if (refresh) {
+        self.post('/auth', { action: 'refresh', refresh_token: refresh }, function(st, d2) {
+          if (st === 200 && d2 && d2.access_token) {
+            self.keepSession(d2);
+            self.showApp();
+          } else {
+            self.dropSession();
+            self.showLogin();
+          }
+        });
+        return;
+      }
+      self.dropSession();
+      self.showLogin();
+    });
   },
 
   showLogin: function() {
@@ -1399,7 +1518,9 @@ var APP = {
   showApp: function() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
-    document.getElementById('user-display').textContent = (this.user_role.charAt(0).toUpperCase() + this.user_role.slice(1));
+    var who = this.user_name || this.user_role || '';
+    document.getElementById('user-display').textContent =
+      who ? (who.charAt(0).toUpperCase() + who.slice(1)) : '';
     document.getElementById('cash-floor').value = this.cash_floor;
     this.loadHome();
   },
@@ -1429,6 +1550,7 @@ var APP = {
     if (tabName === 'home') this.loadHome();
     if (tabName === 'receive') this.loadInvoices();
     if (tabName === 'pay') { this.loadChecks(); this.loadAPCalendar(); this.loadInvoices(); }
+    if (tabName === 'vendors') this.loadVendorList();
     if (tabName === 'money') { this.loadCashPosition(); this.loadCorrections(); this.loadBankLink(); }
     if (tabName === 'week') { this.loadPL(); this.loadSales(); this.loadClose(); }
     if (tabName === 'home') this.loadHome();
@@ -1454,6 +1576,211 @@ var APP = {
   todayISO: function() {
     var d = new Date(), p = function(n) { return n < 10 ? '0' + n : '' + n; };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  },
+
+  // ---------- the vendor ledger ----------
+  // QuickBooks gives a vendor as a total, and a total cannot be argued
+  // with. These are the lines: this invoice, that check, on this date, for
+  // this amount -- which is what gets compared against a vendor's own
+  // statement when they phone up.
+
+  vl_sort: 'date',
+  vl_dir: 'desc',
+  vl_vendor: null,
+
+  loadVendorList: function() {
+    var self = this;
+    var box = document.getElementById('vl-search');
+    if (box && !box.getAttribute('data-wired')) {
+      box.setAttribute('data-wired', '1');
+      var timer = null;
+      box.addEventListener('input', function() {
+        if (timer) window.clearTimeout(timer);
+        // Waits for him to stop typing rather than firing on every letter.
+        timer = window.setTimeout(function() { self.searchVendors(box.value); }, 180);
+      });
+    }
+    this.bind2('vl-back', function() { self.showVendorList(); });
+    this.bind2('vl-clear', function() {
+      document.getElementById('vl-from').value = '';
+      document.getElementById('vl-to').value = '';
+      document.getElementById('vl-openonly').checked = false;
+      self.openVendor(self.vl_vendor);
+    });
+    var refresh = function() { if (self.vl_vendor) self.openVendor(self.vl_vendor); };
+    ['vl-from', 'vl-to', 'vl-openonly'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el && !el.getAttribute('data-wired')) {
+        el.setAttribute('data-wired', '1');
+        el.addEventListener('change', refresh);
+      }
+    });
+    this.searchVendors(box ? box.value : '');
+  },
+
+  searchVendors: function(q) {
+    var self = this;
+    this.get('/vendor-ledger' + (q ? '?q=' + encodeURIComponent(q) : ''), function(status, d) {
+      var list = document.getElementById('vl-list');
+      if (!list) return;
+      if (status !== 200 || !d) {
+        list.innerHTML = '<p style="font-size:13px;color:var(--text-light)">Could not load vendors.</p>';
+        return;
+      }
+      if (!d.vendors.length) {
+        list.innerHTML = '<p style="font-size:13px;color:var(--text-light)">No vendor matches that.</p>';
+        return;
+      }
+      var h = '<div style="font-size:11px;color:var(--text-light);margin-bottom:8px">' +
+              d.count + ' vendor' + (d.count === 1 ? '' : 's') +
+              (d.total_owed ? ' &middot; ' + self.money(d.total_owed) + ' owed' : '') +
+              (d.truncated ? ' &middot; showing the first 60' : '') + '</div>';
+      h += '<table style="width:100%;border-collapse:collapse;font-size:13.5px">';
+      for (var i = 0; i < d.vendors.length; i++) {
+        var v = d.vendors[i];
+        h += '<tr class="vl-row" data-vendor="' + self.escHtml(v.vendor_id) + '" ' +
+             'style="cursor:pointer;border-top:1px solid #F1F3F5">' +
+             '<td style="padding:10px 8px 10px 0"><strong>' + self.escHtml(v.name) + '</strong>' +
+             (v.aliases && v.aliases.length
+               ? '<div style="font-size:10.5px;color:#9aa3b2">also ' +
+                 self.escHtml(v.aliases.join(', ')) + '</div>' : '') +
+             '<div style="font-size:11px;color:var(--text-light)">' +
+             (v.method_label ? self.escHtml(v.method_label) : 'Payment type not set') +
+             (v.terms ? ' &middot; ' + self.escHtml(v.terms) : '') +
+             (v.open_count ? ' &middot; ' + v.open_count + ' open' : '') +
+             (v.next_due ? ' &middot; due ' + self.escHtml(v.next_due) : '') +
+             '</div></td>' +
+             '<td style="text-align:right;padding:10px 0;font-weight:700' +
+             (v.owed < 0 ? ';color:#1B5E20' : '') + '">' +
+             (v.owed ? self.money(v.owed) : '<span style="color:#9aa3b2;font-weight:400">&mdash;</span>') +
+             '</td></tr>';
+      }
+      h += '</table>';
+      list.innerHTML = h;
+
+      var rows = document.querySelectorAll('.vl-row');
+      for (var k = 0; k < rows.length; k++) {
+        rows[k].onclick = function() { self.openVendor(this.getAttribute('data-vendor')); };
+      }
+    });
+  },
+
+  showVendorList: function() {
+    this.vl_vendor = null;
+    document.getElementById('vl-ledger-card').style.display = 'none';
+  },
+
+  openVendor: function(vendorId) {
+    if (!vendorId) return;
+    var self = this;
+    this.vl_vendor = vendorId;
+
+    var from = document.getElementById('vl-from').value;
+    var to = document.getElementById('vl-to').value;
+    var openOnly = document.getElementById('vl-openonly').checked;
+
+    var url = '/vendor-ledger?vendor_id=' + encodeURIComponent(vendorId) +
+              '&sort=' + this.vl_sort + '&dir=' + this.vl_dir +
+              (from ? '&from=' + from : '') + (to ? '&to=' + to : '') +
+              (openOnly ? '&include=open' : '');
+
+    this.get(url, function(status, d) {
+      if (status !== 200 || !d || d.error) {
+        window.alert((d && d.error) || 'Could not load that vendor.');
+        return;
+      }
+      document.getElementById('vl-ledger-card').style.display = 'block';
+      document.getElementById('vl-name').innerHTML = self.escHtml(d.vendor.name);
+      document.getElementById('vl-sub').innerHTML =
+        (d.vendor.method_label ? self.escHtml(d.vendor.method_label) : 'Payment type not set') +
+        (d.vendor.terms ? ' &middot; ' + self.escHtml(d.vendor.terms) : '') +
+        (d.vendor.account_number ? ' &middot; acct ' + self.escHtml(d.vendor.account_number) : '');
+
+      var t = d.totals;
+      var tile = function(label, value, tone) {
+        return '<div style="flex:1;min-width:130px;border:1px solid #E9EDF3;border-radius:10px;padding:10px 12px">' +
+          '<div style="font-size:10px;font-weight:800;letter-spacing:.8px;color:var(--text-light);text-transform:uppercase">' +
+          label + '</div><div style="font-size:19px;font-weight:800;margin-top:3px' +
+          (tone ? ';color:' + tone : '') + '">' + value + '</div></div>';
+      };
+      var tiles = tile('Owed now', self.money(t.owed), t.owed > 0 ? '#922B21' : '#1B5E20') +
+        tile('Charged', self.money(t.charged)) +
+        tile('Paid', self.money(t.paid));
+      if (t.checks_not_cashed) {
+        tiles += tile('Checks not cashed', self.money(t.checks_not_cashed_total), '#8D6E00');
+      }
+      if (t.from_quickbooks) {
+        tiles += tile('Of that, from QuickBooks', self.money(t.from_quickbooks), '#8D6E00');
+      }
+      document.getElementById('vl-totals').innerHTML = tiles;
+
+      // Sortable headers. Clicking the one already sorted turns it around.
+      var cols = [
+        { key: 'date', label: 'Date' },
+        { key: 'type', label: 'What' },
+        { key: 'number', label: 'Number' },
+        { key: 'amount', label: 'Amount' },
+        { key: null, label: 'Balance after' }
+      ];
+      var hh = '';
+      for (var c = 0; c < cols.length; c++) {
+        var col = cols[c];
+        var arrow = (col.key && col.key === d.sort) ? (d.dir === 'asc' ? ' \u2191' : ' \u2193') : '';
+        hh += '<th style="text-align:' + (c >= 3 ? 'right' : 'left') +
+              ';padding:0 8px 8px 0;font-size:10.5px;font-weight:800;letter-spacing:.7px;' +
+              'text-transform:uppercase;color:var(--text-light)' +
+              (col.key ? ';cursor:pointer' : '') + '"' +
+              (col.key ? ' class="vl-sort" data-key="' + col.key + '"' : '') + '>' +
+              col.label + arrow + '</th>';
+      }
+      document.getElementById('vl-head').innerHTML = hh;
+
+      var body = '';
+      for (var i = 0; i < d.entries.length; i++) {
+        var e = d.entries[i];
+        var isPay = e.kind === 'payment';
+        var what = e.opening
+          ? '<span style="color:#8D6E00;font-weight:700">Opening balance</span>'
+          : isPay
+            ? self.escHtml(e.label) + (e.settled
+                ? '' : ' <span style="color:#8D6E00;font-size:11px">not cashed</span>')
+            : 'Invoice' + (e.status === 'paid'
+                ? ' <span style="color:#1B5E20;font-size:11px">paid</span>' : '') +
+              (e.due_date ? ' <span style="font-size:11px;color:var(--text-light)">due ' +
+                self.escHtml(e.due_date) + '</span>' : '');
+        body += '<tr style="border-top:1px solid #F1F3F5">' +
+          '<td style="padding:9px 8px 9px 0;white-space:nowrap">' + self.escHtml(e.date || '') + '</td>' +
+          '<td style="padding:9px 8px 9px 0">' + what + '</td>' +
+          '<td style="padding:9px 8px 9px 0;color:var(--text-light)">' +
+            self.escHtml(e.number || '') + '</td>' +
+          '<td style="text-align:right;padding:9px 0;font-weight:600' +
+            (isPay ? ';color:#1B5E20' : '') + '">' +
+            (isPay ? '&minus; ' + self.money(e.paid) : self.money(e.charge)) + '</td>' +
+          '<td style="text-align:right;padding:9px 0 9px 8px;color:var(--text-light)">' +
+            self.money(e.balance_after) + '</td>' +
+          '</tr>';
+      }
+      document.getElementById('vl-body').innerHTML = body;
+
+      var empty = document.getElementById('vl-empty');
+      empty.style.display = d.entries.length ? 'none' : 'block';
+      empty.innerHTML = 'Nothing on this vendor' +
+        ((from || to || openOnly) ? ' for what you have filtered to.' : ' yet.');
+
+      var heads = document.querySelectorAll('.vl-sort');
+      for (var h2 = 0; h2 < heads.length; h2++) {
+        heads[h2].onclick = function() {
+          var key = this.getAttribute('data-key');
+          if (self.vl_sort === key) {
+            self.vl_dir = (self.vl_dir === 'asc') ? 'desc' : 'asc';
+          } else {
+            self.vl_sort = key;
+            self.vl_dir = (key === 'date') ? 'desc' : 'asc';
+          }
+          self.openVendor(self.vl_vendor);
+        };
+      }
+    });
   },
 
   // ---------- the bank connection ----------
@@ -1634,16 +1961,38 @@ var APP = {
     if (el) el.onclick = fn;
   },
 
+  // Every request carries it. Missed on one call, that call is the hole.
+  addAuth: function(x) {
+    if (this.auth_token) x.setRequestHeader('Authorization', 'Bearer ' + this.auth_token);
+  },
+
+  // The server said no. Not an error to paint on a card -- it means the
+  // session is over, and the only honest screen is the sign-in one.
+  signedOut: function(status) {
+    if (status !== 401 && status !== 403) return false;
+    this.dropSession();
+    this.showLogin();
+    var err = document.getElementById('login-error');
+    if (err) {
+      err.innerHTML = 'That session has ended. Sign in again.';
+      err.style.display = 'block';
+    }
+    return true;
+  },
+
   // A plain GET, the way everything else here does one.
   get: function(path, cb) {
     var x = new XMLHttpRequest();
     var joiner = path.indexOf('?') > -1 ? '&' : '?';
     x.open('GET', this.api_url + path + joiner + 'store_id=' +
            encodeURIComponent(this.store_id), true);
+    this.addAuth(x);
+    var self = this;
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;
       var d = null;
       try { d = JSON.parse(x.responseText); } catch (e) {}
+      if (path !== '/auth' && self.signedOut(x.status)) return;
       cb(x.status, d);
     };
     x.onerror = function() { cb(0, null); };
@@ -1654,10 +2003,15 @@ var APP = {
     var x = new XMLHttpRequest();
     x.open('POST', this.api_url + path, true);
     x.setRequestHeader('Content-Type', 'application/json');
+    this.addAuth(x);
+    var self = this;
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;
       var d = null;
       try { d = JSON.parse(x.responseText); } catch (e) {}
+      // /auth answers 401 for a wrong password; that is the login screen
+      // doing its job, not a session ending.
+      if (path !== '/auth' && self.signedOut(x.status)) return;
       cb(x.status, d);
     };
     x.onerror = function() { cb(0, null); };
@@ -1698,6 +2052,7 @@ var APP = {
 
     var x = new XMLHttpRequest();
     x.open('GET', this.api_url + '/checks?store_id=' + encodeURIComponent(this.store_id), true);
+    this.addAuth(x);
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;
       var d = null;
@@ -1820,6 +2175,7 @@ var APP = {
 
     var x = new XMLHttpRequest();
     x.open('GET', this.api_url + '/invoices?store_id=' + encodeURIComponent(this.store_id), true);
+    this.addAuth(x);
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;
       var d = null;
@@ -2202,6 +2558,7 @@ var APP = {
   getJSON: function(path, onOk, onErr) {
     var x = new XMLHttpRequest();
     x.open('GET', this.api_url + path, true);
+    this.addAuth(x);
     if (this.auth_token) x.setRequestHeader('Authorization', 'Bearer ' + this.auth_token);
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;
@@ -2264,7 +2621,7 @@ var APP = {
 
     var x = new XMLHttpRequest();
     x.open('GET', url, true);
-    if (this.auth_token) x.setRequestHeader('Authorization', 'Bearer ' + this.auth_token);
+    this.addAuth(x);
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;
       var data;
@@ -2586,6 +2943,7 @@ var APP = {
     var x = new XMLHttpRequest();
     x.open('POST', this.api_url + path, true);
     x.setRequestHeader('Content-Type', 'application/json');
+    this.addAuth(x);
     if (this.auth_token) x.setRequestHeader('Authorization', 'Bearer ' + this.auth_token);
     x.onreadystatechange = function() {
       if (x.readyState !== 4) return;

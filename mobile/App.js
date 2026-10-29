@@ -17,21 +17,40 @@ import MenuScreen from './src/MenuScreen';
 import FixScreen from './src/FixScreen';
 import ChecksScreen from './src/ChecksScreen';
 import VendorsScreen from './src/VendorsScreen';
+import LoginScreen from './src/LoginScreen';
+import { isSignedIn, clearSession } from './src/api';
 import { C } from './src/theme';
 
 export default function App() {
   const [screen, setScreen] = useState('home');
+  // Nothing is shown until somebody signs in. Not a dimmed screen, not a
+  // cached number from last time -- the sign-in screen and nothing else.
+  const [signedIn, setSignedIn] = useState(isSignedIn());
   // Bumping this forces Home to refetch, so the numbers move the moment an
   // invoice lands or a figure is corrected.
   const [version, setVersion] = useState(0);
   const refreshHome = () => setVersion((v) => v + 1);
   const home = () => setScreen('home');
 
+  if (!signedIn) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <StatusBar style="dark" />
+        <LoginScreen onSignedIn={() => { setSignedIn(true); setScreen('home'); refreshHome(); }} />
+      </View>
+    );
+  }
+
+  // Any screen can find the session has ended -- a token expires, or the
+  // account is turned off while the app is open. One answer, wherever it
+  // happens: back to the sign-in screen.
+  const signOut = () => { clearSession(); setSignedIn(false); setScreen('home'); };
+
   if (screen === 'menu') {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg }}>
         <StatusBar style="dark" />
-        <MenuScreen onBack={home} onPick={(k) => setScreen(k)} />
+        <MenuScreen onBack={home} onPick={(k) => { if (k === 'signout') { signOut(); return; } setScreen(k); }} />
       </View>
     );
   }
