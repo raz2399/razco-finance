@@ -223,10 +223,41 @@ exports.handler = safely('bank-match', async (event) => {
       category_id: body.category_id || null,
       created_by: auth.user && auth.user.email ? auth.user.email : null,
     };
-    const res = await supabase
+
+    // Looked up and then written, rather than upserted.
+    //
+    // The unique index on this table is (store_id, upper(pattern)) -- an
+    // EXPRESSION index, so that naming a line is case-insensitive. ON
+    // CONFLICT cannot use an expression index through PostgREST: there is
+    // no way to spell "upper(pattern)" as a conflict target. An upsert
+    // here fails with "there is no unique or exclusion constraint
+    // matching the ON CONFLICT specification", which sounds like a
+    // missing index and is really a mismatched one.
+    //
+    // So: find it the way the index finds it, then update or insert. Two
+    // round trips instead of one, for something a person does a handful
+    // of times, and it works against the index that actually exists.
+    const found = await supabase
       .from('bank_rules')
-      .upsert(row, { onConflict: 'store_id,pattern' })
-      .select('rule_id, pattern, kind, label');
+      .select('rule_id')
+      .eq('store_id', store_id)
+      .ilike('pattern', pattern)
+      .maybeSingle();
+    if (found.error) return json(500, { error: found.error.message });
+
+    let res;
+    if (found.data) {
+      res = await supabase
+        .from('bank_rules')
+        .update(row)
+        .eq('rule_id', found.data.rule_id)
+        .select('rule_id, pattern, kind, label');
+    } else {
+      res = await supabase
+        .from('bank_rules')
+        .insert(row)
+        .select('rule_id, pattern, kind, label');
+    }
     if (res.error) return json(500, { error: res.error.message });
     return json(200, {
       ok: true,

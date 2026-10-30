@@ -181,8 +181,23 @@ async function syncItem(item) {
     const rows = incoming.slice(i, i + CHUNK)
       .map((t) => toRow(t, storeId, item.account_id));
     if (LIVE) {
+      // Conflicts are resolved on import_hash, not plaid_transaction_id.
+      //
+      // There IS a unique index on plaid_transaction_id, but it is a
+      // PARTIAL one -- "WHERE plaid_transaction_id IS NOT NULL" -- and
+      // Postgres will not use a partial index for ON CONFLICT unless the
+      // statement repeats the predicate, which PostgREST cannot send.
+      // The error it gives says nothing about partial indexes: it says
+      // "there is no unique or exclusion constraint matching the ON
+      // CONFLICT specification", which reads like the index is missing
+      // when it is sitting right there.
+      //
+      // import_hash has a plain, total unique index, and toRow already
+      // sets it to 'plaid:' + transaction_id -- one per Plaid
+      // transaction, exactly as before. Same guarantee, through a door
+      // Postgres will actually open.
       const res = await supabase.from('bank_transactions')
-        .upsert(rows, { onConflict: 'plaid_transaction_id' });
+        .upsert(rows, { onConflict: 'import_hash' });
       if (res.error) throw new Error('Could not save transactions: ' + res.error.message);
     }
     written += rows.length;

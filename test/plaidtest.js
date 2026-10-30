@@ -188,7 +188,32 @@ function money(n) { return Math.round((Number(n) || 0) * 100) / 100; }
       const op = (stmt.match(/\.(upsert|insert|update|delete)\(/) || [null])[0];
       if (op) {
         const body = enclosing(at);
-        const wrapped = /if \(LIVE/.test(src.slice(Math.max(0, at - 500), at));
+        // Is this statement inside an `if (LIVE)` BLOCK -- not "is there
+        // an `if (LIVE)` within 500 characters". Those are different
+        // questions, and the second one has now been wrong twice: once
+        // flagging a write that was perfectly safe, and once here, where
+        // a comment explaining the guard grew long enough to push the
+        // guard itself out of the window.
+        //
+        // Walked by braces instead: step back from the statement, find
+        // each enclosing `{`, and look at what opened it.
+        const wrapped = (function () {
+          let depth = 0;
+          for (let i = at; i >= 0; i--) {
+            const c = src[i];
+            if (c === '}') depth += 1;
+            else if (c === '{') {
+              if (depth === 0) {
+                // The head of this block: everything on the line or two
+                // before the brace that opened it.
+                const head = src.slice(Math.max(0, i - 120), i);
+                if (/if\s*\(\s*LIVE[^)]*\)\s*$/.test(head)) return true;
+                if (/if\s*\(\s*LIVE\s*&&[^)]*\)\s*$/.test(head)) return true;
+              } else depth -= 1;
+            }
+          }
+          return false;
+        })();
         const earlyReturn = /if \(!LIVE\)\s*return/.test(body);
         if (!wrapped && !earlyReturn) {
           return 'unguarded ' + op + ' on ' + table;
