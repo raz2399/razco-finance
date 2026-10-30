@@ -20,6 +20,10 @@ require.cache.MOCK_SB11 = {
 process.env.SUPABASE_URL = 'https://example.supabase.co';
 process.env.SUPABASE_SERVICE_KEY = 'test';
 
+// The sync moved into a library so the scheduled function and the
+// "Read the bank now" button can share it. plaid-sync.js still
+// re-exports these, and the test goes through that door on purpose:
+// if the re-export ever breaks, the scheduled run breaks with it.
 const { toLedgerAmount, toRow } = require(path.join(__dirname, '..', 'functions', 'plaid-sync.js'));
 
 let pass = 0, fail = 0;
@@ -151,8 +155,9 @@ function money(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 (function () {
   const fs2 = require('fs');
   const path2 = require('path');
+  // Reads the library, which is where every write now lives.
   const src = fs2.readFileSync(
-    path2.join(__dirname, '..', 'functions', 'plaid-sync.js'), 'utf8');
+    path2.join(__dirname, '..', 'functions', 'lib', 'banksync.js'), 'utf8');
 
   console.log('\nOnly production is real money');
   checkTrue('there is a live flag, and production is what sets it',

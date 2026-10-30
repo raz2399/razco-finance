@@ -147,17 +147,42 @@ const req = (headers, body, method) => ({
   console.log('\nEvery endpoint is behind it');
   const fs = require('fs');
   const dir = path.join(__dirname, '..', 'functions');
+
+  // Which functions Netlify actually runs on a schedule, read from the
+  // deployment config rather than taken on trust.
+  const toml = fs.readFileSync(path.join(__dirname, '..', 'netlify.toml'), 'utf8');
+  const schedules = (toml.match(/\[functions\."([^"]+)"\]\s*\n\s*schedule\s*=/g) || [])
+    .map((m) => m.match(/\[functions\."([^"]+)"\]/)[1]);
+  const scheduled = schedules.slice();
+
   const open_ = [];
   fs.readdirSync(dir).filter((f) => f.endsWith('.js')).forEach((f) => {
     const src = fs.readFileSync(path.join(dir, f), 'utf8');
     if (src.indexOf('requireUser') > -1) return;
-    // auth is the door itself; daily-brief runs on a schedule and Netlify
-    // does not serve it over HTTP at all; probe answers whether the site is
-    // up and holds no data.
-    if (['auth.js', 'daily-brief.js', 'probe.js'].indexOf(f) > -1) return;
+    // auth is the door itself; probe answers whether the site is up and
+    // holds no data.
+    if (['auth.js', 'probe.js'].indexOf(f) > -1) return;
+    // A scheduled function has no door because it has no URL: Netlify
+    // answers 403 before the code runs. But "it is scheduled" is a claim,
+    // and a claim that excuses a missing auth check has to be checked
+    // itself -- so it is read out of netlify.toml, not out of a list
+    // somebody can add a name to.
+    if (scheduled.indexOf(f.replace(/\.js$/, '')) > -1) return;
     open_.push(f);
   });
   check('nothing left open', open_, []);
+
+  // And the other way round: a function that stops being scheduled must
+  // not keep the exemption. This is the failure that would matter --
+  // deleting a line from netlify.toml and silently publishing an
+  // unguarded endpoint that reads the bank.
+  const unguardedButReachable = scheduled.filter((name) => {
+    const file = path.join(dir, name + '.js');
+    if (!fs.existsSync(file)) return false;
+    return fs.readFileSync(file, 'utf8').indexOf('requireUser') === -1
+      && schedules.indexOf(name) === -1;
+  });
+  check('and nothing claims to be scheduled when it is not', unguardedButReachable, []);
 
   console.log('\nAnd there is no way to switch it off');
   const guardSrc = fs.readFileSync(

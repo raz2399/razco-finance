@@ -3258,7 +3258,7 @@ var APP = {
     if (btn) { btn.disabled = true; btn.innerHTML = 'Reading...'; }
     this.bankMsg('info', 'Reading the bank...');
 
-    this.post('/plaid-sync', { store_id: this.store_id }, function(status, d) {
+    this.post('/bank-read', { store_id: this.store_id }, function(status, d) {
       if (btn) { btn.disabled = false; btn.innerHTML = 'Read the bank now'; }
       if (status !== 200 || !d || d.error) {
         self.bankMsg('bad', 'Could not read the bank: ' +
