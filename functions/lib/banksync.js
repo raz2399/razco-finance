@@ -106,7 +106,16 @@ function toRow(t, storeId, accountId) {
     store_id: storeId,
     posted_date: t.date,
     description: t.name || t.merchant_name || 'Transaction',
-    memo: t.merchant_name || t.name || null,
+    // Plaid's cleaned-up name, kept beside the raw one rather than
+    // instead of it. "BBUSA BIMBO BAKERIES WEB RAZ *ALI" is what the
+    // bank says; "Bimbo Bakeries" is what it means, and the vendor
+    // matcher has a far easier time with the second.
+    //
+    // This used to be written to a column called memo, which does not
+    // exist on this table. It never failed because the sandbox guard
+    // skipped every write, so the first time it ran for real -- the day
+    // the bank went live -- it took the whole sync down with it.
+    merchant_name: t.merchant_name || null,
     amount: toLedgerAmount(t.amount),
     txn_type: Number(t.amount) > 0 ? 'debit' : 'credit',
     // Straight from the bank. The CSV made us read check numbers out of

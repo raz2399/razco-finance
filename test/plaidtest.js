@@ -215,5 +215,55 @@ function money(n) { return Math.round((Number(n) || 0) * 100) / 100; }
     /Nothing was saved/.test(src));
 }());
 
+
+// ---- every column it writes has to be a real one --------------------
+//
+// The sync wrote a column called `memo` that does not exist on
+// bank_transactions. It never failed, because the sandbox guard skipped
+// every write -- so the bug sat there until the morning the connection
+// went live, and then took the entire first read of the real bank down
+// with it: "Could not find the 'memo' column in the schema cache".
+//
+// A mock that accepts any object would never have caught it. This pins
+// the real column list, copied from the live schema, the same way
+// entrytest pins the real check constraints.
+(function () {
+  const BANK_TXN_COLUMNS = [
+    'bank_txn_id', 'account_id', 'store_id', 'posted_date', 'description',
+    'amount', 'running_balance', 'txn_type', 'check_number', 'import_batch',
+    'import_hash', 'match_status', 'matched_type', 'matched_id', 'created_at',
+    'plaid_transaction_id', 'plaid_pending_id', 'is_pending',
+    'kind', 'code', 'vendor_id', 'category_id', 'matched_at', 'match_note',
+    'merchant_name',
+  ];
+
+  console.log('\nEvery column the sync writes exists on the table');
+
+  const row = toRow({
+    transaction_id: 'txn-1',
+    name: 'BBUSA      BIMBO BAKERIES WEB RAZ  *ALI',
+    merchant_name: 'Bimbo Bakeries',
+    amount: 149.12,
+    date: '2026-10-30',
+    pending: false,
+    check_number: '9887',
+  }, 'store1', 'acct-1');
+
+  const unknown = Object.keys(row).filter((k) => BANK_TXN_COLUMNS.indexOf(k) === -1);
+  checkTrue('no invented columns', unknown.length === 0,
+    'writes ' + unknown.join(', ') + ' which bank_transactions does not have');
+
+  // And the clean name is actually kept -- the fix was a column, not a
+  // deletion, because the matcher wants that string.
+  check('the raw bank string is the description',
+    row.description, 'BBUSA      BIMBO BAKERIES WEB RAZ  *ALI');
+  check('and the clean merchant name is kept beside it',
+    row.merchant_name, 'Bimbo Bakeries');
+  checkTrue('a transaction with no merchant name is allowed',
+    toRow({ transaction_id: 't', name: 'CHECK 1', amount: 1, date: '2026-10-30' },
+          's', 'a').merchant_name === null);
+})();
+
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
