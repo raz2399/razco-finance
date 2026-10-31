@@ -2,7 +2,7 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 
-const SUITES = ['es5', 'overtest', 'paint', 'matchtest', 'matcherlib', 'realbank', 'termstest', 'taxtest', 'mobiletest', 'upserttest', 'dupetest', 'wordstest', 'printtest', 'closetest', 'brieftest', 'ingesttest', 'extracttest', 'correcttest', 'contracttest', 'daytest', 'parsetest', 'vendortest', 'plaidtest', 'authtest', 'ledgertest', 'sheettest', 'entrytest', 'banktest', 'refusetest'];
+const SUITES = ['es5', 'overtest', 'paint', 'matchtest', 'matcherlib', 'realbank', 'termstest', 'taxtest', 'mobiletest', 'upserttest', 'dupetest', 'wordstest', 'printtest', 'removetest', 'closetest', 'brieftest', 'ingesttest', 'extracttest', 'correcttest', 'contracttest', 'daytest', 'parsetest', 'vendortest', 'plaidtest', 'authtest', 'ledgertest', 'sheettest', 'entrytest', 'banktest', 'refusetest'];
 let failed = [];
 
 SUITES.forEach((s) => {

@@ -76,6 +76,112 @@ exports.handler = safely('vendor-setup', async (event) => {
   const store_id = body.store_id || q.store_id;
   if (!store_id) return json(400, { error: 'Missing store_id' });
 
+  // ---------------- a new vendor ---------------------------------------
+  //
+  // Until now a vendor could only appear by being imported. Everything
+  // else -- an invoice, a check, a bank rule -- needs one to point at,
+  // so a vendor nobody can create is a dead end at the moment a new
+  // supplier turns up at the door.
+  if (event.httpMethod === 'POST' && body.action === 'create') {
+    const name = String(body.name || '').trim();
+    if (name.length < 2) return json(400, { error: 'What is the vendor called?' });
+
+    // The same supplier typed slightly differently is how a vendor list
+    // becomes 255 rows with four spellings of Sysco in it. Compared on
+    // letters and digits only, so "Tony's Fine Foods" and "TONYS FINE
+    // FOODS" are seen as the one supplier they are.
+    const squash = (x) => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const existing = await all('vendors', 'vendor_id, name, active',
+      (p) => p.eq('store_id', store_id));
+    const clash = existing.filter((v) => squash(v.name) === squash(name))[0];
+    if (clash && !body.anyway) {
+      return json(409, {
+        error: '"' + clash.name + '" is already on the list'
+          + (clash.active === false ? ', though it is switched off' : '') + '.',
+        vendor_id: clash.vendor_id,
+        ask: 'Send it again with anyway to add a second one.',
+      });
+    }
+
+    const row = {
+      store_id: store_id,
+      name: name,
+      payment_type: body.payment_type || 'unknown',
+      active: true,
+    };
+    if (body.default_category_id) row.default_category_id = Number(body.default_category_id);
+    if (body.terms_code && Object.prototype.hasOwnProperty.call(TERMS, body.terms_code)) {
+      row.terms_code = body.terms_code;
+      row.terms_days = TERMS[body.terms_code];
+    }
+    ['address_line1', 'address_line2', 'city', 'state', 'postal_code',
+      'contact_phone', 'account_number'].forEach((k) => {
+      if (body[k]) row[k] = String(body[k]).trim();
+    });
+
+    const ins = await supabase.from('vendors').insert(row)
+      .select('vendor_id, name, default_category_id, terms_code, terms_days').single();
+    if (ins.error) return json(500, { error: ins.error.message });
+
+    return json(200, {
+      ok: true,
+      vendor: ins.data,
+      message: ins.data.name + ' added.',
+    });
+  }
+
+  // ---------------- removing a vendor ----------------------------------
+  //
+  // A vendor with history is switched off, never deleted. Deleting one
+  // would orphan every invoice and check that points at it, and a
+  // ledger line whose payee has vanished is worse than useless at the
+  // moment somebody is trying to work out what was paid.
+  //
+  // A vendor added by mistake five minutes ago, with nothing against
+  // it, is simply deleted.
+  if (event.httpMethod === 'POST' && body.action === 'remove') {
+    const vendor_id = body.vendor_id;
+    if (!vendor_id) return json(400, { error: 'Which vendor?' });
+
+    const v = await supabase.from('vendors')
+      .select('vendor_id, name, active')
+      .eq('vendor_id', vendor_id).eq('store_id', store_id).maybeSingle();
+    if (v.error) return json(500, { error: v.error.message });
+    if (!v.data) return json(404, { error: 'No such vendor.' });
+
+    const [inv, pay, rules, bank] = await Promise.all([
+      supabase.from('invoices').select('invoice_id').eq('vendor_id', vendor_id).limit(1),
+      supabase.from('payments').select('payment_id').eq('vendor_id', vendor_id).limit(1),
+      supabase.from('bank_rules').select('rule_id').eq('vendor_id', vendor_id).limit(1),
+      supabase.from('bank_transactions').select('bank_txn_id').eq('vendor_id', vendor_id).limit(1),
+    ]);
+    const history = ((inv.data || []).length ? 1 : 0) + ((pay.data || []).length ? 1 : 0)
+      + ((rules.data || []).length ? 1 : 0) + ((bank.data || []).length ? 1 : 0);
+
+    if (history) {
+      const off = await supabase.from('vendors')
+        .update({ active: false, updated_at: new Date().toISOString() })
+        .eq('vendor_id', vendor_id).eq('store_id', store_id);
+      if (off.error) return json(500, { error: off.error.message });
+      return json(200, {
+        ok: true,
+        switched_off: true,
+        message: v.data.name + ' has bills or checks against it, so it is switched '
+          + 'off rather than deleted. It stops appearing when you add things, and '
+          + 'everything already on the books still says who it was to.',
+      });
+    }
+
+    const del = await supabase.from('vendors').delete()
+      .eq('vendor_id', vendor_id).eq('store_id', store_id);
+    if (del.error) return json(500, { error: del.error.message });
+    return json(200, {
+      ok: true,
+      deleted: true,
+      message: v.data.name + ' deleted. Nothing was against it.',
+    });
+  }
+
   // ---------------- set one ------------------------------------------
   if (event.httpMethod === 'POST') {
     const vendor_id = body.vendor_id;

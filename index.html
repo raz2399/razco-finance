@@ -1203,6 +1203,42 @@
           <input id="vl-search" type="text" autocomplete="off"
                  placeholder="Type a vendor name — Salters, Sysco, Cargil…"
                  style="width:100%;box-sizing:border-box;font-size:15px;padding:12px">
+          <div style="margin-top:10px">
+            <button class="btn-ghost" id="vl-new" style="width:auto">+ Add a vendor</button>
+          </div>
+          <div id="vl-new-box" style="display:none;border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:12px;background:#fbfcfe">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+              <div style="flex:1;min-width:190px">
+                <label class="lbl">NAME</label>
+                <input id="vl-new-name" type="text" placeholder="Green Valley Produce"
+                       style="font-size:13px;padding:7px;width:100%;box-sizing:border-box">
+              </div>
+              <div>
+                <label class="lbl">WHAT KIND OF COST</label>
+                <select id="vl-new-cat" style="font-size:13px;padding:7px;max-width:200px"></select>
+              </div>
+              <div>
+                <label class="lbl">TERMS</label>
+                <select id="vl-new-terms" style="font-size:13px;padding:7px">
+                  <option value="">Not sure yet</option>
+                  <option value="cod">COD — on delivery</option>
+                  <option value="net7">Net 7</option>
+                  <option value="net10">Net 10</option>
+                  <option value="net15">Net 15</option>
+                  <option value="net21">Net 21</option>
+                  <option value="net30">Net 30</option>
+                  <option value="net45">Net 45</option>
+                  <option value="net60">Net 60</option>
+                  <option value="weekly">Weekly statement</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:13px;align-items:center">
+              <button class="btn" id="vl-new-save" style="width:auto">Add them</button>
+              <button class="btn-ghost" id="vl-new-cancel" style="width:auto">Cancel</button>
+              <span id="vl-new-msg" style="font-size:12.5px"></span>
+            </div>
+          </div>
           <div id="vl-list" style="margin-top:12px"></div>
         </div>
 
@@ -1227,6 +1263,7 @@
             <button class="btn-ghost" id="vl-import" style="width:auto">Import a sheet</button>
             <button class="btn-ghost" id="vl-settle-all" style="width:auto">Already paid — clear it all</button>
             <button class="btn-ghost" id="vl-pay-all" style="width:auto">Pay it all now</button>
+            <button class="btn-ghost" id="vl-remove" style="width:auto;color:#a12025">Remove this vendor</button>
           </div>
 
           <!-- Add a line -->
@@ -1263,6 +1300,13 @@
                   <option value="card">Card</option>
                   <option value="wire">Wire</option>
                 </select>
+              </div>
+              <!-- Asked once per vendor. Once a vendor has a category,
+                   this disappears and every bill from them is filed the
+                   same way without being told again. -->
+              <div id="vl-f-catwrap" style="display:none">
+                <label class="lbl">WHAT KIND OF COST</label>
+                <select id="vl-f-cat" style="font-size:13px;padding:7px;max-width:200px"></select>
               </div>
               <div style="flex:1;min-width:160px">
                 <label class="lbl">NOTE</label>
@@ -1927,6 +1971,105 @@ var APP = {
   todayISO: function() {
     var d = new Date(), p = function(n) { return n < 10 ? '0' + n : '' + n; };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  },
+
+  // ---------- adding and removing ----------
+
+  // The category list is needed on the Vendors screen as well as on
+  // Reconcile, so it is fetched once and kept.
+  ensureCategories: function(then) {
+    var self = this;
+    if (this.rec_categories && this.rec_categories.length) { if (then) then(); return; }
+    this.get('/vendor-setup', function(status, d) {
+      if (status === 200 && d && d.categories) self.rec_categories = d.categories;
+      if (then) then();
+    });
+  },
+
+  newVendorMsg: function(kind, text) {
+    var m = document.getElementById('vl-new-msg');
+    if (!m) return;
+    m.style.color = kind === 'ok' ? '#176b33' : 'var(--danger, #a12025)';
+    m.innerHTML = text;
+  },
+
+  saveNewVendor: function(anyway) {
+    var self = this;
+    var name = document.getElementById('vl-new-name');
+    var cat = document.getElementById('vl-new-cat');
+    var terms = document.getElementById('vl-new-terms');
+    if (!name || !String(name.value).trim()) {
+      this.newVendorMsg('bad', 'What are they called?');
+      return;
+    }
+    var body = {
+      store_id: this.store_id,
+      action: 'create',
+      name: String(name.value).trim(),
+      anyway: anyway === true
+    };
+    if (cat && cat.value) body.default_category_id = Number(cat.value);
+    if (terms && terms.value) body.terms_code = terms.value;
+
+    this.newVendorMsg('ok', 'Adding\u2026');
+    this.post('/vendor-setup', body, function(status, d) {
+      if (status === 409 && d && d.vendor_id) {
+        // The same supplier spelled differently. Offered rather than
+        // blocked, because sometimes there really are two.
+        self.newVendorMsg('bad', self.escHtml(d.error) +
+          ' <button class="btn-ghost" id="vl-new-anyway" style="width:auto;display:inline-block;margin-left:6px">Add it anyway</button>');
+        self.bind2('vl-new-anyway', function() { self.saveNewVendor(true); });
+        return;
+      }
+      if (status !== 200 || !d || d.error) {
+        self.newVendorMsg('bad', (d && d.error) ? self.escHtml(d.error) : 'Could not add them.');
+        return;
+      }
+      self.newVendorMsg('ok', self.escHtml(d.message));
+      name.value = '';
+      document.getElementById('vl-new-box').style.display = 'none';
+      self.searchVendors('');
+      if (d.vendor && d.vendor.vendor_id) self.openVendor(d.vendor.vendor_id);
+    });
+  },
+
+  removeVendor: function() {
+    var self = this;
+    if (!this.vl_vendor) return;
+    var name = document.getElementById('vl-name');
+    var who = name ? name.textContent : 'this vendor';
+    if (!window.confirm('Remove ' + who + '?\n\nIf they have bills or checks against '
+        + 'them they are switched off instead, so nothing already on the books loses '
+        + 'its payee.')) return;
+
+    this.post('/vendor-setup', {
+      store_id: this.store_id, action: 'remove', vendor_id: this.vl_vendor
+    }, function(status, d) {
+      if (status !== 200 || !d || d.error) {
+        window.alert((d && d.error) || 'Could not remove them.');
+        return;
+      }
+      window.alert(d.message);
+      self.showVendorList();
+      self.searchVendors('');
+    });
+  },
+
+  // Delete or void, decided by what the line has touched rather than by
+  // which button was pressed. The screen says which happened.
+  removeLine: function(kind, id) {
+    var self = this;
+    if (!window.confirm('Remove this ' + kind + '?')) return;
+    this.post('/vendor-entry', {
+      store_id: this.store_id, action: 'delete', kind: kind, id: id
+    }, function(status, d) {
+      if (status !== 200 || !d || d.error) {
+        window.alert((d && d.error) || 'Could not remove it.');
+        return;
+      }
+      window.alert(d.says);
+      self.openVendor(self.vl_vendor);
+    });
   },
 
   // ---------- printing checks ----------
@@ -2766,6 +2909,20 @@ var APP = {
       document.getElementById('vl-f-due').value = '';
       document.getElementById('vl-f-note').value = '';
       document.getElementById('vl-f-paid').checked = false;
+      // The category question appears only for a vendor that has no
+      // category yet. Everyone else never sees it again.
+      var wrap = document.getElementById('vl-f-catwrap');
+      var sel = document.getElementById('vl-f-cat');
+      if (wrap && sel) {
+        if (self.vl_vendor_category) {
+          wrap.style.display = 'none';
+        } else {
+          wrap.style.display = 'block';
+          self.ensureCategories(function() {
+            sel.innerHTML = '<option value="">Choose\u2026</option>' + self.recCatOptions();
+          });
+        }
+      }
       show('vl-add-box', true);
       document.getElementById('vl-f-amount').focus();
     });
@@ -2781,6 +2938,26 @@ var APP = {
         document.getElementById('vl-f-paidwrap').style.display = pay ? 'none' : 'block';
       };
     }
+
+    this.bind2('vl-new', function() {
+      var box = document.getElementById('vl-new-box');
+      if (!box) return;
+      var open = box.style.display === 'block';
+      box.style.display = open ? 'none' : 'block';
+      if (open) return;
+      self.newVendorMsg('ok', '');
+      self.ensureCategories(function() {
+        var sel = document.getElementById('vl-new-cat');
+        if (sel) sel.innerHTML = '<option value="">Not sure yet</option>' + self.recCatOptions();
+      });
+      var n = document.getElementById('vl-new-name');
+      if (n) { n.value = ''; n.focus(); }
+    });
+    this.bind2('vl-new-cancel', function() {
+      document.getElementById('vl-new-box').style.display = 'none';
+    });
+    this.bind2('vl-new-save', function() { self.saveNewVendor(false); });
+    this.bind2('vl-remove', function() { self.removeVendor(); });
 
     this.bind2('vl-f-cancel', function() { hideAll(); });
     this.bind2('vl-f-save', function() { self.saveVendorLine(); });
@@ -2871,6 +3048,14 @@ var APP = {
         // off what he owes, and no check invented to explain it.
         amount_paid: document.getElementById('vl-f-paid').checked ? amount : ''
       };
+      // Only sent when the vendor has no category yet, which is the only
+      // time the box is on screen. The server files the vendor under it
+      // so the question never comes back.
+      var catSel = document.getElementById('vl-f-cat');
+      var catWrap = document.getElementById('vl-f-catwrap');
+      if (catSel && catWrap && catWrap.style.display !== 'none' && catSel.value) {
+        body.category_id = Number(catSel.value);
+      }
     }
 
     msg.innerHTML = '<span style="color:var(--text-light)">Saving…</span>';
@@ -3211,7 +3396,11 @@ var APP = {
         list.innerHTML = '<p style="font-size:13px;color:var(--text-light)">Could not load vendors.</p>';
         return;
       }
-      if (!d.vendors.length) {
+      // A 200 is not a promise about the shape of the body. Reading
+      // d.vendors.length straight off is how this screen goes blank over
+      // a field that happened to be missing.
+      var vlist = (d && d.vendors) || [];
+      if (!vlist.length) {
         list.innerHTML = '<p style="font-size:13px;color:var(--text-light)">No vendor matches that.</p>';
         return;
       }
@@ -3220,8 +3409,8 @@ var APP = {
               (d.total_owed ? ' &middot; ' + self.money(d.total_owed) + ' owed' : '') +
               (d.truncated ? ' &middot; showing the first 60' : '') + '</div>';
       h += '<table style="width:100%;border-collapse:collapse;font-size:13.5px">';
-      for (var i = 0; i < d.vendors.length; i++) {
-        var v = d.vendors[i];
+      for (var i = 0; i < vlist.length; i++) {
+        var v = vlist[i];
         h += '<tr class="vl-row" data-vendor="' + self.escHtml(v.vendor_id) + '" ' +
              'style="cursor:pointer;border-top:1px solid #F1F3F5">' +
              '<td style="padding:10px 8px 10px 0"><strong>' + self.escHtml(v.name) + '</strong>' +
@@ -3295,6 +3484,9 @@ var APP = {
       // Kept so the correction form can find a line by its id without
       // going back to the server for something already on the screen.
       self.vl_entries = d.entries || [];
+      // Whether this vendor already has a category decides whether the
+      // add-a-line form asks for one.
+      self.vl_vendor_category = d.vendor.default_category_id || null;
       document.getElementById('vl-name').innerHTML = self.escHtml(d.vendor.name);
       document.getElementById('vl-sub').innerHTML =
         (d.vendor.method_label ? self.escHtml(d.vendor.method_label) : 'Payment type not set') +
@@ -3396,6 +3588,13 @@ var APP = {
                     (outside ? 'var(--text-light)' : '#168a5a') + '">' +
                     (outside ? 'Not paid' : 'Paid') + '</button>';
           }
+          // Remove. What it actually does depends on what the line has
+          // touched -- a typo goes, a written check is voided -- and the
+          // server decides, not this button.
+          acts += ' <button class="vl-act" data-act="remove" data-kind="' + e.kind +
+                  '" data-id="' + e.id + '" style="font:inherit;font-size:11.5px;' +
+                  'font-weight:700;padding:3px 8px;border:1px solid var(--border);' +
+                  'background:#fff;border-radius:7px;cursor:pointer;color:#a12025">Remove</button>';
         }
 
         body += '<tr style="border-top:1px solid #F1F3F5' +
@@ -3445,6 +3644,7 @@ var APP = {
           var what = this.getAttribute('data-act');
           var id = this.getAttribute('data-id');
           if (what === 'edit') { self.editVendorLine(this.getAttribute('data-kind'), id); return; }
+          if (what === 'remove') { self.removeLine(this.getAttribute('data-kind'), id); return; }
           if (what === 'settle') {
             if (!window.confirm(
               'Mark this one as already paid.\n\n' +

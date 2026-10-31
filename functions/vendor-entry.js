@@ -133,7 +133,7 @@ function dueFrom(invoiceDate, vendor) {
 async function loadVendor(store_id, vendor_id) {
   if (!isUuid(vendor_id)) return null;
   const r = await supabase.from('vendors')
-    .select('vendor_id, name, payment_type, terms_code, terms_days')
+    .select('vendor_id, name, payment_type, terms_code, terms_days, default_category_id')
     .eq('vendor_id', vendor_id).eq('store_id', store_id).maybeSingle();
   return r.data || null;
 }
@@ -180,6 +180,7 @@ exports.handler = safely('vendor-entry', async (event) => {
       case 'unsettle':      return await unsettle(store_id, body, who);
       case 'pay_now':       return await payNow(store_id, body, who);
       case 'void':          return await voidLine(store_id, body, who);
+      case 'delete':        return await removeLine(store_id, body, who);
       case 'import':        return await importSheet(store_id, body, who);
       default:
         return json(400, {
@@ -250,9 +251,31 @@ async function addInvoice(store_id, body, who) {
     entered_by: null,
   };
 
+  // The category, asked once per vendor and never again.
+  //
+  // A trigger already copies the vendor's default onto a new invoice.
+  // What was missing is the other direction: the first time a category
+  // is chosen for a vendor that has none, it becomes that vendor's
+  // default, so the question is never asked a second time. Without
+  // this, the same choice gets made every delivery for ever.
+  //
+  // An explicit category always wins over the vendor's default, because
+  // freight billed by a produce supplier is still freight.
+  const chosen = body.category_id ? Number(body.category_id) : null;
+  if (chosen) row.category_id = chosen;
+
   const ins = await supabase.from('invoices').insert(row)
     .select('invoice_id, invoice_number, total_amount, balance_due, due_date').single();
   if (ins.error) return json(500, { error: ins.error.message });
+
+  let learnedCategory = false;
+  if (chosen && !vendor.default_category_id) {
+    const learn = await supabase.from('vendors')
+      .update({ default_category_id: chosen, updated_at: new Date().toISOString() })
+      .eq('vendor_id', vendor.vendor_id).eq('store_id', store_id)
+      .is('default_category_id', null);
+    learnedCategory = !learn.error;
+  }
 
   await noted(store_id, 'manual_invoice',
     'Invoice ' + (number || '(no number)') + ' for $' + total.toFixed(2) +
@@ -263,7 +286,11 @@ async function addInvoice(store_id, body, who) {
     success: true,
     invoice: ins.data,
     vendor: vendor.name,
-    says: 'Invoice added to ' + vendor.name + '.',
+    learned_category: learnedCategory,
+    says: 'Invoice added to ' + vendor.name + '.'
+      + (learnedCategory
+        ? ' Everything from ' + vendor.name + ' will be filed the same way from now on.'
+        : ''),
   });
 }
 
@@ -682,6 +709,99 @@ async function unwind(store_id, kind, id) {
 
 // ---------------------------------------------------------------------
 // Voiding a line
+
+// ---------------------------------------------------------------------
+// Removing a line
+//
+// Delete and void are different answers and the difference matters.
+//
+// Void keeps the row and stops it counting: the right answer for a check
+// that was written, signed, and then spoiled, because that paper exists
+// and its number is spent for ever.
+//
+// Delete removes the row entirely: the right answer for a line that was
+// typed wrong five seconds ago and never meant anything. Voiding those
+// leaves a ledger full of crossed-out noise nobody can read past.
+//
+// So this picks by what the row has touched, not by which button was
+// pressed. Anything with a check number, anything the bank has seen,
+// anything money has been allocated against -- those are voided and say
+// so. The rest is deleted.
+async function removeLine(store_id, body, who) {
+  const kind = body.kind === 'payment' ? 'payment' : 'invoice';
+  const id = body.id;
+  if (!isUuid(id)) return json(400, { error: 'Which line?' });
+
+  const table = kind === 'payment' ? 'payments' : 'invoices';
+  const idCol = kind === 'payment' ? 'payment_id' : 'invoice_id';
+
+  const row = await supabase.from(table).select('*')
+    .eq(idCol, id).eq('store_id', store_id).maybeSingle();
+  if (row.error) return json(500, { error: row.error.message });
+  if (!row.data) return json(404, { error: 'That line is not on file.' });
+  const r = row.data;
+
+  // What would be lost, or left dangling, if this simply vanished.
+  const reasons = [];
+  if (kind === 'payment') {
+    if (r.check_number != null) {
+      reasons.push('check ' + r.check_number + ' has a number on it');
+    }
+    if (r.bank_txn_id) reasons.push('the bank has seen it');
+    if (r.status === 'cleared') reasons.push('it has cleared');
+    const alloc = await supabase.from('payment_allocations')
+      .select('allocation_id').eq('payment_id', id).limit(1);
+    if ((alloc.data || []).length) reasons.push('it is paying bills');
+  } else {
+    const alloc = await supabase.from('payment_allocations')
+      .select('allocation_id').eq('invoice_id', id).limit(1);
+    if ((alloc.data || []).length) reasons.push('money has been put against it');
+    if (money(r.amount_paid) > 0) reasons.push('it is marked part paid');
+    const seen = await supabase.from('bank_transactions')
+      .select('bank_txn_id').eq('matched_type', 'invoice').eq('matched_id', id).limit(1);
+    if ((seen.data || []).length) reasons.push('a bank line is matched to it');
+  }
+
+  if (reasons.length) {
+    if (r.status === 'void') {
+      return json(200, { success: true, already: true,
+        says: 'That one is already voided.' });
+    }
+    // Voided rather than deleted, and told why in his words.
+    const back = await unwind(store_id, kind, id);
+    const upd = await supabase.from(table).update({
+      status: 'void',
+      void_reason: String(body.note || '').trim() || 'Removed',
+      updated_at: new Date().toISOString(),
+    }).eq(idCol, id).eq('store_id', store_id);
+    if (upd.error) return json(500, { error: upd.error.message });
+
+    await noted(store_id, 'voided_not_deleted',
+      'A ' + kind + ' was voided rather than deleted because ' + reasons.join(' and '),
+      kind, id, who);
+
+    return json(200, {
+      success: true,
+      voided: true,
+      why: reasons,
+      restored: back && back.restored ? back.restored : 0,
+      says: 'Voided rather than deleted, because ' + reasons.join(' and ')
+        + '. It stays on the record and counts for nothing.',
+    });
+  }
+
+  const del = await supabase.from(table).delete().eq(idCol, id).eq('store_id', store_id);
+  if (del.error) return json(500, { error: del.error.message });
+
+  await noted(store_id, 'line_deleted',
+    'A ' + kind + ' with no history was deleted', kind, id, who);
+
+  return json(200, {
+    success: true,
+    deleted: true,
+    says: 'Deleted. It had touched nothing, so there was nothing to keep.',
+  });
+}
 
 async function voidLine(store_id, body, who) {
   const kind = body.kind === 'payment' ? 'payment' : 'invoice';

@@ -292,6 +292,29 @@ function checkTrue(name, cond, note) {
   checkTrue('rather than a blank page',
     win.document.querySelectorAll('.tab-content.active').length === 1);
 
+  console.log('\nAdding and removing');
+  let venThrew = null;
+  try { APP.switchTab('vendors'); } catch (e) { venThrew = e; }
+  checkTrue('the Vendors screen still opens', !venThrew, venThrew && venThrew.message);
+  checkTrue('a way to add a vendor', !!$('vl-new') && !!$('vl-new-box'));
+  checkTrue('with a name field', !!$('vl-new-name'));
+  checkTrue('a way to remove the open vendor', !!$('vl-remove'));
+  checkTrue('and the add-a-line form can ask for a category', !!$('vl-f-catwrap') && !!$('vl-f-cat'));
+
+  // The category question must be hideable -- a vendor that already has
+  // one should never be asked again, which is the whole point.
+  checkTrue('the category box starts hidden',
+    /id="vl-f-catwrap" style="display:none"/.test(src));
+  checkTrue('and is only shown when the vendor has none',
+    /if \(self\.vl_vendor_category\)[\s\S]{0,80}display = 'none'/.test(src));
+
+  // Remove must go through the server's decision, never decide locally
+  // whether something is deleted or voided.
+  checkTrue('every line offers Remove',
+    /data-act="remove"/.test(src));
+  checkTrue('and Remove asks the server, which picks delete or void',
+    /action: 'delete', kind: kind, id: id/.test(src));
+
   console.log('\nPrinting checks');
   let payThrew = null;
   try { APP.switchTab('pay'); } catch (e) { payThrew = e; }

@@ -131,7 +131,7 @@ exports.handler = safely('vendor-ledger', async (event) => {
 
     const [vRes, invRes, payRes, allocRes] = await Promise.all([
       supabase.from('vendors')
-        .select('vendor_id, name, payment_type, terms_code, terms_days, account_number, contact_phone')
+        .select('vendor_id, name, payment_type, terms_code, terms_days, account_number, contact_phone, default_category_id')
         .eq('vendor_id', vendor_id).eq('store_id', store_id).maybeSingle(),
       supabase.from('invoices')
         .select('invoice_id, invoice_number, invoice_date, received_date, due_date, total_amount, amount_paid, balance_due, status, payment_type, notes, created_at')
@@ -298,6 +298,8 @@ exports.handler = safely('vendor-ledger', async (event) => {
         terms_days: vendor.terms_days,
         account_number: vendor.account_number || null,
         phone: vendor.contact_phone || null,
+        // So the screen knows whether to ask for a category at all.
+        default_category_id: vendor.default_category_id || null,
       },
       totals: {
         charged: money(entries.reduce((s, e) => s + e.charge, 0)),
