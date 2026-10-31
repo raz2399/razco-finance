@@ -192,6 +192,40 @@
       font-size: 12px;
     }
 
+
+    /* ---- printing checks onto pre-printed stock --------------------
+       Only the variable part is printed. The MICR line along the bottom
+       -- routing, account, check number in magnetic ink -- is already on
+       the paper, which is why no magnetic toner or exact font is needed
+       and why the bank will accept the result.
+
+       Everything is positioned in inches from the top-left of the sheet,
+       because that is how check stock is specified and how a printer
+       thinks. The two offsets are added to every position so a printer
+       that feeds a few millimetres out can be corrected once instead of
+       the layout being redrawn. */
+    #check-sheets { display: none; }
+    @media print {
+      body > *:not(#check-sheets) { display: none !important; }
+      #check-sheets { display: block !important; }
+      @page { size: letter portrait; margin: 0; }
+      html, body { margin: 0; padding: 0; background: #fff; }
+    }
+    .rn-checkpage {
+      position: relative;
+      width: 8.5in; height: 11in;
+      page-break-after: always;
+      font-family: "Courier New", Courier, monospace;
+      color: #000;
+      overflow: hidden;
+    }
+    .rn-checkpage:last-child { page-break-after: auto; }
+    .rn-cf { position: absolute; white-space: pre; font-size: 11pt; }
+    .rn-cf.big { font-size: 12pt; }
+    /* The written amount is the legal one, so it is the clearest thing
+       on the page. */
+    .rn-cf.words { font-size: 11.5pt; letter-spacing: 0.1px; }
+    .rn-stub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 9pt; }
     .tabs {
       display: flex;
       background-color: white;
@@ -770,6 +804,8 @@
     <div class="user-badge" id="user-display">Owner</div>
   </div>
 
+  <div id="check-sheets"></div>
+
   <div class="tabs">
     <button class="tab active" data-tab="home">Today</button>
     <button class="tab" data-tab="receive">Receive</button>
@@ -1043,6 +1079,39 @@
           <h2 class="rn-screentitle">Pay</h2>
           <p class="rn-screensub">What is owed, what you write a check for, and what the bank takes on its own.</p>
         </div>
+      <div class="card" id="print-card" style="margin-bottom:16px;display:none">
+        <h3>Print checks</h3>
+        <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+          Onto your pre-printed stock. The system fills in the date, payee, both
+          amounts and the memo; the numbers along the bottom are already on the paper.
+        </p>
+        <div id="print-msg" style="display:none;border-radius:9px;padding:11px 13px;font-size:13px;margin-bottom:12px;line-height:1.5"></div>
+        <div id="print-books" style="font-size:12.5px;color:var(--text-light);line-height:1.6;margin-bottom:12px"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+          <div style="flex:1;min-width:170px">
+            <label style="display:block;font-size:11px;font-weight:700;margin-bottom:5px">FIRST CHECK IN THE PRINTER</label>
+            <input id="print-start" type="text" inputmode="numeric" placeholder="9926">
+          </div>
+          <div style="min-width:110px">
+            <label style="display:block;font-size:11px;font-weight:700;margin-bottom:5px">NUDGE RIGHT (IN)</label>
+            <input id="print-dx" type="text" inputmode="decimal" value="0">
+          </div>
+          <div style="min-width:110px">
+            <label style="display:block;font-size:11px;font-weight:700;margin-bottom:5px">NUDGE DOWN (IN)</label>
+            <input id="print-dy" type="text" inputmode="decimal" value="0">
+          </div>
+        </div>
+        <div id="print-list" class="rn-rows"></div>
+        <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:12px">
+          <button class="rn-big" id="print-go" style="flex:1;min-width:190px">Print the selected checks</button>
+          <button class="btn" id="print-align">Print an alignment page</button>
+        </div>
+        <p style="font-size:11.5px;color:var(--text-light);margin-top:10px;line-height:1.5">
+          Check numbers are only assigned when you press print, and a number that has
+          ever been used before stops the whole run rather than printing some of it.
+        </p>
+      </div>
+
       <div class="card" style="margin-bottom:16px">
         <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:.5px">REAL AVAILABLE CASH</div>
         <div id="chk-cash" style="font-size:32px;font-weight:800;letter-spacing:-1px;margin:4px 0">&mdash;</div>
@@ -1817,7 +1886,13 @@ var APP = {
     // Each screen is several of the old ones, so each loads all its parts.
     if (tabName === 'home') this.loadHome();
     if (tabName === 'receive') this.loadInvoices();
-    if (tabName === 'pay') { this.loadChecks(); this.loadAPCalendar(); this.loadInvoices(); }
+    if (tabName === 'pay') {
+      this.loadChecks(); this.loadAPCalendar(); this.loadInvoices();
+      this.loadPrintChecks();
+      var pay = this;
+      this.bind2('print-go', function() { pay.printChecks(); });
+      this.bind2('print-align', function() { pay.printAlignment(); });
+    }
     if (tabName === 'vendors') this.loadVendorList();
     if (tabName === 'money') { this.loadCashPosition(); this.loadCorrections(); this.loadBankLink(); }
     if (tabName === 'reconcile') {
@@ -1852,6 +1927,203 @@ var APP = {
   todayISO: function() {
     var d = new Date(), p = function(n) { return n < 10 ? '0' + n : '' + n; };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  },
+
+  // ---------- printing checks ----------
+  //
+  // The geometry of a voucher check: 8.5 x 11, check on the top third,
+  // two stubs below. Positions are inches from the top-left of the
+  // sheet, which is how check stock is specified. They are close to
+  // where QuickBooks puts things, and the two nudge fields exist
+  // because no two printers feed paper identically -- without somewhere
+  // to correct it once, printed checks land a few millimetres out and
+  // the whole feature is useless.
+  CHECK_LAYOUT: {
+    date:    { x: 6.45, y: 0.95 },
+    payee:   { x: 0.95, y: 1.42 },
+    figures: { x: 6.75, y: 1.40 },
+    words:   { x: 0.52, y: 1.80 },
+    address: { x: 0.95, y: 2.08 },
+    memo:    { x: 0.62, y: 2.92 },
+    // The stubs repeat the detail so the paper filed away says what the
+    // check was for.
+    stub1:   { x: 0.60, y: 4.30 },
+    stub2:   { x: 0.60, y: 7.90 }
+  },
+
+  printMsg: function(kind, text) {
+    var box = document.getElementById('print-msg');
+    if (!box) return;
+    var good = kind === 'ok';
+    box.style.display = 'block';
+    box.style.background = good ? '#eef9f1' : '#fdf1f1';
+    box.style.border = '1px solid ' + (good ? '#bfe4ca' : '#f3c9ca');
+    box.style.color = good ? '#176b33' : '#a12025';
+    box.innerHTML = text;
+  },
+
+  loadPrintChecks: function() {
+    var self = this;
+    this.get('/check-print', function(status, d) {
+      var card = document.getElementById('print-card');
+      var list = document.getElementById('print-list');
+      var books = document.getElementById('print-books');
+      if (!card || !list) return;
+      if (status !== 200 || !d || d.error) { card.style.display = 'none'; return; }
+
+      self.print_data = d;
+      card.style.display = 'block';
+
+      if (books) {
+        var h = '';
+        if (d.books && d.books.length) {
+          h += 'Checkbooks seen: ';
+          var bits = [];
+          for (var i = 0; i < d.books.length && i < 4; i++) {
+            var b = d.books[i];
+            bits.push(b.series + 's &mdash; last used ' + self.escHtml(b.last_used || '?') +
+                      ', ' + b.left_in_book + ' left');
+          }
+          h += bits.join(' &middot; ');
+        }
+        if (d.nearly_out && d.nearly_out.length) {
+          h += '<div style="color:#a12025;font-weight:700;margin-top:6px">' +
+               'The ' + d.nearly_out[0].series + ' book has only ' +
+               d.nearly_out[0].left_in_book + ' left.</div>';
+        }
+        books.innerHTML = h;
+      }
+
+      var start = document.getElementById('print-start');
+      if (start && !start.value && d.suggested_next) start.value = d.suggested_next;
+      var dx = document.getElementById('print-dx');
+      var dy = document.getElementById('print-dy');
+      if (dx && d.account) dx.value = d.account.offset_x;
+      if (dy && d.account) dy.value = d.account.offset_y;
+
+      var rows = d.waiting || [];
+      if (!rows.length) {
+        list.innerHTML = '<p style="font-size:13px;color:var(--text-light)">' +
+          'No checks are waiting to be printed. Checks written here with no number ' +
+          'yet will appear in this list.</p>';
+        return;
+      }
+
+      var out = '';
+      for (var r = 0; r < rows.length; r++) {
+        var p = rows[r];
+        out += '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;' +
+               'border-bottom:1px solid var(--border)">' +
+               '<input type="checkbox" data-print="' + self.escHtml(p.payment_id) + '"' +
+               (p.printable ? ' checked' : ' disabled') + '>' +
+               '<div style="flex:1;min-width:140px">' +
+               '<div style="font-size:13px;font-weight:700">' + self.escHtml(p.payee) + '</div>' +
+               '<div style="font-size:11.5px;color:var(--text-light)">' +
+               self.escHtml(p.payment_date) + (p.memo ? ' &middot; ' + self.escHtml(p.memo) : '') +
+               (p.printable ? '' : ' &middot; amount cannot be written on a check') +
+               '</div></div>' +
+               '<div style="font-size:14px;font-weight:800">' + self.money(p.amount) + '</div>' +
+               '</div>';
+      }
+      list.innerHTML = out;
+    });
+  },
+
+  printChecks: function() {
+    var self = this;
+    var boxes = document.querySelectorAll('[data-print]');
+    var ids = [];
+    for (var i = 0; i < boxes.length; i++) {
+      if (boxes[i].checked && !boxes[i].disabled) ids.push(boxes[i].getAttribute('data-print'));
+    }
+    if (!ids.length) { this.printMsg('bad', 'Tick the checks to print first.'); return; }
+
+    var startEl = document.getElementById('print-start');
+    var start = startEl ? parseInt(String(startEl.value).replace(/[^0-9]/g, ''), 10) : 0;
+    if (!start) { this.printMsg('bad', 'Put in the number of the first check in the printer.'); return; }
+
+    var btn = document.getElementById('print-go');
+    if (btn) { btn.disabled = true; btn.textContent = 'Numbering\u2026'; }
+
+    this.post('/check-print', {
+      store_id: this.store_id, payment_ids: ids, start_number: start
+    }, function(status, d) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Print the selected checks'; }
+      if (status !== 200 || !d || d.error) {
+        self.printMsg('bad', (d && d.error) ? self.escHtml(d.error) : 'Could not print.');
+        return;
+      }
+      self.printMsg('ok', self.escHtml(d.message));
+      self.renderCheckSheets(d.printed);
+      if (startEl) startEl.value = d.next_check_number;
+      window.print();
+      self.loadPrintChecks();
+    });
+  },
+
+  nudge: function() {
+    var dx = document.getElementById('print-dx');
+    var dy = document.getElementById('print-dy');
+    return {
+      x: dx ? (parseFloat(dx.value) || 0) : 0,
+      y: dy ? (parseFloat(dy.value) || 0) : 0
+    };
+  },
+
+  at: function(spot, extraY) {
+    var n = this.nudge();
+    return 'left:' + (spot.x + n.x) + 'in;top:' + (spot.y + n.y + (extraY || 0)) + 'in';
+  },
+
+  renderCheckSheets: function(checks) {
+    var area = document.getElementById('check-sheets');
+    if (!area) return;
+    var L = this.CHECK_LAYOUT;
+    var h = '';
+    for (var i = 0; i < checks.length; i++) {
+      var c = checks[i];
+      h += '<div class="rn-checkpage">';
+      h += '<div class="rn-cf big" style="' + this.at(L.date) + '">' + this.escHtml(c.date) + '</div>';
+      h += '<div class="rn-cf big" style="' + this.at(L.payee) + '">' + this.escHtml(c.payee) + '</div>';
+      h += '<div class="rn-cf big" style="' + this.at(L.figures) + '">' + this.escHtml(c.amount_figures) + '</div>';
+      h += '<div class="rn-cf words" style="' + this.at(L.words) + '">' + this.escHtml(c.amount_words) + '</div>';
+      for (var a = 0; a < c.address.length; a++) {
+        h += '<div class="rn-cf" style="' + this.at(L.address, a * 0.18) + '">' +
+             this.escHtml(c.address[a]) + '</div>';
+      }
+      if (c.memo) {
+        h += '<div class="rn-cf" style="' + this.at(L.memo) + '">' + this.escHtml(c.memo) + '</div>';
+      }
+      // Both stubs: what it was, who it went to, and the number, so the
+      // filed paper answers the question without the bank statement.
+      var stub = this.escHtml(c.date) + '   #' + c.check_number + '   ' +
+                 this.escHtml(c.payee) + '   ' + this.money(c.amount) +
+                 (c.memo ? '   ' + this.escHtml(c.memo) : '');
+      h += '<div class="rn-cf rn-stub" style="' + this.at(L.stub1) + '">' + stub + '</div>';
+      h += '<div class="rn-cf rn-stub" style="' + this.at(L.stub2) + '">' + stub + '</div>';
+      h += '</div>';
+    }
+    area.innerHTML = h;
+  },
+
+  // A sheet of crosses where the real fields go, so plain paper held
+  // against a blank check shows exactly how far out the printer is.
+  printAlignment: function() {
+    var L = this.CHECK_LAYOUT;
+    var fake = [{
+      check_number: 1234,
+      date: '0000-00-00',
+      payee: 'XXXXXXXXXXXXXXXXXXXXXXXXX',
+      address: ['XXXXXXXXXXXXXXXXXX', 'XXXXXXXXXXXXXXXXXX'],
+      amount: 1234.56,
+      amount_figures: '**1,234.56',
+      amount_words: 'One Thousand Two Hundred Thirty-Four and 56/100 ****************',
+      memo: 'XXXXXXXXXXXXXXXXXXXX'
+    }];
+    this.renderCheckSheets(fake);
+    this.printMsg('ok', 'Hold the printed page against a blank check. Whatever it is ' +
+      'out by, put that in the nudge boxes and print it again.');
+    window.print();
   },
 
   // ---------- reconcile ----------

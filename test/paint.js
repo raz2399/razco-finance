@@ -292,6 +292,33 @@ function checkTrue(name, cond, note) {
   checkTrue('rather than a blank page',
     win.document.querySelectorAll('.tab-content.active').length === 1);
 
+  console.log('\nPrinting checks');
+  let payThrew = null;
+  try { APP.switchTab('pay'); } catch (e) { payThrew = e; }
+  checkTrue('the Pay screen still opens', !payThrew, payThrew && payThrew.message);
+  checkTrue('there is somewhere to print from', !!$('print-card'));
+  checkTrue('a place to say which check is in the printer', !!$('print-start'));
+  checkTrue('and to nudge the alignment', !!$('print-dx') && !!$('print-dy'));
+  checkTrue('a sheet layer to print into', !!$('check-sheets'));
+
+  // The printable layer must be hidden on screen and the only thing
+  // visible on paper. Getting this backwards prints the whole app.
+  checkTrue('the sheets are hidden on screen',
+    /#check-sheets\s*\{\s*display:\s*none/.test(src));
+  checkTrue('and everything else is hidden on paper',
+    /@media print[\s\S]{0,200}body > \*:not\(#check-sheets\)/.test(src));
+  checkTrue('the page is letter size with no margin',
+    /@page\s*\{\s*size:\s*letter portrait;\s*margin:\s*0/.test(src));
+
+  // Positions are in inches, and the nudge is added to every one of
+  // them -- a layout where the offset only reached some fields would be
+  // worse than none.
+  checkTrue('every field is placed through the nudge helper',
+    (src.match(/this\.at\(L\./g) || []).length >= 6);
+  checkTrue('the nudge is added to both axes',
+    /left:'\s*\+\s*\(spot\.x \+ n\.x\)/.test(src)
+    && /top:'\s*\+\s*\(spot\.y \+ n\.y/.test(src));
+
   console.log('\nThe Reconcile screen');
   // The work that makes every other screen truer: matching the bank,
   // and the two facts about a vendor nothing can infer. Each tested for
