@@ -4931,21 +4931,49 @@ var APP = {
 
   applyCheckExtract: function(res) {
     var d = res.draft || {};
+
+    // The amount is only filled in when the paper vouched for it.
+    //
+    // A check states its amount twice -- the numeric box and the written
+    // line -- and the server compares them rather than asking the model
+    // whether they agree, because a model that misread one will say they
+    // do. On a disagreement the server sends no amount at all, and this
+    // leaves the box empty on purpose: a figure on screen is a figure
+    // somebody saves without looking.
     var msg = this.fillFrom([
       ['chk-num', d.check_number, 'check number'],
-      ['chk-amt', d.amount === null ? '' : d.amount, 'amount'],
-      ['chk-payee', d.payee, 'payee'],
+      ['chk-amt', (d.amount === null || d.amount === undefined) ? '' : d.amount, 'amount'],
+      ['chk-payee', (res.vendor && res.vendor.name) || d.payee, 'payee'],
       ['chk-date', d.check_date, 'date'],
       ['chk-memo', d.memo, 'memo']
     ]);
-    var notes = d.unreadable || [];
-    for (var i = 0; i < notes.length; i++) msg += '<br>' + notes[i];
+
+    var headline = '';
+    if (res.trust === 'verified') {
+      headline = '<b>The check says the amount twice and both agree.</b>';
+    } else if (res.trust === 'conflict') {
+      headline = '<b>The two amounts on this check do not agree, so the amount '
+               + 'has been left blank.</b>';
+    } else {
+      headline = '<b>Only one amount on this one, so there is nothing to check it '
+               + 'against.</b>';
+    }
+    msg = headline + '<br>' + msg;
+
+    var notes = res.why || d.unreadable || [];
+    for (var i = 0; i < notes.length; i++) msg += '<br>' + this.escHtml(notes[i]);
+
+    if (res.vendor) {
+      msg += '<br>Matched to ' + this.escHtml(res.vendor.name) + ' on your vendor list.';
+    }
     if (res.duplicate) {
       msg += '<br><b>Check #' + res.duplicate.check_number + ' is already logged</b> for ' +
              this.money(res.duplicate.amount, true) +
              '. Logging it twice would overstate what is out.';
     }
-    msg += '<br><b>Check the amount against the check before saving.</b>';
+    if (res.trust !== 'verified') {
+      msg += '<br><b>Check it against the paper before saving.</b>';
+    }
     this.captureState(res.needs_eyes ? 'check' : 'good', msg);
   },
 

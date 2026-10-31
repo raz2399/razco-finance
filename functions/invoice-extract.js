@@ -15,6 +15,14 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { requireUser, safely } = require('./lib/guard');
+const { judge } = require('./lib/readcheck');
+const { matchVendor } = require('./lib/bankrules');
+
+// Used when quoting an amount back to him. Referenced before it existed
+// once already in this repo -- "json is not defined" -- and the cost was
+// a crash the moment the line ran, which is exactly the line that only
+// runs when something has gone wrong.
+const money = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -59,15 +67,17 @@ Rules:
 - Dates: if the year is not shown, use null rather than assuming.
 - Numbers: digits only, no currency symbols, no thousands separators.`,
 
-  check: `You are reading a photograph of a business check, or its stub, that
-the store has written to a vendor.
+  check: `You are reading a photograph of a business check, or its stub,
+that the store has written to a vendor.
 
 Return ONLY a JSON object, no markdown, no commentary:
 
 {
+  "is_stub": boolean,
   "check_number": string | null,
   "payee": string | null,
-  "amount": number | null,
+  "amount_numeric": number | null,
+  "amount_written": string | null,
   "check_date": "YYYY-MM-DD" | null,
   "memo": string | null,
   "handwritten": boolean,
@@ -75,14 +85,19 @@ Return ONLY a JSON object, no markdown, no commentary:
 }
 
 Rules:
-- "amount" is the figure the check is written for. If the numeric box and the
-  written line disagree, report null and say so in "unreadable" — a check
-  whose two amounts differ is a problem a person must look at.
+- "amount_numeric" is what the numeric box says. "amount_written" is the
+  words on the long line, copied as you read them, e.g. "One Thousand Two
+  Hundred Thirty-Four and 50/100". Report each one from what you can
+  actually see and DO NOT make them agree. If only one is present --
+  a stub usually has only the figure -- the other is null.
+- Do not decide whether the two amounts match. Report both and let the
+  system compare them.
+- "is_stub" is true when this is a carbon copy, register page or stub
+  rather than the check itself.
 - Set "handwritten" true if the amount or payee is handwritten rather than
-  printed, because handwriting is read less reliably and the person should
-  check it.
+  printed.
 - Never guess at a digit. A wrong check number means the bank match goes to
-  the wrong check later.
+  the wrong check later. Put anything you could not read in "unreadable".
 - Numbers: digits only, no currency symbols, no thousands separators.`,
 
   statement: `You are reading a photograph or scan of a bank statement page.
@@ -193,15 +208,47 @@ exports.handler = safely('invoice-extract', async (event) => {
 
     // ---------------- a check the store wrote ----------------
     if (kind === 'check') {
+      const verdict = judge({
+        amount_numeric: num(data.amount_numeric),
+        amount_written: data.amount_written || null,
+        is_stub: data.is_stub === true,
+        handwritten: data.handwritten === true,
+      });
+
       const draft = {
         check_number: data.check_number ? String(data.check_number).replace(/\D/g, '') || null : null,
         payee: data.payee || null,
-        amount: num(data.amount),
+        // Only filled in when the paper vouched for it. A conflict
+        // leaves this null on purpose: a figure on screen is a figure
+        // somebody will save without looking.
+        amount: verdict.amount,
+        amount_numeric: verdict.numeric === undefined ? null : verdict.numeric,
+        amount_written: verdict.written || null,
         check_date: isoDate(data.check_date),
         memo: data.memo || null,
+        is_stub: data.is_stub === true,
         handwritten: data.handwritten === true,
+        trust: verdict.trust,
         unreadable: notes,
       };
+
+      verdict.why.forEach((w) => notes.push(w));
+
+      // Who it was to, against the vendors actually on file. The payee
+      // on a check is written by hand or printed from another system, so
+      // it rarely matches a vendor name exactly.
+      let vendor = null;
+      if (draft.payee) {
+        const vres = await supabase.from('vendors')
+          .select('vendor_id, name, dba')
+          .eq('store_id', store_id).eq('active', true);
+        const list = (vres.data || []).map((v) => ({
+          vendor_id: v.vendor_id, name: v.name, aliases: v.dba ? [v.dba] : [],
+        }));
+        const hit = matchVendor(draft.payee, list);
+        if (hit) vendor = { vendor_id: hit.vendor_id, name: hit.name };
+        else notes.push('No vendor on file matches "' + draft.payee + '".');
+      }
 
       // Is this check already logged? Writing it twice doubles what is out.
       let duplicate = null;
@@ -215,16 +262,26 @@ exports.handler = safely('invoice-extract', async (event) => {
           .neq('status', 'void')
           .limit(1);
         duplicate = (d.data || [])[0] || null;
-      }
-
-      if (draft.handwritten) {
-        notes.push('The amount is handwritten. Check it against the check before saving.');
+        if (duplicate) {
+          notes.push('Check ' + draft.check_number + ' is already logged for $'
+            + money(duplicate.amount).toFixed(2) + '.');
+        }
       }
 
       return json(200, {
-        ok: true, kind, draft, duplicate,
-        needs_eyes: draft.amount === null || draft.check_number === null ||
-                    notes.length > 0 || !!duplicate,
+        ok: true,
+        kind: kind,
+        draft: draft,
+        vendor: vendor,
+        duplicate: duplicate,
+        trust: verdict.trust,
+        // Verified means the paper said the amount twice and both agree.
+        // Everything else a person confirms before it is saved.
+        needs_eyes: verdict.trust !== 'verified'
+          || draft.check_number === null
+          || !vendor
+          || !!duplicate,
+        why: notes,
         model: MODEL,
       });
     }

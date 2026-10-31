@@ -129,6 +129,19 @@ check('the attention banner cannot take the home screen down', () => {
     'the banner reads attention.groups without checking attention exists');
 });
 
+check('the check camera never fills in an amount it cannot vouch for', () => {
+  // A check states its amount twice and the server compares them. When
+  // they disagree the amount must stay EMPTY: a figure in the box is a
+  // figure that gets saved without being looked at.
+  const cs = sources[path.join('src', 'CheckScreen.js')];
+  assert.ok(/readPaper\('check'/.test(cs), 'the camera should read a check');
+  assert.ok(/d\.amount !== null && d\.amount !== undefined/.test(cs),
+    'it must only set the amount when the server supplied one');
+  assert.ok(!/setAmount\(String\(d\.amount_numeric\)\)/.test(cs),
+    'it is filling in the raw numeric box, which defeats the cross-check');
+  assert.ok(/trust/.test(cs), 'the screen should show how far the paper is trusted');
+});
+
 check('the home screen survives attention being null', () => {
   const home = sources[path.join('src', 'HomeScreen.js')];
   assert.ok(/useState\(null\)/.test(home), 'attention should start null');
