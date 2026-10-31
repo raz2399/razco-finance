@@ -20,7 +20,8 @@ import {
   View, Text, TextInput, TouchableOpacity, ActivityIndicator,
   ScrollView, SafeAreaView, StyleSheet, Keyboard,
 } from 'react-native';
-import { findVendors, addVendorPayment, money, todayPacific } from './api';
+import * as ImagePicker from 'expo-image-picker';
+import { findVendors, addVendorPayment, readPaper, money, todayPacific } from './api';
 import Notice from './Notice';
 import { C, S } from './theme';
 
@@ -40,6 +41,10 @@ export default function CheckScreen({ onBack, onDone }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+
+  // What the photograph said, and how much of it the paper vouched for.
+  const [reading, setReading] = useState(false);
+  const [read, setRead] = useState(null);
 
   // The search only runs while no vendor is chosen, so picking one does
   // not immediately fire another search for the name just filled in.
@@ -71,6 +76,7 @@ export default function CheckScreen({ onBack, onDone }) {
   }
 
   function startOver() {
+    setRead(null);
     setVendor(null);
     setQuery('');
     setNumber('');
@@ -78,6 +84,59 @@ export default function CheckScreen({ onBack, onDone }) {
     setMemo('');
     setDate(todayPacific());
     setError(null);
+  }
+
+  // Photographing the check, which is the point of this screen.
+  //
+  // A check states its amount twice -- the numeric box and the written
+  // line -- so the paper carries its own second opinion and the server
+  // compares the two. A stub carries one figure in his handwriting and
+  // nothing to check it against, so it comes back as a draft to confirm.
+  //
+  // Nothing here saves anything. It fills the form in; he still presses
+  // the button.
+  async function shoot() {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      setError('Razi-Nova needs the camera to read checks. Turn it on in Settings.');
+      return;
+    }
+    const shot = await ImagePicker.launchCameraAsync({
+      base64: true, quality: 0.6, allowsEditing: false,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    });
+    if (shot.canceled || !shot.assets || !shot.assets[0] || !shot.assets[0].base64) return;
+
+    setReading(true);
+    setError(null);
+    setRead(null);
+    try {
+      const r = await readPaper('check', shot.assets[0].base64, 'image/jpeg');
+      const d = (r && r.draft) || {};
+      setRead(r);
+
+      if (d.check_number) setNumber(String(d.check_number));
+      if (d.check_date) setDate(d.check_date);
+      if (d.memo) setMemo(d.memo);
+
+      // The amount is only filled in when the paper vouched for it. On a
+      // disagreement it stays empty on purpose -- a figure in the box is
+      // a figure that gets saved without being looked at.
+      if (d.amount !== null && d.amount !== undefined) {
+        setAmount(String(d.amount));
+      }
+
+      if (r && r.vendor) {
+        setVendor({ vendor_id: r.vendor.vendor_id, name: r.vendor.name });
+        setQuery(r.vendor.name);
+      } else if (d.payee) {
+        setQuery(d.payee);
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setReading(false);
+    }
   }
 
   async function save() {
@@ -138,6 +197,49 @@ export default function CheckScreen({ onBack, onDone }) {
       >
         {error ? (
           <View style={st.errorBox}><Text style={st.errorText}>{error}</Text></View>
+        ) : null}
+
+        <TouchableOpacity
+          style={[st.shoot, reading && { opacity: 0.6 }]}
+          onPress={shoot}
+          disabled={reading || busy}
+          activeOpacity={0.85}
+        >
+          {reading
+            ? <ActivityIndicator color={C.red} />
+            : <Text style={st.shootText}>Photograph the check</Text>}
+        </TouchableOpacity>
+        <Text style={st.shootHint}>
+          Or fill it in below. The photo only fills the boxes &mdash; nothing is
+          saved until you press the button.
+        </Text>
+
+        {read ? (
+          <View
+            style={[
+              st.verdict,
+              read.trust === 'verified' ? st.verdictGood : st.verdictWarn,
+            ]}
+          >
+            <Text
+              style={[
+                st.verdictTitle,
+                { color: read.trust === 'verified' ? '#176b33' : '#8a6212' },
+              ]}
+            >
+              {read.trust === 'verified'
+                ? 'The check says the amount twice and both agree'
+                : read.trust === 'conflict'
+                  ? 'The two amounts do not agree'
+                  : 'Only one amount on this one'}
+            </Text>
+            {(read.why || []).map((w, i) => (
+              <Text key={i} style={st.verdictLine}>{w}</Text>
+            ))}
+            {read.trust !== 'verified' ? (
+              <Text style={st.verdictLine}>Check it against the paper before saving.</Text>
+            ) : null}
+          </View>
         ) : null}
 
         <Text style={S.label}>Who is it to</Text>
@@ -256,6 +358,20 @@ export default function CheckScreen({ onBack, onDone }) {
 }
 
 const st = StyleSheet.create({
+  shoot: {
+    borderWidth: 1.5, borderColor: C.red, borderStyle: 'dashed', borderRadius: 12,
+    paddingVertical: 16, alignItems: 'center', backgroundColor: '#fff',
+    marginBottom: 7,
+  },
+  shootText: { fontSize: 15, fontWeight: '800', color: C.red },
+  shootHint: { fontSize: 11.5, color: C.mute, lineHeight: 16, marginBottom: 14 },
+
+  verdict: { borderWidth: 1, borderRadius: 10, padding: 11, marginBottom: 14 },
+  verdictGood: { backgroundColor: '#f1f9f3', borderColor: '#bfe4ca' },
+  verdictWarn: { backgroundColor: '#fdf8ec', borderColor: '#f0dcae' },
+  verdictTitle: { fontSize: 13, fontWeight: '800', marginBottom: 4 },
+  verdictLine: { fontSize: 12, color: C.ink, lineHeight: 17, marginTop: 2 },
+
   bar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 14, paddingVertical: 11,
