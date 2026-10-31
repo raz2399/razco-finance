@@ -266,6 +266,167 @@ exports.handler = safely('bank-match', async (event) => {
     });
   }
 
+  // ---------------- the same transaction, from two sources -------------
+  //
+  // A statement CSV was imported for January to October. Then the bank
+  // was connected and Plaid went back to August. Three months are now in
+  // the table twice -- same day, same amount, different fingerprints, so
+  // nothing deduplicated them.
+  //
+  // No figure on any screen is wrong because of it: the cash position,
+  // the P&L and the weekly close all read invoices and payments, not
+  // bank rows. What it does break is Reconcile, which counts the same
+  // line twice and reports more unmatched money than exists.
+  //
+  // Plaid's copy wins. It carries a real transaction id, a merchant
+  // name, and a pending flag; the CSV copy carries prose. So the CSV
+  // copy goes -- but only where a Plaid twin genuinely exists, only
+  // where nothing has been matched to it, and only after being copied
+  // into bank_transactions_csv_superseded first, so it can come back.
+  if (action === 'dedupe') {
+    const plaidFrom = await supabase
+      .from('bank_transactions')
+      .select('posted_date')
+      .eq('store_id', store_id)
+      .not('plaid_transaction_id', 'is', null)
+      .order('posted_date', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (plaidFrom.error) return json(500, { error: plaidFrom.error.message });
+    if (!plaidFrom.data) {
+      return json(200, { ok: true, removed: 0,
+        message: 'Nothing has come from the bank connection yet, so there is '
+          + 'nothing to deduplicate against.' });
+    }
+    const from = plaidFrom.data.posted_date;
+
+    const [csvRes, plaidRes] = await Promise.all([
+      // Whole rows, because they are archived before they are deleted.
+      all('bank_transactions', '*',
+        (p) => p.eq('store_id', store_id).is('plaid_transaction_id', null)
+          .gte('posted_date', from)),
+      all('bank_transactions', 'posted_date, amount',
+        (p) => p.eq('store_id', store_id).not('plaid_transaction_id', 'is', null)),
+    ]);
+
+    // Counted per day+amount on both sides, and a CSV row only goes when
+    // the bank's own copy covers ALL of them.
+    //
+    // The obvious rule -- "one twin claims one row" -- is wrong, and
+    // wrong in the worst way: it is not idempotent. Two CSV deposits of
+    // $380 against one from Plaid would lose one on the first run, and
+    // then the survivor would match the still-unclaimed Plaid row and be
+    // lost on the second. A genuine deposit, deleted by pressing a
+    // button twice.
+    //
+    // So when Plaid has fewer than the import does for a day and amount,
+    // Plaid plainly did not capture everything, and nothing is removed
+    // for that group at all. Raz is told instead. Running this ten times
+    // does exactly what running it once does.
+    const count = (rows) => {
+      const out = {};
+      rows.forEach((r) => {
+        const k = r.posted_date + '|' + money(r.amount).toFixed(2);
+        out[k] = (out[k] || 0) + 1;
+      });
+      return out;
+    };
+
+    const plaidCount = count(plaidRes);
+    const liveCsv = csvRes.filter((c) => c.match_status !== 'matched' && !c.matched_id);
+    const csvCount = count(liveCsv);
+
+    const doomed = [];
+    const kept = [];
+    const ambiguous = {};
+
+    csvRes.forEach((c) => {
+      const k = c.posted_date + '|' + money(c.amount).toFixed(2);
+      // Anything a person or the matcher has already tied to something
+      // stays, whatever else is true of it.
+      if (c.match_status === 'matched' || c.matched_id) { kept.push(c); return; }
+      const mine = csvCount[k] || 0;
+      const theirs = plaidCount[k] || 0;
+      if (theirs >= mine && theirs > 0) doomed.push(c);
+      else {
+        kept.push(c);
+        if (theirs > 0) ambiguous[k] = { date: c.posted_date, amount: money(c.amount),
+                                         imported: mine, from_bank: theirs };
+      }
+    });
+
+    const unsure = Object.keys(ambiguous).map((k) => ambiguous[k]);
+
+    const value = doomed.reduce((s, r) => money(s + Math.abs(money(r.amount))), 0);
+
+    if (body.confirm !== true) {
+      return json(200, {
+        ok: true,
+        removed: 0,
+        would_remove: doomed.length,
+        would_remove_value: value,
+        keeping: kept.length,
+        from_date: from,
+        // Days where the import holds more copies than the bank sent.
+        // Nothing is removed for these; they are shown instead.
+        needs_a_look: unsure,
+        message: doomed.length
+          ? doomed.length + ' imported lines from ' + from + ' onward are the same '
+            + 'transactions the bank connection has since sent, worth $'
+            + value.toFixed(2) + '. The bank’s own copy is better in every '
+            + 'way, so the imported ones can go. They are copied aside first '
+            + 'and can be put back. Send it again with confirm to go ahead.'
+          : 'No duplicated lines. Nothing to do.',
+      });
+    }
+
+    if (!doomed.length) {
+      return json(200, { ok: true, removed: 0, message: 'Nothing to remove.' });
+    }
+
+    // Copied aside BEFORE anything is deleted, and a failure here stops
+    // the whole thing. That order is the difference between a reversible
+    // cleanup and a lost afternoon: if the archive cannot be written,
+    // nothing is removed.
+    for (let i = 0; i < doomed.length; i += 200) {
+      const slice = doomed.slice(i, i + 200).map((r) => {
+        const copy = Object.assign({}, r);
+        delete copy.archived_at;
+        return copy;
+      });
+      const keep = await supabase.from('bank_transactions_csv_superseded').insert(slice);
+      if (keep.error) {
+        return json(500, {
+          error: 'Could not archive the rows, so nothing was deleted: '
+            + keep.error.message,
+          removed: 0,
+        });
+      }
+    }
+
+    const ids = doomed.map((d) => d.bank_txn_id);
+    let removed = 0;
+    for (let i = 0; i < ids.length; i += 200) {
+      const slice = ids.slice(i, i + 200);
+      const del = await supabase.from('bank_transactions').delete().in('bank_txn_id', slice);
+      if (del.error) {
+        return json(500, {
+          error: del.error.message,
+          removed: removed,
+          where: 'deleting superseded rows',
+        });
+      }
+      removed += slice.length;
+    }
+
+    return json(200, {
+      ok: true,
+      removed: removed,
+      message: removed + ' duplicated lines removed. The bank connection now owns '
+        + from + ' onward.',
+    });
+  }
+
   // ---------------- preview / apply -----------------------------------
   if (action === 'preview' || action === 'apply') {
     const d = await decide(store_id, { only: body.only || q.only || 'unmatched' });

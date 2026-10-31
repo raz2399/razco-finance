@@ -1424,6 +1424,13 @@
           <div id="rec-attn" class="rn-rows"></div>
         </div>
 
+        <!-- Appears only when the imported statement and the bank
+             connection both hold the same transactions. -->
+        <div class="card" id="rec-dupe-card" style="display:none">
+          <h3>The same transactions, twice</h3>
+          <div id="rec-dupe" style="font-size:13px;line-height:1.55"></div>
+        </div>
+
         <div class="card">
           <h3>Match the bank to the books</h3>
           <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
@@ -1817,6 +1824,7 @@ var APP = {
       var rec = this;
       this.bind2('rec-preview', function() { rec.recRun(false); });
       this.loadAttention();
+      this.loadDupes();
       this.loadRecCategories();
       this.load1099();
     }
@@ -2222,6 +2230,37 @@ var APP = {
         });
       })(sels[s]);
     }
+  },
+
+  loadDupes: function() {
+    var self = this;
+    this.post('/bank-match', {
+      store_id: this.store_id, action: 'dedupe'
+    }, function(status, d) {
+      var card = document.getElementById('rec-dupe-card');
+      var box = document.getElementById('rec-dupe');
+      if (!card || !box) return;
+      if (status !== 200 || !d || !d.would_remove) { card.style.display = 'none'; return; }
+      card.style.display = 'block';
+      box.innerHTML = self.escHtml(d.message) +
+        '<div style="margin-top:12px"><button class="rn-big" id="rec-dupe-go">' +
+        'Remove the ' + d.would_remove + ' duplicates</button></div>';
+      self.bind2('rec-dupe-go', function() {
+        var b = document.getElementById('rec-dupe-go');
+        if (b) { b.disabled = true; b.textContent = 'Removing\u2026'; }
+        self.post('/bank-match', {
+          store_id: self.store_id, action: 'dedupe', confirm: true
+        }, function(st, r) {
+          if (st !== 200 || !r || r.error) {
+            self.recMsg('bad', (r && r.error) ? self.escHtml(r.error) : 'Could not remove them.');
+            if (b) { b.disabled = false; b.textContent = 'Remove the duplicates'; }
+            return;
+          }
+          self.recMsg('ok', self.escHtml(r.message));
+          card.style.display = 'none';
+        });
+      });
+    });
   },
 
   loadAttention: function() {
