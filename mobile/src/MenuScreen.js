@@ -23,6 +23,8 @@ const GROUPS = [
   {
     title: 'Money out',
     items: [
+      { key: 'printchecks', name: 'Print checks',
+        sub: 'Pick who gets paid, number them, print from your phone' },
       { key: 'checks', name: 'Checks still out',
         sub: 'Written but not cashed yet' },
       { key: 'vendors', name: 'Vendors',
