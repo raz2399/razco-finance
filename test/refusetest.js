@@ -44,15 +44,51 @@ const checkTrue = (n, c, note) => {
 const OPEN = ['probe'];
 // Scheduled ones: they are run by Netlify on a timer, not by a person.
 const SCHEDULED = ['daily-brief', 'plaid-sync'];
+// Authorised by a signed link rather than a session, because the browser
+// that opens them was handed a URL by the app and carries no header.
+// Listed here, but the claim is checked below rather than taken on
+// trust -- an endpoint cannot buy its way out by being on a list.
+const BY_TOKEN = ['check-sheet'];
 
 const files = fs.readdirSync(path.join(ROOT, 'functions'))
   .filter((f) => f.endsWith('.js'))
   .map((f) => f.replace(/\.js$/, ''))
-  .filter((f) => OPEN.indexOf(f) === -1 && SCHEDULED.indexOf(f) === -1)
+  .filter((f) => OPEN.indexOf(f) === -1 && SCHEDULED.indexOf(f) === -1
+    && BY_TOKEN.indexOf(f) === -1)
   .sort();
 
 (async () => {
   console.log('Every endpoint can refuse a request it should refuse\n');
+
+  // The token-authorised ones first, since their exemption is only
+  // worth anything if they really do check the token.
+  for (const name of BY_TOKEN) {
+    const file = path.join(ROOT, 'functions', name + '.js');
+    const src = fs.readFileSync(file, 'utf8');
+    checkTrue(name + ' reads a signed token', /require\('\.\/lib\/sheettoken'\)/.test(src),
+      'it is exempt from the sign-in check, so it had better check something');
+
+    let handler;
+    try { handler = require(file).handler; }
+    catch (e) { checkTrue(name + ' loads', false, e.message); continue; }
+
+    // No token at all, and a forged one.
+    for (const t of [undefined, '', 'forged.token']) {
+      const res = await handler({
+        httpMethod: 'GET',
+        headers: {},
+        queryStringParameters: t === undefined ? {} : { t: t },
+        body: null,
+      });
+      const body = String(res.body || '');
+      checkTrue(name + ' refuses "' + String(t) + '"',
+        !/check|9926|payee|amount/i.test(body) || /expired/i.test(body),
+        'it answered with something that looks like check data');
+      checkTrue(name + ' says the link expired',
+        /expired/i.test(body), body.slice(0, 120));
+    }
+  }
+
 
   for (const name of files) {
     let handler;

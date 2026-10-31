@@ -162,6 +162,12 @@ const req = (headers, body, method) => ({
     // auth is the door itself; probe answers whether the site is up and
     // holds no data.
     if (['auth.js', 'probe.js'].indexOf(f) > -1) return;
+    // A page a browser opens from a signed link carries no session, so
+    // requireUser would make it unreachable. The token is the
+    // authorisation -- and the exemption only counts if the file really
+    // reads one, which is checked here rather than assumed.
+    if (/require\('\.\/lib\/sheettoken'\)/.test(src)
+        && /\bopen\(/.test(src)) return;
     // A scheduled function has no door because it has no URL: Netlify
     // answers 403 before the code runs. But "it is scheduled" is a claim,
     // and a claim that excuses a missing auth check has to be checked

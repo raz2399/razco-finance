@@ -31,6 +31,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const { requireUser, safely } = require('./lib/guard');
 const { amountInWords, amountInFigures, fill } = require('./lib/checkwords');
+const { mint } = require('./lib/sheettoken');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -308,10 +309,20 @@ exports.handler = safely('check-print', async (event) => {
       .eq('account_id', acct.account_id);
   }
 
+  // A link the phone can hand to Safari, which is how an iPhone prints.
+  // Signed, scoped to this run, dead in ten minutes -- a browser opened
+  // from the app carries no session, and the alternatives are an open
+  // URL or the session token in browser history.
+  const sheetPath = '/.netlify/functions/check-sheet?t='
+    + encodeURIComponent(mint(store_id, printed.map((p) => p.payment_id)))
+    + '&dx=' + (acct ? Number(acct.check_offset_x) : 0)
+    + '&dy=' + (acct ? Number(acct.check_offset_y) : 0);
+
   return json(200, {
     ok: true,
     printed: printed,
     count: printed.length,
+    sheet_url: sheetPath,
     next_check_number: start + ordered.length,
     layout: acct ? acct.check_layout : 'top',
     offset_x: acct ? Number(acct.check_offset_x) : 0,

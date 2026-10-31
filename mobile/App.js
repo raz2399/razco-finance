@@ -17,6 +17,7 @@ import MenuScreen from './src/MenuScreen';
 import FixScreen from './src/FixScreen';
 import ChecksScreen from './src/ChecksScreen';
 import CheckScreen from './src/CheckScreen';
+import PrintChecksScreen from './src/PrintChecksScreen';
 import VendorsScreen from './src/VendorsScreen';
 import LoginScreen from './src/LoginScreen';
 import { restoreSession, clearSession } from './src/api';
@@ -111,6 +112,17 @@ export default function App() {
         {/* A check logged is money leaving, so Home is told to refetch on
             the way out rather than showing the figure from before it. */}
         <CheckScreen onBack={() => { refreshHome(); home(); }} onDone={refreshHome} />
+      </View>
+    );
+  }
+
+  if (screen === 'printchecks') {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <StatusBar style="dark" />
+        {/* Numbering checks changes what is outstanding, so Home is told
+            to refetch on the way out. */}
+        <PrintChecksScreen onBack={() => { refreshHome(); home(); }} onDone={refreshHome} />
       </View>
     );
   }

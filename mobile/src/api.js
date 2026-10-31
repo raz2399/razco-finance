@@ -374,3 +374,24 @@ export const clearAttention = (exceptionId, note) =>
     method: 'POST',
     body: JSON.stringify({ exception_id: exceptionId, action: 'resolve', note }),
   });
+
+// ---- printing checks -------------------------------------------------
+//
+// The phone cannot print. It decides who gets paid and what numbers they
+// carry; the paper comes out of a real printer, reached by handing
+// Safari the link this returns. Adding a print library would mean a new
+// binary through TestFlight before anything could be printed at all.
+export const checksToPrint = () => call('/check-print');
+
+export const printChecks = (paymentIds, startNumber) =>
+  call('/check-print', {
+    method: 'POST',
+    body: JSON.stringify({
+      store_id: STORE_ID,
+      payment_ids: paymentIds,
+      start_number: startNumber,
+    }),
+  });
+
+// Where that print page lives, so the screen can open it.
+export const siteRoot = () => String(BASE).replace(/\/\.netlify\/functions\/?$/, '');
