@@ -259,7 +259,12 @@ exports.handler = safely('vendor-ledger', async (event) => {
     // look at one, by /scans, and it lasts an hour. Painting the page
     // with sixty permanent links to invoices would be handing out sixty
     // permanent ways in.
-    const ids = entries.map((e) => e.id).filter(Boolean);
+    // entity_id is a uuid column, so anything that is not one would make
+    // Postgres refuse the whole query -- and a ledger line could carry a
+    // synthetic id one day. Filtered here rather than relied on.
+    const isUuid = (v) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
+    const ids = entries.map((e) => e.id).filter(isUuid);
     const withPaper = {};
     if (ids.length) {
       // No scans table, no scans column, no matter: the ledger is the
