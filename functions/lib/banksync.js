@@ -358,6 +358,46 @@ async function syncStore(store_id) {
 
   const checks = await clearChecks(store_id);
 
+  // Settle what was just pulled.
+  //
+  // This is the difference between this and QuickBooks. QuickBooks waits
+  // to be told what cleared and then waits again to be told which bill
+  // it paid. Here the statement arrives overnight and the books are
+  // already right in the morning.
+  //
+  // It is safe to run every night because it is idempotent: every
+  // payment carries the id of the bank line it came from, behind a
+  // unique index, so the same line can never become money twice. It
+  // never reaches back before the cutover date either -- that history is
+  // already inside the opening balances.
+  //
+  // It is also allowed to fail without taking the sync with it. Pulling
+  // the statement is the job; settling it is the bonus, and a bad night
+  // for one must not cost him the other.
+  let settled = null;
+  try {
+    const { plan, apply } = require('./settlerun');
+    const planned = await plan(supabase, store_id);
+    if (planned.ok && planned.autosettle) {
+      const done = await apply(supabase, store_id, planned);
+      settled = {
+        payments_recorded: done.wrote.payments,
+        checks_confirmed: done.wrote.cleared,
+        invoices_touched: done.wrote.invoices,
+        money_recorded: planned.totals.money_to_record,
+        money_off_what_he_owes: planned.totals.money_onto_invoices,
+        disagreements: planned.disagreements,
+        problems: done.problems,
+      };
+    } else if (planned.ok) {
+      settled = { skipped: 'automatic settling is switched off for this store' };
+    } else {
+      settled = { skipped: planned.why };
+    }
+  } catch (err) {
+    settled = { error: err.message };
+  }
+
   return {
     ok: true,
     connected: true,
@@ -367,6 +407,7 @@ async function syncStore(store_id) {
     checks_cleared: checks.cleared,
     checks_cleared_count: checks.cleared.length,
     checks_differing: checks.differing,
+    settled: settled,
   };
 }
 

@@ -92,7 +92,12 @@ function checkTrue(name, cond, note) {
   const txt = (id) => ($(id) ? $(id).textContent.trim() : '<<missing ' + id + '>>');
 
   console.log('\nKPI row');
-  check('left after everything clears', txt('k-left'), '$4,947');
+  // The headline is the bank less the checks written and not yet
+  // cashed -- NOT that less every unpaid invoice. The old figure read
+  // -$196,113 on his real books: a month of bills taken off one day's
+  // bank balance, with none of the month's takings counted. If this
+  // assertion ever goes back to $4,947, the frightening number is back.
+  check('left after the checks he wrote clear', txt('k-left'), '$14,347');
   check('in the bank', txt('k-bank'), '$18,000');
   check('checks not cleared', txt('k-out'), '$3,653');
   check('owed to vendors', txt('k-ap'), '$9,400');
@@ -153,7 +158,7 @@ function checkTrue(name, cond, note) {
     ven[0].querySelector('.amt').className.indexOf('due') > -1);
 
   console.log('\nMobile screen');
-  check('hero number matches the KPI', txt('m-left'), '$4,947');
+  check('hero number matches the KPI', txt('m-left'), '$14,347');
   check('income', txt('m-in'), '$35,440');
   check('expense', txt('m-out'), '$9,253');
 
@@ -166,7 +171,11 @@ function checkTrue(name, cond, note) {
 
   console.log('\nNegative cash turns red');
   const bad = JSON.parse(JSON.stringify(payload));
-  bad.position.after_everything = -2500;
+  // Genuinely short: the checks he has written come to more than is in
+  // the bank. That is worth going red over, because it is actionable.
+  // Owing money due in three weeks is not.
+  bad.position.headline = -2500;
+  bad.position.after_checks_clear = -2500;
   APP.paintHome(bad);
   check('negative formatting', txt('k-left'), '-$2,500');
   checkTrue('negative gets the red class', $('k-left').className.indexOf('neg') > -1);

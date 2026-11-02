@@ -329,5 +329,15 @@ exports.handler = safely('vendor-setup', async (event) => {
     },
     need_category: needCategory,
     need_terms: needTerms,
+    // The whole list, for anywhere that needs to offer a choice of
+    // vendor rather than a list of problems -- naming a check that
+    // cleared, for one. Sorted by who he owes, because the vendor he is
+    // looking for is nearly always one with an open balance.
+    vendors: vendors
+      .map((v) => ({
+        vendor_id: v.vendor_id, name: v.name, payment_type: v.payment_type,
+        open: open[v.vendor_id] || 0,
+      }))
+      .sort((a, b) => (b.open - a.open) || a.name.localeCompare(b.name)),
   });
 });

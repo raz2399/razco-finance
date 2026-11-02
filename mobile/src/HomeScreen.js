@@ -59,7 +59,9 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
   const vendors = (data && data.vendors) || [];
   const checks = (data && data.checks) || [];
   const fresh = (data && data.freshness) || {};
-  const negative = !!data && Number(pos.after_everything) < 0;
+  const negative = !!data && Number(
+    pos.headline !== undefined ? pos.headline : pos.after_checks_clear
+  ) < 0;
 
   // When the call failed there is no figure, and money(undefined) is "$0".
   // That is how a broken server came to look like an empty bank account:
@@ -115,15 +117,40 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
           </View>
         ) : null}
 
-        {/* the one number that matters standing on the floor */}
+        {/* The one number that matters standing on the floor.
+
+            It used to be "left after everything clears" -- the bank less
+            every unpaid invoice -- and on his real books that read
+            -$196,113. Arithmetically right, and useless: it took a
+            month of bills off a single day's bank balance and counted
+            none of the month's takings, when about $37,800 a day comes
+            into that account. A number that can only ever be frightening
+            is a number he stops reading. */}
         <View style={st.hero}>
-          <Text style={st.heroLabel}>Left after everything clears</Text>
+          <Text style={st.heroLabel}>
+            {pos.headline_label || 'Left after the checks you wrote clear'}
+          </Text>
           <Text style={[st.heroValue, negative && { color: '#ff6b70' }]}>
-            {fig(pos.after_everything)}
+            {fig(pos.headline !== undefined ? pos.headline : pos.after_checks_clear)}
           </Text>
           <Text style={st.heroNote}>
             {fig(pos.in_bank)} in the bank · {fig(pos.checks_outstanding)} in checks not cashed
           </Text>
+
+          {pos.due_this_week !== undefined && pos.due_this_week !== null ? (
+            <Text style={st.heroNote}>
+              {fig(pos.due_this_week)} due in the next 7 days
+              {pos.expected_this_week
+                ? ' · about ' + fig(pos.expected_this_week) + ' expected in'
+                : ''}
+              {pos.overdue ? ' · ' + fig(pos.overdue) + ' past due' : ''}
+            </Text>
+          ) : null}
+          {pos.covers_due_this_week === false ? (
+            <Text style={[st.heroNote, { color: '#ff6b70', fontWeight: '700' }]}>
+              This week looks short. Check what is due before writing more checks.
+            </Text>
+          ) : null}
           {/* A bank balance does not say how old it is, and a six-week-old
               one looks exactly like this morning's. Every figure above is
               built on it. */}
