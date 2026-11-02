@@ -144,17 +144,30 @@ exports.handler = safely('check-print', async (event) => {
   const acct = acctRes.data;
 
   // ---------------- what is waiting to be printed ----------------------
+  //
+  // What makes a check wait for the printer is having NO NUMBER. Nothing
+  // else. This used to also insist the status was draft, pending_approval
+  // or approved -- and no screen in this app has ever written one of
+  // those. Every path that logs a check writes 'outstanding', because the
+  // money is committed the moment he decides to pay. So the list was
+  // empty however many checks he logged, and said so politely.
+  //
+  // Asking the question the other way round is what fixes it for good:
+  // a check is waiting unless it is finished or dead.
   if (event.httpMethod === 'GET') {
-    const [waiting, vendors, used] = await Promise.all([
+    const [maybe, vendors, used] = await Promise.all([
       all('payments',
         'payment_id, vendor_id, amount, payment_date, memo, status, method, check_number',
         (p) => p.eq('store_id', store_id).eq('method', 'check')
-          .is('check_number', null)
-          .in('status', ['draft', 'pending_approval', 'approved'])),
+          .is('check_number', null)),
       all('vendors', 'vendor_id, name, address_line1, address_line2, city, state, postal_code',
         (p) => p.eq('store_id', store_id)),
       numbersUsed(store_id),
     ]);
+
+    // Done with, or killed. Nothing here goes near a printer.
+    const DEAD = { cleared: 1, void: 1, stopped: 1, paid: 1 };
+    const waiting = maybe.filter((p) => !DEAD[p.status]);
 
     const vById = {};
     vendors.forEach((v) => { vById[v.vendor_id] = v; });

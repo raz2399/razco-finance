@@ -8,6 +8,7 @@
 // So most of this suite is about refusing to print rather than printing.
 
 const assert = require('assert');
+const fs = require('fs');
 const path = require('path');
 const Module = require('module');
 require('./stub-guard');
@@ -31,11 +32,24 @@ function reset() {
       { vendor_id: 'v-2', store_id: 'store1', name: 'RYL PLUMBING' },
     ],
     payments: [
+      // 'outstanding' is what every screen in this app writes when a
+      // check is logged -- the money is committed the moment he decides
+      // to pay. These fixtures said 'approved' for a while, a status
+      // nothing has ever written, and the waiting list agreed with the
+      // fixtures instead of with his database: he logged a check, opened
+      // Print checks, and was told politely that none were waiting.
       { payment_id: 'p-1', store_id: 'store1', vendor_id: 'v-1', method: 'check',
         amount: 1234.5, payment_date: '2026-10-30', memo: 'invoice 4471',
-        status: 'approved', check_number: null },
+        status: 'outstanding', check_number: null },
       { payment_id: 'p-2', store_id: 'store1', vendor_id: 'v-2', method: 'check',
-        amount: 400, payment_date: '2026-10-30', memo: '', status: 'approved',
+        amount: 400, payment_date: '2026-10-30', memo: '', status: 'outstanding',
+        check_number: null },
+      // Numberless but finished with. Never printable.
+      { payment_id: 'p-cleared', store_id: 'store1', vendor_id: 'v-1', method: 'check',
+        amount: 60, payment_date: '2026-09-15', memo: '', status: 'cleared',
+        check_number: null },
+      { payment_id: 'p-killed', store_id: 'store1', vendor_id: 'v-1', method: 'check',
+        amount: 70, payment_date: '2026-09-16', memo: '', status: 'void',
         check_number: null },
       // already printed -- must never be reprinted
       { payment_id: 'p-done', store_id: 'store1', vendor_id: 'v-1', method: 'check',
@@ -47,11 +61,11 @@ function reset() {
         check_number: 6001 },
       // not a check
       { payment_id: 'p-ach', store_id: 'store1', vendor_id: 'v-1', method: 'ach',
-        amount: 90, payment_date: '2026-10-30', memo: '', status: 'approved',
+        amount: 90, payment_date: '2026-10-30', memo: '', status: 'outstanding',
         check_number: null },
       // an amount that cannot be written out
       { payment_id: 'p-bad', store_id: 'store1', vendor_id: 'v-1', method: 'check',
-        amount: 0, payment_date: '2026-10-30', memo: '', status: 'approved',
+        amount: 0, payment_date: '2026-10-30', memo: '', status: 'outstanding',
         check_number: null },
     ],
     bank_transactions: [
@@ -145,7 +159,35 @@ Promise.resolve()
       assert.ok(ids.indexOf('p-done') === -1, 'offered one already printed');
       assert.ok(ids.indexOf('p-ach') === -1, 'offered an ACH payment');
       assert.ok(ids.indexOf('p-1') > -1 && ids.indexOf('p-2') > -1);
+      assert.ok(ids.indexOf('p-cleared') === -1, 'offered one already cleared');
+      assert.ok(ids.indexOf('p-killed') === -1, 'offered a voided one');
     });
+  }))
+
+  .then(() => check('a check logged the way the app logs one shows up', () => {
+    // The bug this is here for: the list asked for statuses no screen
+    // writes, so it was always empty. Written against the real row --
+    // the one he logged at 10:39 -- rather than against an assumption.
+    reset();
+    DB.payments.push({
+      payment_id: 'p-real', store_id: 'store1', vendor_id: 'v-1', method: 'check',
+      amount: 0.1, payment_date: '2026-11-02', memo: '1234',
+      status: 'outstanding', check_number: null,
+    });
+    return get().then((b) => {
+      const mine = b.waiting.filter((w) => w.payment_id === 'p-real')[0];
+      assert.ok(mine, 'a check logged in the app does not reach the printer');
+      assert.strictEqual(mine.printable, true, 'ten cents is a writable amount');
+    });
+  }))
+
+  .then(() => check('no status list stands between a numberless check and the printer', () => {
+    // Belt and braces: whatever status a row arrives with, if it has no
+    // number and is not finished or dead, it is waiting.
+    const src = fs.readFileSync(
+      path.join(__dirname, '..', 'functions', 'check-print.js'), 'utf8');
+    assert.ok(!/\.in\('status'/.test(src),
+      'the waiting list is filtering on a list of statuses again');
   }))
 
   .then(() => check('an amount that cannot be written is marked unprintable', () => {
