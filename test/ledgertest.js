@@ -53,12 +53,12 @@ DB.vendors.push({
 });
 DB.invoices.push(
   // Paid outside the system: amount_paid moved, no payment row behind it.
-  { invoice_id: 'o1', store_id: 'store1', vendor_id: 'v4', invoice_number: '500',
+  { invoice_id: '11111111-1111-4111-8111-111111111111', store_id: 'store1', vendor_id: 'v4', invoice_number: '500',
     invoice_date: '2026-10-01', received_date: '2026-10-01', due_date: '2026-10-16',
     total_amount: 800, amount_paid: 800, balance_due: 0, status: 'paid',
     payment_type: 'check', notes: 'Already paid before this system', created_at: '2026-10-01T10:00:00Z' },
   // Half of it settled outside, half still owed.
-  { invoice_id: 'o2', store_id: 'store1', vendor_id: 'v4', invoice_number: '501',
+  { invoice_id: '22222222-2222-4222-8222-222222222222', store_id: 'store1', vendor_id: 'v4', invoice_number: '501',
     invoice_date: '2026-10-08', received_date: '2026-10-08', due_date: '2026-10-23',
     total_amount: 600, amount_paid: 250, balance_due: 350, status: 'partially_paid',
     payment_type: 'check', notes: null, created_at: '2026-10-08T10:00:00Z' },
@@ -242,10 +242,13 @@ const GET = (params) => handler({
   console.log('\nThe paper behind a line');
   // The flag says only whether a photograph exists; the link that opens
   // it is minted elsewhere, when he presses the button.
-  DB.scans = [{ scan_id: 's1', store_id: 'store1', entity_id: 'o2' }];
+  // Real uuids, because entity_id is a uuid column -- o3 and o4 below
+  // are deliberately not, which is how this also proves that an id the
+  // column would refuse does not take the lookup down with it.
+  DB.scans = [{ scan_id: 's1', store_id: 'store1', entity_id: '22222222-2222-4222-8222-222222222222' }];
   const withPaper = JSON.parse((await GET({ vendor_id: 'v4' })).body);
-  const lineWith = withPaper.entries.filter((e) => e.id === 'o2')[0];
-  const lineWithout = withPaper.entries.filter((e) => e.id === 'o1')[0];
+  const lineWith = withPaper.entries.filter((e) => e.id === '22222222-2222-4222-8222-222222222222')[0];
+  const lineWithout = withPaper.entries.filter((e) => e.id === '11111111-1111-4111-8111-111111111111')[0];
   check('the line with a photo says so', lineWith.has_paper, true);
   check('the line without one does not', lineWithout.has_paper, false);
 
