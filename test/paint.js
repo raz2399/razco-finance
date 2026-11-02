@@ -292,6 +292,86 @@ function checkTrue(name, cond, note) {
   checkTrue('rather than a blank page',
     win.document.querySelectorAll('.tab-content.active').length === 1);
 
+  console.log('\nAdding and removing');
+  let venThrew = null;
+  try { APP.switchTab('vendors'); } catch (e) { venThrew = e; }
+  checkTrue('the Vendors screen still opens', !venThrew, venThrew && venThrew.message);
+  checkTrue('a way to add a vendor', !!$('vl-new') && !!$('vl-new-box'));
+  checkTrue('with a name field', !!$('vl-new-name'));
+  checkTrue('a way to remove the open vendor', !!$('vl-remove'));
+  checkTrue('and the add-a-line form can ask for a category', !!$('vl-f-catwrap') && !!$('vl-f-cat'));
+
+  // The category question must be hideable -- a vendor that already has
+  // one should never be asked again, which is the whole point.
+  checkTrue('the category box starts hidden',
+    /id="vl-f-catwrap" style="display:none"/.test(src));
+  checkTrue('and is only shown when the vendor has none',
+    /if \(self\.vl_vendor_category\)[\s\S]{0,80}display = 'none'/.test(src));
+
+  // Remove must go through the server's decision, never decide locally
+  // whether something is deleted or voided.
+  checkTrue('every line offers Remove',
+    /data-act="remove"/.test(src));
+  checkTrue('and Remove asks the server, which picks delete or void',
+    /action: 'delete', kind: kind, id: id/.test(src));
+
+  console.log('\nPrinting checks');
+  let payThrew = null;
+  try { APP.switchTab('pay'); } catch (e) { payThrew = e; }
+  checkTrue('the Pay screen still opens', !payThrew, payThrew && payThrew.message);
+  checkTrue('there is somewhere to print from', !!$('print-card'));
+  checkTrue('a place to say which check is in the printer', !!$('print-start'));
+  checkTrue('and to nudge the alignment', !!$('print-dx') && !!$('print-dy'));
+  checkTrue('a sheet layer to print into', !!$('check-sheets'));
+
+  // The printable layer must be hidden on screen and the only thing
+  // visible on paper. Getting this backwards prints the whole app.
+  checkTrue('the sheets are hidden on screen',
+    /#check-sheets\s*\{\s*display:\s*none/.test(src));
+  checkTrue('and everything else is hidden on paper',
+    /@media print[\s\S]{0,200}body > \*:not\(#check-sheets\)/.test(src));
+  checkTrue('the page is letter size with no margin',
+    /@page\s*\{\s*size:\s*letter portrait;\s*margin:\s*0/.test(src));
+
+  // Positions are in inches, and the nudge is added to every one of
+  // them -- a layout where the offset only reached some fields would be
+  // worse than none.
+  checkTrue('every field is placed through the nudge helper',
+    (src.match(/this\.at\(L\./g) || []).length >= 6);
+  checkTrue('the nudge is added to both axes',
+    /left:'\s*\+\s*\(spot\.x \+ n\.x\)/.test(src)
+    && /top:'\s*\+\s*\(spot\.y \+ n\.y/.test(src));
+
+  console.log('\nThe Reconcile screen');
+  // The work that makes every other screen truer: matching the bank,
+  // and the two facts about a vendor nothing can infer. Each tested for
+  // the thing that would make it useless -- a tab with no panel, a
+  // button with nothing behind it, a list with nowhere to draw into.
+  checkTrue('there is a tab for it', !!win.document.querySelector('[data-tab="reconcile"]'));
+  checkTrue('and a panel behind the tab', !!$('reconcile-tab'));
+  let recThrew = null;
+  try { APP.switchTab('reconcile'); } catch (e) { recThrew = e; }
+  checkTrue('opening it does not throw', !recThrew, recThrew && recThrew.message);
+  checkTrue('it is the screen now showing',
+    $('reconcile-tab').className.indexOf('active') > -1);
+  checkTrue('somewhere to start the match', !!$('rec-preview'));
+  checkTrue('somewhere to put the tally', !!$('rec-tally'));
+  checkTrue('somewhere to say what went wrong', !!$('rec-msg'));
+  checkTrue('a place for disagreements', !!$('rec-problems'));
+  checkTrue('a place to name unknown lines', !!$('rec-unknowns'));
+  checkTrue('a place for vendors with no category', !!$('rec-cats'));
+  checkTrue('a place for vendors with no terms', !!$('rec-terms'));
+  checkTrue('a place for the 1099s', !!$('rec-1099'));
+  checkTrue('and somewhere for things already waiting on him', !!$('rec-attn'));
+
+  // The preview button must not write. This is the one that touches 2,660
+  // rows of real books, so the default has to be "show me".
+  checkTrue('preview asks for a preview, not an apply',
+    /action:\s*apply\s*\?\s*'apply'\s*:\s*'preview'/.test(src)
+    || /apply\s*\?\s*'apply'\s*:\s*'preview'/.test(src));
+  checkTrue('and the screen opens without having applied anything',
+    !!$('rec-tally') && $('rec-tally').innerHTML.indexOf('Apply this') === -1);
+
   console.log('\nThe bank connection card');
   const bankSrc = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   checkTrue('the card is on the Money screen', !!$('bank-link-card'));

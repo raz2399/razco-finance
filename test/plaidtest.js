@@ -20,6 +20,10 @@ require.cache.MOCK_SB11 = {
 process.env.SUPABASE_URL = 'https://example.supabase.co';
 process.env.SUPABASE_SERVICE_KEY = 'test';
 
+// The sync moved into a library so the scheduled function and the
+// "Read the bank now" button can share it. plaid-sync.js still
+// re-exports these, and the test goes through that door on purpose:
+// if the re-export ever breaks, the scheduled run breaks with it.
 const { toLedgerAmount, toRow } = require(path.join(__dirname, '..', 'functions', 'plaid-sync.js'));
 
 let pass = 0, fail = 0;
@@ -140,6 +144,151 @@ checkTrue('disconnect tells Plaid as well as forgetting it here',
   LINK.indexOf('/item/remove') > -1);
 
 function money(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+
+// ---- sandbox must never reach his real figures -----------------------
+//
+// Plaid's sandbox connects to invented banks with invented balances. The
+// sync writes the balance straight onto bank_accounts and marks checks
+// cleared. Unguarded, setting the connection up in sandbox would have put
+// a made-up number over the real Bank of the Sierra balance and told him
+// checks had cleared that never did -- on screen, looking like the truth.
+(function () {
+  const fs2 = require('fs');
+  const path2 = require('path');
+  // Reads the library, which is where every write now lives.
+  const src = fs2.readFileSync(
+    path2.join(__dirname, '..', 'functions', 'lib', 'banksync.js'), 'utf8');
+
+  console.log('\nOnly production is real money');
+  checkTrue('there is a live flag, and production is what sets it',
+    /const LIVE = PLAID_ENV === 'production'/.test(src));
+
+  // Every write that touches a figure he reads has to sit behind it.
+  // Every occurrence, and judged by the function it sits in rather than by
+  // how many characters away the nearest guard happens to be. A fixed
+  // lookback window both missed two unguarded deletes and then flagged a
+  // write that was perfectly safe inside a function returning early.
+  const enclosing = (at) => {
+    const head = src.lastIndexOf('\nasync function ', at);
+    const head2 = src.lastIndexOf('\nfunction ', at);
+    const from = Math.max(head, head2);
+    if (from < 0) return '';
+    let to = src.indexOf('\n}', at);
+    if (to < 0) to = src.length;
+    return src.slice(from, to);
+  };
+
+  const guardedWrite = (table) => {
+    const needle = "from('" + table + "')";
+    let at = src.indexOf(needle);
+    if (at < 0) return 'no write to ' + table + ' at all';
+    while (at > -1) {
+      const stmtEnd = src.indexOf(';', at);
+      const stmt = src.slice(at, stmtEnd < 0 ? at + 300 : stmtEnd);
+      const op = (stmt.match(/\.(upsert|insert|update|delete)\(/) || [null])[0];
+      if (op) {
+        const body = enclosing(at);
+        // Is this statement inside an `if (LIVE)` BLOCK -- not "is there
+        // an `if (LIVE)` within 500 characters". Those are different
+        // questions, and the second one has now been wrong twice: once
+        // flagging a write that was perfectly safe, and once here, where
+        // a comment explaining the guard grew long enough to push the
+        // guard itself out of the window.
+        //
+        // Walked by braces instead: step back from the statement, find
+        // each enclosing `{`, and look at what opened it.
+        const wrapped = (function () {
+          let depth = 0;
+          for (let i = at; i >= 0; i--) {
+            const c = src[i];
+            if (c === '}') depth += 1;
+            else if (c === '{') {
+              if (depth === 0) {
+                // The head of this block: everything on the line or two
+                // before the brace that opened it.
+                const head = src.slice(Math.max(0, i - 120), i);
+                if (/if\s*\(\s*LIVE[^)]*\)\s*$/.test(head)) return true;
+                if (/if\s*\(\s*LIVE\s*&&[^)]*\)\s*$/.test(head)) return true;
+              } else depth -= 1;
+            }
+          }
+          return false;
+        })();
+        const earlyReturn = /if \(!LIVE\)\s*return/.test(body);
+        if (!wrapped && !earlyReturn) {
+          return 'unguarded ' + op + ' on ' + table;
+        }
+      }
+      at = src.indexOf(needle, at + 1);
+    }
+    return true;
+  };
+
+  checkTrue('the balance is only written on a live connection',
+    guardedWrite('bank_accounts') === true, String(guardedWrite('bank_accounts')));
+  checkTrue('transactions are only saved on a live connection',
+    guardedWrite('bank_transactions') === true, String(guardedWrite('bank_transactions')));
+  checkTrue('and checks are only cleared on a live connection',
+    /if \(!LIVE\) return \{ cleared: \[\]/.test(src));
+
+  // And he has to be told, every time, not just in a log somewhere.
+  checkTrue('every reply says which environment it is',
+    /environment: PLAID_ENV/.test(src) && /live: LIVE/.test(src));
+  checkTrue('and a test run says so in plain words',
+    /TEST CONNECTION/.test(src) && /invented/.test(src));
+  checkTrue('and says nothing was saved',
+    /Nothing was saved/.test(src));
+}());
+
+
+// ---- every column it writes has to be a real one --------------------
+//
+// The sync wrote a column called `memo` that does not exist on
+// bank_transactions. It never failed, because the sandbox guard skipped
+// every write -- so the bug sat there until the morning the connection
+// went live, and then took the entire first read of the real bank down
+// with it: "Could not find the 'memo' column in the schema cache".
+//
+// A mock that accepts any object would never have caught it. This pins
+// the real column list, copied from the live schema, the same way
+// entrytest pins the real check constraints.
+(function () {
+  const BANK_TXN_COLUMNS = [
+    'bank_txn_id', 'account_id', 'store_id', 'posted_date', 'description',
+    'amount', 'running_balance', 'txn_type', 'check_number', 'import_batch',
+    'import_hash', 'match_status', 'matched_type', 'matched_id', 'created_at',
+    'plaid_transaction_id', 'plaid_pending_id', 'is_pending',
+    'kind', 'code', 'vendor_id', 'category_id', 'matched_at', 'match_note',
+    'merchant_name',
+  ];
+
+  console.log('\nEvery column the sync writes exists on the table');
+
+  const row = toRow({
+    transaction_id: 'txn-1',
+    name: 'BBUSA      BIMBO BAKERIES WEB RAZ  *ALI',
+    merchant_name: 'Bimbo Bakeries',
+    amount: 149.12,
+    date: '2026-10-30',
+    pending: false,
+    check_number: '9887',
+  }, 'store1', 'acct-1');
+
+  const unknown = Object.keys(row).filter((k) => BANK_TXN_COLUMNS.indexOf(k) === -1);
+  checkTrue('no invented columns', unknown.length === 0,
+    'writes ' + unknown.join(', ') + ' which bank_transactions does not have');
+
+  // And the clean name is actually kept -- the fix was a column, not a
+  // deletion, because the matcher wants that string.
+  check('the raw bank string is the description',
+    row.description, 'BBUSA      BIMBO BAKERIES WEB RAZ  *ALI');
+  check('and the clean merchant name is kept beside it',
+    row.merchant_name, 'Bimbo Bakeries');
+  checkTrue('a transaction with no merchant name is allowed',
+    toRow({ transaction_id: 't', name: 'CHECK 1', amount: 1, date: '2026-10-30' },
+          's', 'a').merchant_name === null);
+})();
+
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

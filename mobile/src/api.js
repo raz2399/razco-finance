@@ -142,7 +142,13 @@ async function call(path, options = {}, retrying = false) {
   }
 
   if (!res.ok || (data && data.error)) {
-    throw new Error((data && data.error) || `The server returned ${res.status}.`);
+    const err = new Error((data && data.error) || `The server returned ${res.status}.`);
+    // The body comes along with the failure. A reading that went wrong
+    // still says which photograph it was -- and that is the photograph
+    // most worth keeping hold of, because the figures now get typed by
+    // hand and the picture is the only proof of what they came from.
+    err.data = data;
+    throw err;
   }
   return data;
 }
@@ -188,6 +194,17 @@ export const saveInvoice = (invoice) =>
   });
 
 export const getChecks = () => call('/checks');
+
+// The photograph behind a ledger line.
+//
+// A fresh link every time, good for an hour. The bucket is private and
+// nothing holds a lasting address for an invoice, so there is nothing to
+// cache and nothing to leak in a screenshot of this app.
+export const getPaperLink = async (entityId) => {
+  const d = await call('/scans?entity_id=' + encodeURIComponent(entityId));
+  const scan = d && d.scans && d.scans[0];
+  return scan && scan.url ? scan.url : null;
+};
 
 // What the system currently believes, and the history of every correction.
 export const getCorrections = () => call('/correct');

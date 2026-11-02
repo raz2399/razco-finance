@@ -49,6 +49,10 @@ const blank = (over) => Object.assign({
   terms: 'net30',
   checkNo: '',
   thumb: null,
+  // Which saved photograph this draft came off. The thumb above is the
+  // phone's own copy and goes away when the app closes; this is the one
+  // on file, and it is what gets tied to the invoice when it saves.
+  scanId: null,
   notes: [],
   tone: null,
   vendorKnown: false,
@@ -129,7 +133,10 @@ export default function DeliveryScreen({ onDone, onCancel }) {
       if (known) notes.push(res.vendor.name + ' is on file. Terms already set.');
       else if (d.terms_text) notes.push('Invoice says terms are “' + d.terms_text + '”.');
 
+      if (res.scan_kept === false && res.scan_note) notes.push(res.scan_note);
+
       update(placeholder.id, {
+        scanId: res.scan_id || null,
         vendor: d.vendor_name || '',
         invoiceNo: d.invoice_number || '',
         amount: d.total === null || d.total === undefined ? '' : String(d.total),
@@ -141,7 +148,14 @@ export default function DeliveryScreen({ onDone, onCancel }) {
         open: res.needs_eyes || missed.length > 0,
       });
     } catch (e) {
-      update(placeholder.id, { tone: 'bad', notes: [e.message], open: true });
+      // The reading failed. The photograph is still on file -- the server
+      // puts it away before it reads anything -- so the draft keeps hold
+      // of it, and typing the figures in by hand still ends up with the
+      // picture attached to the invoice.
+      const kept = e.data && e.data.scan_id ? e.data.scan_id : null;
+      const notes = [e.message];
+      if (kept) notes.push('The photo is saved. Type what it says and it stays with the invoice.');
+      update(placeholder.id, { scanId: kept, tone: 'bad', notes: notes, open: true });
     }
   }
 
@@ -197,6 +211,9 @@ export default function DeliveryScreen({ onDone, onCancel }) {
           pay_method: d.method,
           terms_code: d.method === 'cod' || d.method === 'cod_draft' ? 'cod' : d.terms,
           check_number: d.method === 'cod' ? String(d.checkNo).trim() : null,
+          // The photograph it came off, so a year from now the invoice
+          // can be looked at rather than taken on trust.
+          scan_id: d.scanId || undefined,
         });
         update(d.id, { status: 'saved', open: false });
         ok += 1;

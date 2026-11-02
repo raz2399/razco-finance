@@ -15,6 +15,25 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { requireUser, safely } = require('./lib/guard');
+const { judge } = require('./lib/readcheck');
+const { matchVendor } = require('./lib/bankrules');
+const { keep, noteReading } = require('./lib/keepscan');
+
+// Used when quoting an amount back to him. Referenced before it existed
+// once already in this repo -- "json is not defined" -- and the cost was
+// a crash the moment the line ran, which is exactly the line that only
+// runs when something has gone wrong.
+const money = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+// Every reply carries what happened to the photograph -- including the
+// failures. A reply that is silent about it lets him believe a copy was
+// made when none was, which is worse than no copy at all.
+const withScan = (held, body) => Object.assign({
+  scan_id: held && held.kept ? held.scan_id : null,
+  scan_kept: !!(held && held.kept),
+  scan_note: held && held.kept ? null
+    : 'The photo itself could not be saved' + (held && held.why ? ': ' + held.why : '.'),
+}, body);
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -59,15 +78,17 @@ Rules:
 - Dates: if the year is not shown, use null rather than assuming.
 - Numbers: digits only, no currency symbols, no thousands separators.`,
 
-  check: `You are reading a photograph of a business check, or its stub, that
-the store has written to a vendor.
+  check: `You are reading a photograph of a business check, or its stub,
+that the store has written to a vendor.
 
 Return ONLY a JSON object, no markdown, no commentary:
 
 {
+  "is_stub": boolean,
   "check_number": string | null,
   "payee": string | null,
-  "amount": number | null,
+  "amount_numeric": number | null,
+  "amount_written": string | null,
   "check_date": "YYYY-MM-DD" | null,
   "memo": string | null,
   "handwritten": boolean,
@@ -75,14 +96,19 @@ Return ONLY a JSON object, no markdown, no commentary:
 }
 
 Rules:
-- "amount" is the figure the check is written for. If the numeric box and the
-  written line disagree, report null and say so in "unreadable" — a check
-  whose two amounts differ is a problem a person must look at.
+- "amount_numeric" is what the numeric box says. "amount_written" is the
+  words on the long line, copied as you read them, e.g. "One Thousand Two
+  Hundred Thirty-Four and 50/100". Report each one from what you can
+  actually see and DO NOT make them agree. If only one is present --
+  a stub usually has only the figure -- the other is null.
+- Do not decide whether the two amounts match. Report both and let the
+  system compare them.
+- "is_stub" is true when this is a carbon copy, register page or stub
+  rather than the check itself.
 - Set "handwritten" true if the amount or payee is handwritten rather than
-  printed, because handwriting is read less reliably and the person should
-  check it.
+  printed.
 - Never guess at a digit. A wrong check number means the bank match goes to
-  the wrong check later.
+  the wrong check later. Put anything you could not read in "unreadable".
 - Numbers: digits only, no currency symbols, no thousands separators.`,
 
   statement: `You are reading a photograph or scan of a bank statement page.
@@ -140,6 +166,21 @@ exports.handler = safely('invoice-extract', async (event) => {
     return json(413, { error: 'That photo is too large. Take it again at normal quality.' });
   }
 
+  // The photograph is put away BEFORE it is read.
+  //
+  // After would lose exactly the ones worth keeping: a photo whose
+  // reading failed has no figures left, so the picture is all there is.
+  // If keeping it fails the reading still goes ahead -- a read photo
+  // beats nothing -- and the reply says plainly that no copy was made
+  // rather than letting him believe there is one.
+  const held = await keep(supabase, {
+    store_id: store_id,
+    base64: base64_image,
+    mime_type: mime_type,
+    kind: kind,
+    taken_by: auth.user && auth.user.email ? auth.user.email : null,
+  });
+
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -163,10 +204,11 @@ exports.handler = safely('invoice-extract', async (event) => {
 
     if (!res.ok) {
       const detail = await res.text();
-      return json(502, {
-        error: 'Could not read the photo right now.',
+      return json(502, withScan(held, {
+        error: 'Could not read the photo right now.'
+          + (held.kept ? ' The photo itself has been saved.' : ''),
         detail: detail.slice(0, 300),
-      });
+      }));
     }
 
     const payload = await res.json();
@@ -178,9 +220,19 @@ exports.handler = safely('invoice-extract', async (event) => {
       data = JSON.parse(text);
     } catch (e) {
       const m = text.match(/\{[\s\S]*\}/);
-      if (!m) return json(502, { error: 'The photo could not be turned into invoice fields.' });
+      if (!m) {
+        return json(502, withScan(held, {
+          error: 'The photo could not be turned into invoice fields.'
+            + (held.kept ? ' The photo itself has been saved.' : ''),
+        }));
+      }
       try { data = JSON.parse(m[0]); }
-      catch (e2) { return json(502, { error: 'The photo could not be turned into invoice fields.' }); }
+      catch (e2) {
+        return json(502, withScan(held, {
+          error: 'The photo could not be turned into invoice fields.'
+            + (held.kept ? ' The photo itself has been saved.' : ''),
+        }));
+      }
     }
 
     const num = (v) => {
@@ -193,15 +245,47 @@ exports.handler = safely('invoice-extract', async (event) => {
 
     // ---------------- a check the store wrote ----------------
     if (kind === 'check') {
+      const verdict = judge({
+        amount_numeric: num(data.amount_numeric),
+        amount_written: data.amount_written || null,
+        is_stub: data.is_stub === true,
+        handwritten: data.handwritten === true,
+      });
+
       const draft = {
         check_number: data.check_number ? String(data.check_number).replace(/\D/g, '') || null : null,
         payee: data.payee || null,
-        amount: num(data.amount),
+        // Only filled in when the paper vouched for it. A conflict
+        // leaves this null on purpose: a figure on screen is a figure
+        // somebody will save without looking.
+        amount: verdict.amount,
+        amount_numeric: verdict.numeric === undefined ? null : verdict.numeric,
+        amount_written: verdict.written || null,
         check_date: isoDate(data.check_date),
         memo: data.memo || null,
+        is_stub: data.is_stub === true,
         handwritten: data.handwritten === true,
+        trust: verdict.trust,
         unreadable: notes,
       };
+
+      verdict.why.forEach((w) => notes.push(w));
+
+      // Who it was to, against the vendors actually on file. The payee
+      // on a check is written by hand or printed from another system, so
+      // it rarely matches a vendor name exactly.
+      let vendor = null;
+      if (draft.payee) {
+        const vres = await supabase.from('vendors')
+          .select('vendor_id, name, dba')
+          .eq('store_id', store_id).eq('active', true);
+        const list = (vres.data || []).map((v) => ({
+          vendor_id: v.vendor_id, name: v.name, aliases: v.dba ? [v.dba] : [],
+        }));
+        const hit = matchVendor(draft.payee, list);
+        if (hit) vendor = { vendor_id: hit.vendor_id, name: hit.name };
+        else notes.push('No vendor on file matches "' + draft.payee + '".');
+      }
 
       // Is this check already logged? Writing it twice doubles what is out.
       let duplicate = null;
@@ -215,18 +299,29 @@ exports.handler = safely('invoice-extract', async (event) => {
           .neq('status', 'void')
           .limit(1);
         duplicate = (d.data || [])[0] || null;
+        if (duplicate) {
+          notes.push('Check ' + draft.check_number + ' is already logged for $'
+            + money(duplicate.amount).toFixed(2) + '.');
+        }
       }
 
-      if (draft.handwritten) {
-        notes.push('The amount is handwritten. Check it against the check before saving.');
-      }
-
-      return json(200, {
-        ok: true, kind, draft, duplicate,
-        needs_eyes: draft.amount === null || draft.check_number === null ||
-                    notes.length > 0 || !!duplicate,
+      await noteReading(supabase, held.scan_id, data);
+      return json(200, withScan(held, {
+        ok: true,
+        kind: kind,
+        draft: draft,
+        vendor: vendor,
+        duplicate: duplicate,
+        trust: verdict.trust,
+        // Verified means the paper said the amount twice and both agree.
+        // Everything else a person confirms before it is saved.
+        needs_eyes: verdict.trust !== 'verified'
+          || draft.check_number === null
+          || !vendor
+          || !!duplicate,
+        why: notes,
         model: MODEL,
-      });
+      }));
     }
 
     // ---------------- a page of a bank statement ----------------
@@ -247,7 +342,8 @@ exports.handler = safely('invoice-extract', async (event) => {
                    ' could not be read well enough to use.');
       }
 
-      return json(200, {
+      await noteReading(supabase, held.scan_id, data);
+      return json(200, withScan(held, {
         ok: true, kind,
         draft: {
           account_last_four: data.account_last_four || null,
@@ -263,7 +359,7 @@ exports.handler = safely('invoice-extract', async (event) => {
           ? 'That is a lot of lines from a photograph. Import the CSV instead so nothing is missed.'
           : null,
         model: MODEL,
-      });
+      }));
     }
 
     // ---------------- a vendor invoice ----------------
@@ -318,7 +414,8 @@ exports.handler = safely('invoice-extract', async (event) => {
       duplicate = (d.data || [])[0] || null;
     }
 
-    return json(200, {
+    await noteReading(supabase, held.scan_id, data);
+    return json(200, withScan(held, {
       ok: true,
       kind,
       draft,
@@ -333,7 +430,7 @@ exports.handler = safely('invoice-extract', async (event) => {
       duplicate,
       needs_eyes: draft.total === null || notes.length > 0 || !!duplicate,
       model: MODEL,
-    });
+    }));
   } catch (err) {
     return json(500, { error: err.message, where: 'invoice-extract' });
   }

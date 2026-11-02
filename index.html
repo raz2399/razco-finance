@@ -192,6 +192,40 @@
       font-size: 12px;
     }
 
+
+    /* ---- printing checks onto pre-printed stock --------------------
+       Only the variable part is printed. The MICR line along the bottom
+       -- routing, account, check number in magnetic ink -- is already on
+       the paper, which is why no magnetic toner or exact font is needed
+       and why the bank will accept the result.
+
+       Everything is positioned in inches from the top-left of the sheet,
+       because that is how check stock is specified and how a printer
+       thinks. The two offsets are added to every position so a printer
+       that feeds a few millimetres out can be corrected once instead of
+       the layout being redrawn. */
+    #check-sheets { display: none; }
+    @media print {
+      body > *:not(#check-sheets) { display: none !important; }
+      #check-sheets { display: block !important; }
+      @page { size: letter portrait; margin: 0; }
+      html, body { margin: 0; padding: 0; background: #fff; }
+    }
+    .rn-checkpage {
+      position: relative;
+      width: 8.5in; height: 11in;
+      page-break-after: always;
+      font-family: "Courier New", Courier, monospace;
+      color: #000;
+      overflow: hidden;
+    }
+    .rn-checkpage:last-child { page-break-after: auto; }
+    .rn-cf { position: absolute; white-space: pre; font-size: 11pt; }
+    .rn-cf.big { font-size: 12pt; }
+    /* The written amount is the legal one, so it is the clearest thing
+       on the page. */
+    .rn-cf.words { font-size: 11.5pt; letter-spacing: 0.1px; }
+    .rn-stub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 9pt; }
     .tabs {
       display: flex;
       background-color: white;
@@ -770,12 +804,15 @@
     <div class="user-badge" id="user-display">Owner</div>
   </div>
 
+  <div id="check-sheets"></div>
+
   <div class="tabs">
     <button class="tab active" data-tab="home">Today</button>
     <button class="tab" data-tab="receive">Receive</button>
     <button class="tab" data-tab="pay">Pay</button>
     <button class="tab" data-tab="vendors">Vendors</button>
     <button class="tab" data-tab="money">Money</button>
+    <button class="tab" data-tab="reconcile">Reconcile</button>
     <button class="tab" data-tab="week">Week</button>
     <button class="tab" data-tab="settings">Settings</button>
   </div>
@@ -1042,6 +1079,39 @@
           <h2 class="rn-screentitle">Pay</h2>
           <p class="rn-screensub">What is owed, what you write a check for, and what the bank takes on its own.</p>
         </div>
+      <div class="card" id="print-card" style="margin-bottom:16px;display:none">
+        <h3>Print checks</h3>
+        <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+          Onto your pre-printed stock. The system fills in the date, payee, both
+          amounts and the memo; the numbers along the bottom are already on the paper.
+        </p>
+        <div id="print-msg" style="display:none;border-radius:9px;padding:11px 13px;font-size:13px;margin-bottom:12px;line-height:1.5"></div>
+        <div id="print-books" style="font-size:12.5px;color:var(--text-light);line-height:1.6;margin-bottom:12px"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+          <div style="flex:1;min-width:170px">
+            <label style="display:block;font-size:11px;font-weight:700;margin-bottom:5px">FIRST CHECK IN THE PRINTER</label>
+            <input id="print-start" type="text" inputmode="numeric" placeholder="9926">
+          </div>
+          <div style="min-width:110px">
+            <label style="display:block;font-size:11px;font-weight:700;margin-bottom:5px">NUDGE RIGHT (IN)</label>
+            <input id="print-dx" type="text" inputmode="decimal" value="0">
+          </div>
+          <div style="min-width:110px">
+            <label style="display:block;font-size:11px;font-weight:700;margin-bottom:5px">NUDGE DOWN (IN)</label>
+            <input id="print-dy" type="text" inputmode="decimal" value="0">
+          </div>
+        </div>
+        <div id="print-list" class="rn-rows"></div>
+        <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:12px">
+          <button class="rn-big" id="print-go" style="flex:1;min-width:190px">Print the selected checks</button>
+          <button class="btn" id="print-align">Print an alignment page</button>
+        </div>
+        <p style="font-size:11.5px;color:var(--text-light);margin-top:10px;line-height:1.5">
+          Check numbers are only assigned when you press print, and a number that has
+          ever been used before stops the whole run rather than printing some of it.
+        </p>
+      </div>
+
       <div class="card" style="margin-bottom:16px">
         <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:.5px">REAL AVAILABLE CASH</div>
         <div id="chk-cash" style="font-size:32px;font-weight:800;letter-spacing:-1px;margin:4px 0">&mdash;</div>
@@ -1133,6 +1203,42 @@
           <input id="vl-search" type="text" autocomplete="off"
                  placeholder="Type a vendor name — Salters, Sysco, Cargil…"
                  style="width:100%;box-sizing:border-box;font-size:15px;padding:12px">
+          <div style="margin-top:10px">
+            <button class="btn-ghost" id="vl-new" style="width:auto">+ Add a vendor</button>
+          </div>
+          <div id="vl-new-box" style="display:none;border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:12px;background:#fbfcfe">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+              <div style="flex:1;min-width:190px">
+                <label class="lbl">NAME</label>
+                <input id="vl-new-name" type="text" placeholder="Green Valley Produce"
+                       style="font-size:13px;padding:7px;width:100%;box-sizing:border-box">
+              </div>
+              <div>
+                <label class="lbl">WHAT KIND OF COST</label>
+                <select id="vl-new-cat" style="font-size:13px;padding:7px;max-width:200px"></select>
+              </div>
+              <div>
+                <label class="lbl">TERMS</label>
+                <select id="vl-new-terms" style="font-size:13px;padding:7px">
+                  <option value="">Not sure yet</option>
+                  <option value="cod">COD — on delivery</option>
+                  <option value="net7">Net 7</option>
+                  <option value="net10">Net 10</option>
+                  <option value="net15">Net 15</option>
+                  <option value="net21">Net 21</option>
+                  <option value="net30">Net 30</option>
+                  <option value="net45">Net 45</option>
+                  <option value="net60">Net 60</option>
+                  <option value="weekly">Weekly statement</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:13px;align-items:center">
+              <button class="btn" id="vl-new-save" style="width:auto">Add them</button>
+              <button class="btn-ghost" id="vl-new-cancel" style="width:auto">Cancel</button>
+              <span id="vl-new-msg" style="font-size:12.5px"></span>
+            </div>
+          </div>
           <div id="vl-list" style="margin-top:12px"></div>
         </div>
 
@@ -1157,6 +1263,7 @@
             <button class="btn-ghost" id="vl-import" style="width:auto">Import a sheet</button>
             <button class="btn-ghost" id="vl-settle-all" style="width:auto">Already paid — clear it all</button>
             <button class="btn-ghost" id="vl-pay-all" style="width:auto">Pay it all now</button>
+            <button class="btn-ghost" id="vl-remove" style="width:auto;color:#a12025">Remove this vendor</button>
           </div>
 
           <!-- Add a line -->
@@ -1193,6 +1300,13 @@
                   <option value="card">Card</option>
                   <option value="wire">Wire</option>
                 </select>
+              </div>
+              <!-- Asked once per vendor. Once a vendor has a category,
+                   this disappears and every bill from them is filed the
+                   same way without being told again. -->
+              <div id="vl-f-catwrap" style="display:none">
+                <label class="lbl">WHAT KIND OF COST</label>
+                <select id="vl-f-cat" style="font-size:13px;padding:7px;max-width:200px"></select>
               </div>
               <div style="flex:1;min-width:160px">
                 <label class="lbl">NOTE</label>
@@ -1401,6 +1515,94 @@
         <div class="card">
           <h3>Corrections made</h3>
           <div id="fix-log" class="rn-rows"><p style="font-size:13px;color:var(--text-light)">Loading&hellip;</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reconcile: putting the bank and the books next to each other, and
+         filling in the few things the system cannot work out on its own.
+         Everything here is work that makes every other screen truer. -->
+    <div class="tab-content" id="reconcile-tab">
+      <div class="rn-wrap">
+        <div class="rn-screenhead">
+          <h2 class="rn-screentitle">Reconcile</h2>
+          <p class="rn-screensub">Tie the bank to the books, and fill in what only you can know.</p>
+        </div>
+
+        <!-- Raised by the system over time and, until now, read by nobody.
+             Sits above everything else here because it is the only part of
+             this screen that is already waiting for him. -->
+        <div class="card" id="rec-attn-card" style="display:none">
+          <h3>Needs you</h3>
+          <div id="rec-attn" class="rn-rows"></div>
+        </div>
+
+        <!-- Appears only when the imported statement and the bank
+             connection both hold the same transactions. -->
+        <div class="card" id="rec-dupe-card" style="display:none">
+          <h3>The same transactions, twice</h3>
+          <div id="rec-dupe" style="font-size:13px;line-height:1.55"></div>
+        </div>
+
+        <div class="card">
+          <h3>Match the bank to the books</h3>
+          <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+            Every line on the bank, against every check and bill on file. Nothing is
+            changed until you say so.
+          </p>
+          <div id="rec-actions">
+            <button class="rn-big" id="rec-preview">Look at what would match</button>
+          </div>
+          <div id="rec-msg" style="display:none;border-radius:9px;padding:11px 13px;font-size:13px;margin-top:12px;line-height:1.5"></div>
+          <div id="rec-tally" style="margin-top:14px"></div>
+        </div>
+
+        <div class="card" id="rec-problem-card" style="display:none">
+          <h3>Worth your attention</h3>
+          <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+            Where the bank and the books disagree about something they both claim to know.
+          </p>
+          <div id="rec-problems" class="rn-rows"></div>
+        </div>
+
+        <div class="card" id="rec-name-card" style="display:none">
+          <h3>Name these</h3>
+          <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+            Lines the system does not recognise, grouped by what the bank calls them.
+            Name one and every line like it is named, including ones that have not
+            arrived yet.
+          </p>
+          <div id="rec-unknowns" class="rn-rows"></div>
+        </div>
+
+        <div class="card">
+          <h3>Vendors with no category</h3>
+          <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+            Until a vendor has one, its bills are money out with nowhere to sit, and the
+            profit figure is sales minus a lump. Set it once and every future bill from
+            them codes itself.
+          </p>
+          <div id="rec-cats" class="rn-rows"><p style="font-size:13px;color:var(--text-light)">Loading&hellip;</p></div>
+        </div>
+
+        <div class="card">
+          <h3>Vendors with no terms</h3>
+          <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+            Without terms there is no due date, and a bill with no due date cannot be in
+            &ldquo;due this week&rdquo;. These are listed by how much money is sitting on
+            them, so the first few are worth the most.
+          </p>
+          <div id="rec-terms" class="rn-rows"><p style="font-size:13px;color:var(--text-light)">Loading&hellip;</p></div>
+        </div>
+
+        <div class="card">
+          <h3>1099s <span id="rec-1099-due" style="font-weight:600;font-size:12px;color:var(--text-light)"></span></h3>
+          <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+            Anyone paid $600 or more for work during the year, by check, ACH, cash or
+            wire. Goods are not counted and nor is anything paid by card &mdash; the card
+            network reports those itself.
+          </p>
+          <div id="rec-1099" class="rn-rows"><p style="font-size:13px;color:var(--text-light)">Loading&hellip;</p></div>
         </div>
       </div>
     </div>
@@ -1728,9 +1930,23 @@ var APP = {
     // Each screen is several of the old ones, so each loads all its parts.
     if (tabName === 'home') this.loadHome();
     if (tabName === 'receive') this.loadInvoices();
-    if (tabName === 'pay') { this.loadChecks(); this.loadAPCalendar(); this.loadInvoices(); }
+    if (tabName === 'pay') {
+      this.loadChecks(); this.loadAPCalendar(); this.loadInvoices();
+      this.loadPrintChecks();
+      var pay = this;
+      this.bind2('print-go', function() { pay.printChecks(); });
+      this.bind2('print-align', function() { pay.printAlignment(); });
+    }
     if (tabName === 'vendors') this.loadVendorList();
     if (tabName === 'money') { this.loadCashPosition(); this.loadCorrections(); this.loadBankLink(); }
+    if (tabName === 'reconcile') {
+      var rec = this;
+      this.bind2('rec-preview', function() { rec.recRun(false); });
+      this.loadAttention();
+      this.loadDupes();
+      this.loadRecCategories();
+      this.load1099();
+    }
     if (tabName === 'week') { this.loadPL(); this.loadSales(); this.loadClose(); }
     if (tabName === 'home') this.loadHome();
   },
@@ -1755,6 +1971,900 @@ var APP = {
   todayISO: function() {
     var d = new Date(), p = function(n) { return n < 10 ? '0' + n : '' + n; };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  },
+
+  // ---------- adding and removing ----------
+
+  // The category list is needed on the Vendors screen as well as on
+  // Reconcile, so it is fetched once and kept.
+  ensureCategories: function(then) {
+    var self = this;
+    if (this.rec_categories && this.rec_categories.length) { if (then) then(); return; }
+    this.get('/vendor-setup', function(status, d) {
+      if (status === 200 && d && d.categories) self.rec_categories = d.categories;
+      if (then) then();
+    });
+  },
+
+  newVendorMsg: function(kind, text) {
+    var m = document.getElementById('vl-new-msg');
+    if (!m) return;
+    m.style.color = kind === 'ok' ? '#176b33' : 'var(--danger, #a12025)';
+    m.innerHTML = text;
+  },
+
+  saveNewVendor: function(anyway) {
+    var self = this;
+    var name = document.getElementById('vl-new-name');
+    var cat = document.getElementById('vl-new-cat');
+    var terms = document.getElementById('vl-new-terms');
+    if (!name || !String(name.value).trim()) {
+      this.newVendorMsg('bad', 'What are they called?');
+      return;
+    }
+    var body = {
+      store_id: this.store_id,
+      action: 'create',
+      name: String(name.value).trim(),
+      anyway: anyway === true
+    };
+    if (cat && cat.value) body.default_category_id = Number(cat.value);
+    if (terms && terms.value) body.terms_code = terms.value;
+
+    this.newVendorMsg('ok', 'Adding\u2026');
+    this.post('/vendor-setup', body, function(status, d) {
+      if (status === 409 && d && d.vendor_id) {
+        // The same supplier spelled differently. Offered rather than
+        // blocked, because sometimes there really are two.
+        self.newVendorMsg('bad', self.escHtml(d.error) +
+          ' <button class="btn-ghost" id="vl-new-anyway" style="width:auto;display:inline-block;margin-left:6px">Add it anyway</button>');
+        self.bind2('vl-new-anyway', function() { self.saveNewVendor(true); });
+        return;
+      }
+      if (status !== 200 || !d || d.error) {
+        self.newVendorMsg('bad', (d && d.error) ? self.escHtml(d.error) : 'Could not add them.');
+        return;
+      }
+      self.newVendorMsg('ok', self.escHtml(d.message));
+      name.value = '';
+      document.getElementById('vl-new-box').style.display = 'none';
+      self.searchVendors('');
+      if (d.vendor && d.vendor.vendor_id) self.openVendor(d.vendor.vendor_id);
+    });
+  },
+
+  removeVendor: function() {
+    var self = this;
+    if (!this.vl_vendor) return;
+    var name = document.getElementById('vl-name');
+    var who = name ? name.textContent : 'this vendor';
+    if (!window.confirm('Remove ' + who + '?\n\nIf they have bills or checks against '
+        + 'them they are switched off instead, so nothing already on the books loses '
+        + 'its payee.')) return;
+
+    this.post('/vendor-setup', {
+      store_id: this.store_id, action: 'remove', vendor_id: this.vl_vendor
+    }, function(status, d) {
+      if (status !== 200 || !d || d.error) {
+        window.alert((d && d.error) || 'Could not remove them.');
+        return;
+      }
+      window.alert(d.message);
+      self.showVendorList();
+      self.searchVendors('');
+    });
+  },
+
+  // Delete or void, decided by what the line has touched rather than by
+  // which button was pressed. The screen says which happened.
+  // Open the photograph of a line.
+  //
+  // The tab is opened on the click itself, before anything is asked of
+  // the server. Opening it afterwards, when the link comes back, is the
+  // thing every browser treats as a pop-up and blocks -- and the way
+  // that fails is silently, so he presses the button and decides the
+  // feature does not work.
+  //
+  // The link is asked for fresh every time and lasts an hour. Nothing on
+  // this page holds a lasting address for an invoice.
+  openPaper: function(id, btn) {
+    var self = this;
+    var label = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Opening&hellip;'; }
+
+    var tab = window.open('', '_blank');
+    if (tab && tab.document) {
+      tab.document.write('<title>The paper</title>' +
+        '<body style="font:15px -apple-system,system-ui,sans-serif;' +
+        'padding:28px;color:#333">Fetching the photo&hellip;</body>');
+    }
+
+    function done() { if (btn) { btn.disabled = false; btn.innerHTML = label; } }
+
+    this.get('/scans?entity_id=' + encodeURIComponent(id), function(status, d) {
+      done();
+      var scan = d && d.scans && d.scans[0];
+      if (status !== 200 || !scan || !scan.url) {
+        var why = (d && d.error) ? d.error
+          : !scan ? 'There is no photo on file for this line.'
+          : 'The photo is on file but could not be opened just now.';
+        if (tab && tab.document) {
+          tab.document.body.innerHTML = '<b>' + self.escHtml(why) + '</b>';
+        } else {
+          window.alert(why);
+        }
+        return;
+      }
+      if (tab) tab.location.href = scan.url;
+      else window.location.href = scan.url;
+    });
+  },
+
+  removeLine: function(kind, id) {
+    var self = this;
+    if (!window.confirm('Remove this ' + kind + '?')) return;
+    this.post('/vendor-entry', {
+      store_id: this.store_id, action: 'delete', kind: kind, id: id
+    }, function(status, d) {
+      if (status !== 200 || !d || d.error) {
+        window.alert((d && d.error) || 'Could not remove it.');
+        return;
+      }
+      window.alert(d.says);
+      self.openVendor(self.vl_vendor);
+    });
+  },
+
+  // ---------- printing checks ----------
+  //
+  // The geometry of a voucher check: 8.5 x 11, check on the top third,
+  // two stubs below. Positions are inches from the top-left of the
+  // sheet, which is how check stock is specified. They are close to
+  // where QuickBooks puts things, and the two nudge fields exist
+  // because no two printers feed paper identically -- without somewhere
+  // to correct it once, printed checks land a few millimetres out and
+  // the whole feature is useless.
+  CHECK_LAYOUT: {
+    date:    { x: 6.45, y: 0.95 },
+    payee:   { x: 0.95, y: 1.42 },
+    figures: { x: 6.75, y: 1.40 },
+    words:   { x: 0.52, y: 1.80 },
+    address: { x: 0.95, y: 2.08 },
+    memo:    { x: 0.62, y: 2.92 },
+    // The stubs repeat the detail so the paper filed away says what the
+    // check was for.
+    stub1:   { x: 0.60, y: 4.30 },
+    stub2:   { x: 0.60, y: 7.90 }
+  },
+
+  printMsg: function(kind, text) {
+    var box = document.getElementById('print-msg');
+    if (!box) return;
+    var good = kind === 'ok';
+    box.style.display = 'block';
+    box.style.background = good ? '#eef9f1' : '#fdf1f1';
+    box.style.border = '1px solid ' + (good ? '#bfe4ca' : '#f3c9ca');
+    box.style.color = good ? '#176b33' : '#a12025';
+    box.innerHTML = text;
+  },
+
+  loadPrintChecks: function() {
+    var self = this;
+    this.get('/check-print', function(status, d) {
+      var card = document.getElementById('print-card');
+      var list = document.getElementById('print-list');
+      var books = document.getElementById('print-books');
+      if (!card || !list) return;
+      if (status !== 200 || !d || d.error) { card.style.display = 'none'; return; }
+
+      self.print_data = d;
+      card.style.display = 'block';
+
+      if (books) {
+        var h = '';
+        if (d.books && d.books.length) {
+          h += 'Checkbooks seen: ';
+          var bits = [];
+          for (var i = 0; i < d.books.length && i < 4; i++) {
+            var b = d.books[i];
+            bits.push(b.series + 's &mdash; last used ' + self.escHtml(b.last_used || '?') +
+                      ', ' + b.left_in_book + ' left');
+          }
+          h += bits.join(' &middot; ');
+        }
+        if (d.nearly_out && d.nearly_out.length) {
+          h += '<div style="color:#a12025;font-weight:700;margin-top:6px">' +
+               'The ' + d.nearly_out[0].series + ' book has only ' +
+               d.nearly_out[0].left_in_book + ' left.</div>';
+        }
+        books.innerHTML = h;
+      }
+
+      var start = document.getElementById('print-start');
+      if (start && !start.value && d.suggested_next) start.value = d.suggested_next;
+      var dx = document.getElementById('print-dx');
+      var dy = document.getElementById('print-dy');
+      if (dx && d.account) dx.value = d.account.offset_x;
+      if (dy && d.account) dy.value = d.account.offset_y;
+
+      var rows = d.waiting || [];
+      if (!rows.length) {
+        list.innerHTML = '<p style="font-size:13px;color:var(--text-light)">' +
+          'No checks are waiting to be printed. Checks written here with no number ' +
+          'yet will appear in this list.</p>';
+        return;
+      }
+
+      var out = '';
+      for (var r = 0; r < rows.length; r++) {
+        var p = rows[r];
+        out += '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;' +
+               'border-bottom:1px solid var(--border)">' +
+               '<input type="checkbox" data-print="' + self.escHtml(p.payment_id) + '"' +
+               (p.printable ? ' checked' : ' disabled') + '>' +
+               '<div style="flex:1;min-width:140px">' +
+               '<div style="font-size:13px;font-weight:700">' + self.escHtml(p.payee) + '</div>' +
+               '<div style="font-size:11.5px;color:var(--text-light)">' +
+               self.escHtml(p.payment_date) + (p.memo ? ' &middot; ' + self.escHtml(p.memo) : '') +
+               (p.printable ? '' : ' &middot; amount cannot be written on a check') +
+               '</div></div>' +
+               '<div style="font-size:14px;font-weight:800">' + self.money(p.amount) + '</div>' +
+               '</div>';
+      }
+      list.innerHTML = out;
+    });
+  },
+
+  printChecks: function() {
+    var self = this;
+    var boxes = document.querySelectorAll('[data-print]');
+    var ids = [];
+    for (var i = 0; i < boxes.length; i++) {
+      if (boxes[i].checked && !boxes[i].disabled) ids.push(boxes[i].getAttribute('data-print'));
+    }
+    if (!ids.length) { this.printMsg('bad', 'Tick the checks to print first.'); return; }
+
+    var startEl = document.getElementById('print-start');
+    var start = startEl ? parseInt(String(startEl.value).replace(/[^0-9]/g, ''), 10) : 0;
+    if (!start) { this.printMsg('bad', 'Put in the number of the first check in the printer.'); return; }
+
+    var btn = document.getElementById('print-go');
+    if (btn) { btn.disabled = true; btn.textContent = 'Numbering\u2026'; }
+
+    this.post('/check-print', {
+      store_id: this.store_id, payment_ids: ids, start_number: start
+    }, function(status, d) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Print the selected checks'; }
+      if (status !== 200 || !d || d.error) {
+        self.printMsg('bad', (d && d.error) ? self.escHtml(d.error) : 'Could not print.');
+        return;
+      }
+      self.printMsg('ok', self.escHtml(d.message));
+      self.renderCheckSheets(d.printed);
+      if (startEl) startEl.value = d.next_check_number;
+      window.print();
+      self.loadPrintChecks();
+    });
+  },
+
+  nudge: function() {
+    var dx = document.getElementById('print-dx');
+    var dy = document.getElementById('print-dy');
+    return {
+      x: dx ? (parseFloat(dx.value) || 0) : 0,
+      y: dy ? (parseFloat(dy.value) || 0) : 0
+    };
+  },
+
+  at: function(spot, extraY) {
+    var n = this.nudge();
+    return 'left:' + (spot.x + n.x) + 'in;top:' + (spot.y + n.y + (extraY || 0)) + 'in';
+  },
+
+  renderCheckSheets: function(checks) {
+    var area = document.getElementById('check-sheets');
+    if (!area) return;
+    var L = this.CHECK_LAYOUT;
+    var h = '';
+    for (var i = 0; i < checks.length; i++) {
+      var c = checks[i];
+      h += '<div class="rn-checkpage">';
+      h += '<div class="rn-cf big" style="' + this.at(L.date) + '">' + this.escHtml(c.date) + '</div>';
+      h += '<div class="rn-cf big" style="' + this.at(L.payee) + '">' + this.escHtml(c.payee) + '</div>';
+      h += '<div class="rn-cf big" style="' + this.at(L.figures) + '">' + this.escHtml(c.amount_figures) + '</div>';
+      h += '<div class="rn-cf words" style="' + this.at(L.words) + '">' + this.escHtml(c.amount_words) + '</div>';
+      for (var a = 0; a < c.address.length; a++) {
+        h += '<div class="rn-cf" style="' + this.at(L.address, a * 0.18) + '">' +
+             this.escHtml(c.address[a]) + '</div>';
+      }
+      if (c.memo) {
+        h += '<div class="rn-cf" style="' + this.at(L.memo) + '">' + this.escHtml(c.memo) + '</div>';
+      }
+      // Both stubs: what it was, who it went to, and the number, so the
+      // filed paper answers the question without the bank statement.
+      var stub = this.escHtml(c.date) + '   #' + c.check_number + '   ' +
+                 this.escHtml(c.payee) + '   ' + this.money(c.amount) +
+                 (c.memo ? '   ' + this.escHtml(c.memo) : '');
+      h += '<div class="rn-cf rn-stub" style="' + this.at(L.stub1) + '">' + stub + '</div>';
+      h += '<div class="rn-cf rn-stub" style="' + this.at(L.stub2) + '">' + stub + '</div>';
+      h += '</div>';
+    }
+    area.innerHTML = h;
+  },
+
+  // A sheet of crosses where the real fields go, so plain paper held
+  // against a blank check shows exactly how far out the printer is.
+  printAlignment: function() {
+    var L = this.CHECK_LAYOUT;
+    var fake = [{
+      check_number: 1234,
+      date: '0000-00-00',
+      payee: 'XXXXXXXXXXXXXXXXXXXXXXXXX',
+      address: ['XXXXXXXXXXXXXXXXXX', 'XXXXXXXXXXXXXXXXXX'],
+      amount: 1234.56,
+      amount_figures: '**1,234.56',
+      amount_words: 'One Thousand Two Hundred Thirty-Four and 56/100 ****************',
+      memo: 'XXXXXXXXXXXXXXXXXXXX'
+    }];
+    this.renderCheckSheets(fake);
+    this.printMsg('ok', 'Hold the printed page against a blank check. Whatever it is ' +
+      'out by, put that in the nudge boxes and print it again.');
+    window.print();
+  },
+
+  // ---------- reconcile ----------
+  // Everything on this screen is work that makes the other screens truer:
+  // tying the bank to the books, and filling in the two facts about a
+  // vendor that no amount of data can supply.
+
+  recMsg: function(kind, text) {
+    var box = document.getElementById('rec-msg');
+    if (!box) return;
+    var good = kind === 'ok';
+    box.style.display = 'block';
+    box.style.background = good ? '#eef9f1' : '#fdf1f1';
+    box.style.border = '1px solid ' + (good ? '#bfe4ca' : '#f3c9ca');
+    box.style.color = good ? '#176b33' : '#a12025';
+    box.innerHTML = text;
+  },
+
+  // A figure with a word under it. Used for the match tally, where the
+  // whole point is that matched and recognised are different claims.
+  recStat: function(n, label, tone) {
+    var colour = tone === 'bad' ? 'var(--danger, #c0392b)'
+               : (tone === 'good' ? '#176b33' : 'var(--text, #222)');
+    return '<div style="flex:1;min-width:120px;padding:11px 13px;border:1px solid var(--border);' +
+           'border-radius:10px;background:#fff">' +
+           '<div style="font-size:21px;font-weight:800;letter-spacing:-0.5px;color:' + colour + '">' +
+           this.escHtml(n) + '</div>' +
+           '<div style="font-size:11px;color:var(--text-light);margin-top:2px;line-height:1.35">' +
+           this.escHtml(label) + '</div></div>';
+  },
+
+  recRun: function(apply) {
+    var self = this;
+    var btn = document.getElementById('rec-preview');
+    if (btn) { btn.disabled = true; btn.textContent = apply ? 'Matching…' : 'Looking…'; }
+
+    this.post('/bank-match', {
+      store_id: this.store_id,
+      action: apply ? 'apply' : 'preview'
+    }, function(status, d) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Look at what would match'; }
+      if (status !== 200 || !d || d.error) {
+        self.recMsg('bad', (d && d.error) ? self.escHtml(d.error) : 'Could not read the bank.');
+        return;
+      }
+      self.recMsg('ok', self.escHtml(d.message || ''));
+      self.renderRecTally(d, apply);
+      self.renderRecProblems(d.problems || []);
+      self.renderRecUnknowns(d.to_name || []);
+    });
+  },
+
+  renderRecTally: function(d, applied) {
+    var box = document.getElementById('rec-tally');
+    if (!box) return;
+    var h = '<div style="display:flex;gap:9px;flex-wrap:wrap">';
+    h += this.recStat(d.matched || 0, 'tied to a check or bill', 'good');
+    h += this.recStat(d.recognized || 0, 'known, but nothing to tie to');
+    h += this.recStat(d.still_unknown || 0, 'not recognised at all',
+                      d.still_unknown > 0 ? 'bad' : null);
+    h += '</div>';
+
+    if (d.checks_cleared_not_in_books) {
+      h += '<div style="margin-top:12px;padding:12px 14px;border:1px solid #f0d9a8;' +
+           'background:#fdf7ea;border-radius:10px;font-size:13px;line-height:1.55">' +
+           '<strong>' + d.checks_cleared_not_in_books + ' checks</strong> worth ' +
+           this.money(d.checks_cleared_not_in_books_value) +
+           ' cleared your bank this year with no record here of writing them. ' +
+           'That is the year you ran through QuickBooks. They can be brought in ' +
+           'from the statement &mdash; amounts and dates are certain, the payee is not, ' +
+           'so they arrive waiting to be named.' +
+           '<div style="margin-top:10px"><button class="btn" id="rec-backfill">' +
+           'Bring those checks in</button></div></div>';
+    }
+
+    if (d.unknown_money_out || d.unknown_money_in) {
+      h += '<div style="margin-top:10px;font-size:12.5px;color:var(--text-light);line-height:1.5">' +
+           'Unnamed: ' + this.money(d.unknown_money_out) + ' out, ' +
+           this.money(d.unknown_money_in) + ' in. Unnamed money coming in is never ' +
+           'counted as income &mdash; guessing there is how a profit figure goes wrong.' +
+           '</div>';
+    }
+
+    if (!applied && d.looked_at) {
+      h += '<div style="margin-top:14px"><button class="rn-big" id="rec-apply">' +
+           'Apply this to ' + d.looked_at + ' lines</button>' +
+           '<div style="font-size:11.5px;color:var(--text-light);margin-top:7px;line-height:1.5">' +
+           'This writes what you just saw. Checks that match get marked cleared.</div></div>';
+    }
+
+    box.innerHTML = h;
+
+    var self = this;
+    this.bind2('rec-apply', function() { self.recRun(true); });
+    this.bind2('rec-backfill', function() { self.recBackfill(false); });
+  },
+
+  recBackfill: function(confirmed) {
+    var self = this;
+    var btn = document.getElementById('rec-backfill');
+    if (btn) { btn.disabled = true; btn.textContent = 'Working…'; }
+    this.post('/bank-match', {
+      store_id: this.store_id,
+      action: 'backfill_checks',
+      confirm: confirmed === true
+    }, function(status, d) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Bring those checks in'; }
+      if (status !== 200 || !d || d.error) {
+        self.recMsg('bad', (d && d.error) ? self.escHtml(d.error) : 'Could not do that.');
+        return;
+      }
+      if (!confirmed && d.would_create) {
+        // Asked once, with the figure, before writing a thousand rows.
+        self.recMsg('ok', self.escHtml(d.message) +
+          '<div style="margin-top:10px"><button class="btn" id="rec-backfill-yes">' +
+          'Yes, bring in ' + d.would_create + ' checks</button></div>');
+        self.bind2('rec-backfill-yes', function() { self.recBackfill(true); });
+        return;
+      }
+      self.recMsg('ok', self.escHtml(d.message || 'Done.'));
+      if (d.created) self.recRun(false);
+    });
+  },
+
+  renderRecProblems: function(rows) {
+    var card = document.getElementById('rec-problem-card');
+    var box = document.getElementById('rec-problems');
+    if (!card || !box) return;
+    if (!rows.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+
+    var h = '';
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var bad = r.severity === 'critical';
+      h += '<div style="padding:11px 0;border-bottom:1px solid var(--border)">' +
+           '<span style="display:inline-block;font-size:10px;font-weight:800;letter-spacing:0.6px;' +
+           'text-transform:uppercase;padding:2px 7px;border-radius:5px;margin-right:8px;' +
+           (bad ? 'background:#fdecec;color:#a12025' : 'background:#fdf7ea;color:#8a6212') +
+           '">' + this.escHtml(bad ? 'check this' : 'look') + '</span>' +
+           '<span style="font-size:13px;line-height:1.5">' + this.escHtml(r.detail) + '</span>' +
+           '</div>';
+    }
+    box.innerHTML = h;
+  },
+
+  renderRecUnknowns: function(groups) {
+    var card = document.getElementById('rec-name-card');
+    var box = document.getElementById('rec-unknowns');
+    if (!card || !box) return;
+    if (!groups.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+
+    var kinds = [
+      ['expense', 'Money out, a real cost'],
+      ['income', 'Money in, real income'],
+      ['transfer', 'Moving my own money'],
+      ['settles', 'Paying a bill already on file']
+    ];
+
+    var h = '';
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i];
+      var amt = g.total_out ? this.money(g.total_out) + ' out' : '';
+      if (g.total_in) amt += (amt ? ', ' : '') + this.money(g.total_in) + ' in';
+
+      h += '<div style="padding:12px 0;border-bottom:1px solid var(--border)">' +
+           '<div style="font-size:13px;font-weight:700;word-break:break-word">' +
+           this.escHtml(g.example || g.pattern) + '</div>' +
+           '<div style="font-size:11.5px;color:var(--text-light);margin:3px 0 8px">' +
+           g.count + ' time' + (g.count === 1 ? '' : 's') + ' &middot; ' + amt +
+           ' &middot; ' + this.escHtml(g.first) + ' to ' + this.escHtml(g.last) + '</div>' +
+           '<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">' +
+           '<select data-teach-kind="' + i + '" style="max-width:230px">' +
+           '<option value="">What is this?</option>';
+      for (var k = 0; k < kinds.length; k++) {
+        h += '<option value="' + kinds[k][0] + '">' + this.escHtml(kinds[k][1]) + '</option>';
+      }
+      h += '</select>' +
+           '<select data-teach-cat="' + i + '" style="max-width:200px">' +
+           '<option value="">Category (optional)</option>' + this.recCatOptions() + '</select>' +
+           '<button class="btn" data-teach="' + i + '" ' +
+           'data-pattern="' + this.escHtml(g.pattern) + '">Remember this</button>' +
+           '</div></div>';
+    }
+    box.innerHTML = h;
+
+    var self = this;
+    var btns = box.querySelectorAll('[data-teach]');
+    for (var b = 0; b < btns.length; b++) {
+      (function(btn) {
+        btn.addEventListener('click', function() {
+          var idx = btn.getAttribute('data-teach');
+          var kindSel = box.querySelector('[data-teach-kind="' + idx + '"]');
+          var catSel = box.querySelector('[data-teach-cat="' + idx + '"]');
+          if (!kindSel || !kindSel.value) {
+            self.recMsg('bad', 'Say what kind of thing it is first.');
+            return;
+          }
+          btn.disabled = true;
+          self.post('/bank-match', {
+            store_id: self.store_id,
+            action: 'teach',
+            pattern: btn.getAttribute('data-pattern'),
+            kind: kindSel.value,
+            category_id: (catSel && catSel.value) ? Number(catSel.value) : null
+          }, function(status, d) {
+            btn.disabled = false;
+            if (status !== 200 || !d || d.error) {
+              self.recMsg('bad', (d && d.error) ? self.escHtml(d.error) : 'Could not save that.');
+              return;
+            }
+            self.recMsg('ok', self.escHtml(d.message));
+            btn.textContent = 'Remembered';
+          });
+        });
+      })(btns[b]);
+    }
+  },
+
+  rec_categories: [],
+
+  recCatOptions: function(selected) {
+    var h = '';
+    for (var i = 0; i < this.rec_categories.length; i++) {
+      var c = this.rec_categories[i];
+      h += '<option value="' + c.category_id + '"' +
+           (String(selected) === String(c.category_id) ? ' selected' : '') + '>' +
+           this.escHtml(c.name) + '</option>';
+    }
+    return h;
+  },
+
+  loadRecCategories: function() {
+    var self = this;
+    this.get('/vendor-setup', function(status, d) {
+      var box = document.getElementById('rec-cats');
+      if (!box) return;
+      if (status !== 200 || !d || d.error) {
+        box.innerHTML = '<p style="font-size:13px;color:var(--text-light)">Could not load vendors.</p>';
+        return;
+      }
+      self.rec_categories = d.categories || [];
+      d.counts = d.counts || {};
+      self.rec_setup = d;
+
+      var rows = d.need_category || [];
+      if (!rows.length) {
+        box.innerHTML = '<p style="font-size:13px;color:#176b33">Every vendor has a category.</p>';
+        self.renderRecTerms();
+        return;
+      }
+
+      var h = '<p style="font-size:12px;color:var(--text-light);margin:0 0 10px">' +
+              rows.length + ' of ' + d.counts.vendors + ' vendors, biggest spend first.</p>';
+      for (var i = 0; i < rows.length && i < 40; i++) {
+        var v = rows[i];
+        h += '<div style="display:flex;gap:9px;align-items:center;padding:9px 0;' +
+             'border-bottom:1px solid var(--border);flex-wrap:wrap">' +
+             '<div style="flex:1;min-width:150px">' +
+             '<div style="font-size:13px;font-weight:700">' + self.escHtml(v.name) + '</div>' +
+             (v.billed ? '<div style="font-size:11px;color:var(--text-light)">' +
+                self.money(v.billed) + ' billed</div>' : '') +
+             '</div>' +
+             '<select data-cat-for="' + self.escHtml(v.vendor_id) + '" style="max-width:210px">' +
+             '<option value="">Choose&hellip;</option>' + self.recCatOptions() + '</select>' +
+             '</div>';
+      }
+      if (rows.length > 40) {
+        h += '<p style="font-size:11.5px;color:var(--text-light);margin-top:10px">' +
+             'Showing the top 40. The rest will come up as their bills arrive.</p>';
+      }
+      box.innerHTML = h;
+
+      // Saves the moment he picks, so there is no save button to forget.
+      var sels = box.querySelectorAll('[data-cat-for]');
+      for (var s = 0; s < sels.length; s++) {
+        (function(sel) {
+          sel.addEventListener('change', function() {
+            if (!sel.value) return;
+            sel.disabled = true;
+            self.post('/vendor-setup', {
+              store_id: self.store_id,
+              vendor_id: sel.getAttribute('data-cat-for'),
+              default_category_id: Number(sel.value)
+            }, function(st, r) {
+              sel.disabled = false;
+              if (st !== 200 || !r || r.error) {
+                self.recMsg('bad', (r && r.error) ? self.escHtml(r.error) : 'Could not save.');
+                return;
+              }
+              self.recMsg('ok', self.escHtml(r.message));
+              var row = sel.parentNode;
+              if (row) { row.style.opacity = '0.45'; }
+            });
+          });
+        })(sels[s]);
+      }
+
+      self.renderRecTerms();
+    });
+  },
+
+  // Terms come from the same payload, so this only draws.
+  loadRecTerms: function() { /* drawn by loadRecCategories */ },
+
+  renderRecTerms: function() {
+    var self = this;
+    var box = document.getElementById('rec-terms');
+    var d = this.rec_setup;
+    if (!box || !d) return;
+
+    var rows = d.need_terms || [];
+    if (!rows.length) {
+      box.innerHTML = '<p style="font-size:13px;color:#176b33">Every vendor has terms.</p>';
+      return;
+    }
+
+    var opts = d.terms_options || [];
+    var pretty = {
+      cod: 'COD — on delivery', net7: 'Net 7', net10: 'Net 10', net14: 'Net 14',
+      net15: 'Net 15', net21: 'Net 21', net30: 'Net 30', net45: 'Net 45',
+      net60: 'Net 60', eom: 'End of month', prox10: '10th of next month',
+      weekly: 'Weekly statement'
+    };
+
+    var withOpen = d.counts.need_terms_with_open_bills;
+    var h = '<p style="font-size:12px;color:var(--text-light);margin:0 0 10px">' +
+            rows.length + ' vendors have no terms. ' +
+            (withOpen ? '<strong>' + withOpen + '</strong> of them have money owed right now &mdash; ' +
+                        'those are the ones that change what is due this week.'
+                      : 'None of them have open bills, so this can wait.') +
+            '</p>';
+
+    for (var i = 0; i < rows.length && i < 40; i++) {
+      var v = rows[i];
+      h += '<div style="display:flex;gap:9px;align-items:center;padding:9px 0;' +
+           'border-bottom:1px solid var(--border);flex-wrap:wrap">' +
+           '<div style="flex:1;min-width:150px">' +
+           '<div style="font-size:13px;font-weight:700">' + this.escHtml(v.name) + '</div>' +
+           (v.open ? '<div style="font-size:11px;color:#a12025;font-weight:700">' +
+              this.money(v.open) + ' owed now</div>'
+            : (v.billed ? '<div style="font-size:11px;color:var(--text-light)">' +
+                 this.money(v.billed) + ' billed</div>' : '')) +
+           '</div>' +
+           '<select data-terms-for="' + this.escHtml(v.vendor_id) + '" style="max-width:210px">' +
+           '<option value="">Choose&hellip;</option>';
+      for (var o = 0; o < opts.length; o++) {
+        h += '<option value="' + this.escHtml(opts[o]) + '">' +
+             this.escHtml(pretty[opts[o]] || opts[o]) + '</option>';
+      }
+      h += '</select></div>';
+    }
+    box.innerHTML = h;
+
+    var sels = box.querySelectorAll('[data-terms-for]');
+    for (var s = 0; s < sels.length; s++) {
+      (function(sel) {
+        sel.addEventListener('change', function() {
+          if (!sel.value) return;
+          sel.disabled = true;
+          self.post('/vendor-setup', {
+            store_id: self.store_id,
+            vendor_id: sel.getAttribute('data-terms-for'),
+            terms_code: sel.value
+          }, function(st, r) {
+            sel.disabled = false;
+            if (st !== 200 || !r || r.error) {
+              self.recMsg('bad', (r && r.error) ? self.escHtml(r.error) : 'Could not save.');
+              return;
+            }
+            self.recMsg('ok', self.escHtml(r.message));
+            var row = sel.parentNode;
+            if (row) { row.style.opacity = '0.45'; }
+          });
+        });
+      })(sels[s]);
+    }
+  },
+
+  loadDupes: function() {
+    var self = this;
+    this.post('/bank-match', {
+      store_id: this.store_id, action: 'dedupe'
+    }, function(status, d) {
+      var card = document.getElementById('rec-dupe-card');
+      var box = document.getElementById('rec-dupe');
+      if (!card || !box) return;
+      if (status !== 200 || !d || !d.would_remove) { card.style.display = 'none'; return; }
+      card.style.display = 'block';
+      box.innerHTML = self.escHtml(d.message) +
+        '<div style="margin-top:12px"><button class="rn-big" id="rec-dupe-go">' +
+        'Remove the ' + d.would_remove + ' duplicates</button></div>';
+      self.bind2('rec-dupe-go', function() {
+        var b = document.getElementById('rec-dupe-go');
+        if (b) { b.disabled = true; b.textContent = 'Removing\u2026'; }
+        self.post('/bank-match', {
+          store_id: self.store_id, action: 'dedupe', confirm: true
+        }, function(st, r) {
+          if (st !== 200 || !r || r.error) {
+            self.recMsg('bad', (r && r.error) ? self.escHtml(r.error) : 'Could not remove them.');
+            if (b) { b.disabled = false; b.textContent = 'Remove the duplicates'; }
+            return;
+          }
+          self.recMsg('ok', self.escHtml(r.message));
+          card.style.display = 'none';
+        });
+      });
+    });
+  },
+
+  loadAttention: function() {
+    var self = this;
+    this.get('/attention', function(status, d) {
+      var card = document.getElementById('rec-attn-card');
+      var box = document.getElementById('rec-attn');
+      if (!card || !box) return;
+      var items = (d && d.items) || [];
+      if (status !== 200 || !items.length) { card.style.display = 'none'; return; }
+      card.style.display = 'block';
+
+      var h = '';
+      for (var i = 0; i < items.length && i < 60; i++) {
+        var it = items[i];
+        var bad = it.severity === 'critical';
+        h += '<div style="padding:11px 0;border-bottom:1px solid var(--border);' +
+             'display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">' +
+             '<div style="flex:1;min-width:200px">' +
+             '<div style="font-size:13px;font-weight:700;color:' +
+             (bad ? '#a12025' : 'var(--text)') + '">' +
+             self.escHtml(it.headline || it.code) + '</div>' +
+             '<div style="font-size:12.5px;line-height:1.5;margin-top:2px">' +
+             self.escHtml(it.message) + '</div>' +
+             (it.suggested_action ? '<div style="font-size:11.5px;color:var(--text-light);' +
+                'margin-top:3px;line-height:1.45">' + self.escHtml(it.suggested_action) +
+                '</div>' : '') +
+             '</div>' +
+             '<button class="btn" data-attn="' + self.escHtml(it.exception_id) + '">' +
+             'Dealt with</button></div>';
+      }
+      box.innerHTML = h;
+
+      var btns = box.querySelectorAll('[data-attn]');
+      for (var b = 0; b < btns.length; b++) {
+        (function(btn) {
+          btn.addEventListener('click', function() {
+            btn.disabled = true;
+            self.post('/attention', {
+              store_id: self.store_id,
+              exception_id: btn.getAttribute('data-attn'),
+              action: 'resolve'
+            }, function(st, r) {
+              btn.disabled = false;
+              if (st !== 200 || !r || r.error) {
+                self.recMsg('bad', (r && r.error) ? self.escHtml(r.error) : 'Could not save.');
+                return;
+              }
+              var row = btn.parentNode;
+              if (row && row.parentNode) row.parentNode.removeChild(row);
+              if (!box.querySelectorAll('[data-attn]').length) {
+                document.getElementById('rec-attn-card').style.display = 'none';
+              }
+            });
+          });
+        })(btns[b]);
+      }
+    });
+  },
+
+  load1099: function() {
+    var self = this;
+    this.get('/tax-1099', function(status, d) {
+      var box = document.getElementById('rec-1099');
+      var due = document.getElementById('rec-1099-due');
+      if (!box) return;
+      if (status !== 200 || !d || d.error) {
+        box.innerHTML = '<p style="font-size:13px;color:var(--text-light)">Could not load this.</p>';
+        return;
+      }
+      if (due) due.textContent = d.forms_due ? '— due ' + d.forms_due : '';
+
+      // A 200 is not a promise about the shape of the body. Reading
+      // straight into d.summary.forms_to_file is how a screen goes blank
+      // over a field that happened to be missing, which has happened
+      // here before and is not worth repeating.
+      var s = d.summary || {};
+      var notes = d.notes || [];
+      var h = '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px">';
+      h += self.recStat(s.forms_to_file || 0, 'forms to file');
+      h += self.recStat(self.money(s.total_reportable || 0), 'reported in total');
+      h += self.recStat(s.missing_w9 || 0, 'no W-9 on file', s.missing_w9 ? 'bad' : null);
+      h += self.recStat(s.to_review || 0, 'to look at');
+      h += '</div>';
+
+      if (!s.forms_to_file && !s.to_review) {
+        h += '<p style="font-size:13px;line-height:1.55;color:var(--text-light)">' +
+             'Nothing to report yet &mdash; and that is about the records, not the year. ' +
+             'This counts payments on file here, and most of this year’s were ' +
+             'written through QuickBooks. Bring the checks in above and name who they ' +
+             'went to, and this fills itself in.</p>';
+      }
+
+      if (d.candidates && d.candidates.length) {
+        h += '<div style="font-size:12px;font-weight:800;letter-spacing:0.5px;' +
+             'text-transform:uppercase;color:var(--text-light);margin:4px 0 8px">' +
+             'Crossed $600 &mdash; you decide</div>';
+        for (var i = 0; i < d.candidates.length && i < 30; i++) {
+          var c = d.candidates[i];
+          h += '<div style="display:flex;gap:9px;align-items:center;padding:9px 0;' +
+               'border-bottom:1px solid var(--border);flex-wrap:wrap">' +
+               '<div style="flex:1;min-width:150px">' +
+               '<div style="font-size:13px;font-weight:700">' + self.escHtml(c.name) + '</div>' +
+               '<div style="font-size:11px;color:var(--text-light)">' +
+               self.money(c.paid) + ' in ' + c.payments + ' payment' +
+               (c.payments === 1 ? '' : 's') + '</div></div>' +
+               '<button class="btn" data-1099="' + self.escHtml(c.vendor_id) + '">' +
+               'Gets a 1099</button></div>';
+        }
+      }
+
+      if (d.missing_w9 && d.missing_w9.length) {
+        h += '<div style="margin-top:14px;padding:12px 14px;border:1px solid #f0d9a8;' +
+             'background:#fdf7ea;border-radius:10px;font-size:13px;line-height:1.55">' +
+             '<strong>' + d.missing_w9.length + '</strong> of these have no W-9 on file. ' +
+             'You need a name, address and taxpayer number from each before anything can ' +
+             'be filed, and chasing them in January is the part that goes wrong.</div>';
+      }
+
+      h += '<p style="font-size:11.5px;color:var(--text-light);margin-top:14px;line-height:1.5">' +
+           self.escHtml(notes.length ? notes[notes.length - 1] : '') + '</p>';
+
+      box.innerHTML = h;
+
+      var btns = box.querySelectorAll('[data-1099]');
+      for (var b = 0; b < btns.length; b++) {
+        (function(btn) {
+          btn.addEventListener('click', function() {
+            btn.disabled = true;
+            self.post('/tax-1099', {
+              store_id: self.store_id,
+              vendor_id: btn.getAttribute('data-1099'),
+              is_1099: true
+            }, function(st, r) {
+              btn.disabled = false;
+              if (st !== 200 || !r || r.error) {
+                self.recMsg('bad', (r && r.error) ? self.escHtml(r.error) : 'Could not save.');
+                return;
+              }
+              btn.textContent = 'Marked';
+              self.load1099();
+            });
+          });
+        })(btns[b]);
+      }
+    });
   },
 
   // ---------- the vendor ledger ----------
@@ -1842,6 +2952,20 @@ var APP = {
       document.getElementById('vl-f-due').value = '';
       document.getElementById('vl-f-note').value = '';
       document.getElementById('vl-f-paid').checked = false;
+      // The category question appears only for a vendor that has no
+      // category yet. Everyone else never sees it again.
+      var wrap = document.getElementById('vl-f-catwrap');
+      var sel = document.getElementById('vl-f-cat');
+      if (wrap && sel) {
+        if (self.vl_vendor_category) {
+          wrap.style.display = 'none';
+        } else {
+          wrap.style.display = 'block';
+          self.ensureCategories(function() {
+            sel.innerHTML = '<option value="">Choose\u2026</option>' + self.recCatOptions();
+          });
+        }
+      }
       show('vl-add-box', true);
       document.getElementById('vl-f-amount').focus();
     });
@@ -1857,6 +2981,26 @@ var APP = {
         document.getElementById('vl-f-paidwrap').style.display = pay ? 'none' : 'block';
       };
     }
+
+    this.bind2('vl-new', function() {
+      var box = document.getElementById('vl-new-box');
+      if (!box) return;
+      var open = box.style.display === 'block';
+      box.style.display = open ? 'none' : 'block';
+      if (open) return;
+      self.newVendorMsg('ok', '');
+      self.ensureCategories(function() {
+        var sel = document.getElementById('vl-new-cat');
+        if (sel) sel.innerHTML = '<option value="">Not sure yet</option>' + self.recCatOptions();
+      });
+      var n = document.getElementById('vl-new-name');
+      if (n) { n.value = ''; n.focus(); }
+    });
+    this.bind2('vl-new-cancel', function() {
+      document.getElementById('vl-new-box').style.display = 'none';
+    });
+    this.bind2('vl-new-save', function() { self.saveNewVendor(false); });
+    this.bind2('vl-remove', function() { self.removeVendor(); });
 
     this.bind2('vl-f-cancel', function() { hideAll(); });
     this.bind2('vl-f-save', function() { self.saveVendorLine(); });
@@ -1947,6 +3091,14 @@ var APP = {
         // off what he owes, and no check invented to explain it.
         amount_paid: document.getElementById('vl-f-paid').checked ? amount : ''
       };
+      // Only sent when the vendor has no category yet, which is the only
+      // time the box is on screen. The server files the vendor under it
+      // so the question never comes back.
+      var catSel = document.getElementById('vl-f-cat');
+      var catWrap = document.getElementById('vl-f-catwrap');
+      if (catSel && catWrap && catWrap.style.display !== 'none' && catSel.value) {
+        body.category_id = Number(catSel.value);
+      }
     }
 
     msg.innerHTML = '<span style="color:var(--text-light)">Saving…</span>';
@@ -2287,7 +3439,11 @@ var APP = {
         list.innerHTML = '<p style="font-size:13px;color:var(--text-light)">Could not load vendors.</p>';
         return;
       }
-      if (!d.vendors.length) {
+      // A 200 is not a promise about the shape of the body. Reading
+      // d.vendors.length straight off is how this screen goes blank over
+      // a field that happened to be missing.
+      var vlist = (d && d.vendors) || [];
+      if (!vlist.length) {
         list.innerHTML = '<p style="font-size:13px;color:var(--text-light)">No vendor matches that.</p>';
         return;
       }
@@ -2296,8 +3452,8 @@ var APP = {
               (d.total_owed ? ' &middot; ' + self.money(d.total_owed) + ' owed' : '') +
               (d.truncated ? ' &middot; showing the first 60' : '') + '</div>';
       h += '<table style="width:100%;border-collapse:collapse;font-size:13.5px">';
-      for (var i = 0; i < d.vendors.length; i++) {
-        var v = d.vendors[i];
+      for (var i = 0; i < vlist.length; i++) {
+        var v = vlist[i];
         h += '<tr class="vl-row" data-vendor="' + self.escHtml(v.vendor_id) + '" ' +
              'style="cursor:pointer;border-top:1px solid #F1F3F5">' +
              '<td style="padding:10px 8px 10px 0"><strong>' + self.escHtml(v.name) + '</strong>' +
@@ -2371,6 +3527,9 @@ var APP = {
       // Kept so the correction form can find a line by its id without
       // going back to the server for something already on the screen.
       self.vl_entries = d.entries || [];
+      // Whether this vendor already has a category decides whether the
+      // add-a-line form asks for one.
+      self.vl_vendor_category = d.vendor.default_category_id || null;
       document.getElementById('vl-name').innerHTML = self.escHtml(d.vendor.name);
       document.getElementById('vl-sub').innerHTML =
         (d.vendor.method_label ? self.escHtml(d.vendor.method_label) : 'Payment type not set') +
@@ -2457,6 +3616,18 @@ var APP = {
         }
 
         var acts = '';
+        // The paper. Shown only on lines that actually have a photograph
+        // on file, so an empty button never promises something that is
+        // not there. A voided line keeps its button: a line somebody
+        // struck out is exactly the one an argument will be about.
+        if (e.has_paper) {
+          acts += '<button class="vl-act" data-act="paper" data-kind="' + e.kind +
+                  '" data-id="' + e.id + '" style="font:inherit;font-size:11.5px;' +
+                  'font-weight:700;padding:3px 8px;border:1px solid var(--border);' +
+                  'background:#fff;border-radius:7px;cursor:pointer;' +
+                  'color:var(--text-light)" title="Open the photo of this paper">' +
+                  'Paper</button> ';
+        }
         if (!e.voided) {
           acts += '<button class="vl-act" data-act="edit" data-kind="' + e.kind +
                   '" data-id="' + e.id + '" style="font:inherit;font-size:11.5px;' +
@@ -2472,6 +3643,13 @@ var APP = {
                     (outside ? 'var(--text-light)' : '#168a5a') + '">' +
                     (outside ? 'Not paid' : 'Paid') + '</button>';
           }
+          // Remove. What it actually does depends on what the line has
+          // touched -- a typo goes, a written check is voided -- and the
+          // server decides, not this button.
+          acts += ' <button class="vl-act" data-act="remove" data-kind="' + e.kind +
+                  '" data-id="' + e.id + '" style="font:inherit;font-size:11.5px;' +
+                  'font-weight:700;padding:3px 8px;border:1px solid var(--border);' +
+                  'background:#fff;border-radius:7px;cursor:pointer;color:#a12025">Remove</button>';
         }
 
         body += '<tr style="border-top:1px solid #F1F3F5' +
@@ -2521,6 +3699,8 @@ var APP = {
           var what = this.getAttribute('data-act');
           var id = this.getAttribute('data-id');
           if (what === 'edit') { self.editVendorLine(this.getAttribute('data-kind'), id); return; }
+          if (what === 'paper') { self.openPaper(id, this); return; }
+          if (what === 'remove') { self.removeLine(this.getAttribute('data-kind'), id); return; }
           if (what === 'settle') {
             if (!window.confirm(
               'Mark this one as already paid.\n\n' +
@@ -2645,7 +3825,7 @@ var APP = {
     if (btn) { btn.disabled = true; btn.innerHTML = 'Reading...'; }
     this.bankMsg('info', 'Reading the bank...');
 
-    this.post('/plaid-sync', { store_id: this.store_id }, function(status, d) {
+    this.post('/bank-read', { store_id: this.store_id }, function(status, d) {
       if (btn) { btn.disabled = false; btn.innerHTML = 'Read the bank now'; }
       if (status !== 200 || !d || d.error) {
         self.bankMsg('bad', 'Could not read the bank: ' +
@@ -2867,6 +4047,10 @@ var APP = {
       this.chkMsg('bad', 'Check number, payee and amount are all needed.');
       return;
     }
+    // The photograph of the check, if one was taken. On a check this is
+    // worth more than on an invoice: the paper states the amount twice,
+    // and the figure in the box is somebody's reading of it.
+    if (this.held_scan.check) payload.scan_id = this.held_scan.check;
 
     var btn = document.getElementById('chk-save');
     btn.disabled = true; btn.innerHTML = 'Saving...';
@@ -2883,6 +4067,7 @@ var APP = {
       }
       self.chkMsg('ok', 'Check ' + payload.check_number + ' logged. Real available cash is now ' +
         self.money(d.real_available_cash) + '.');
+      self.held_scan.check = null;
       document.getElementById('chk-num').value = '';
       document.getElementById('chk-amt').value = '';
       document.getElementById('chk-payee').value = '';
@@ -3175,6 +4360,8 @@ var APP = {
     var codVal = document.getElementById('inv-cod-check').value;
     if (codVal) payload.check_number = codVal;
     if (allowDuplicate) payload.allow_duplicate = true;
+    // The photograph this invoice was read off, if there was one.
+    if (this.held_scan.invoice) payload.scan_id = this.held_scan.invoice;
 
     if (!payload.vendor || !payload.invoice_number || !payload.total_amount) {
       this.invMsg('bad', 'Vendor, invoice number and amount are all needed.');
@@ -3205,7 +4392,10 @@ var APP = {
       self.invMsg(d.pay_method === 'auto_debit' ? 'warn' : 'ok',
         '<strong>' + self.escHtml(d.vendor_name) + '</strong> &mdash; ' + self.escHtml(d.instruction));
 
-      // clear the whole form so the next truck starts clean
+      // clear the whole form so the next truck starts clean -- the
+      // photograph included, or the next invoice typed in by hand would
+      // be filed against this one's paper
+      self.held_scan.invoice = null;
       document.getElementById('inv-vendor').value = '';
       document.getElementById('inv-num').value = '';
       document.getElementById('inv-amt').value = '';
@@ -3703,7 +4893,15 @@ var APP = {
       var data = null;
       try { data = JSON.parse(x.responseText); } catch (e) { data = null; }
       if (x.status >= 200 && x.status < 300 && data && !data.error) onOk(data);
-      else onErr(new Error((data && data.error) ? data.error : ('HTTP ' + x.status)));
+      else {
+        // The body comes along with the failure. A reading that went
+        // wrong still says which photograph it was, and that is the one
+        // most worth holding on to: the figures now get typed by hand,
+        // and the picture is the only record of what they came from.
+        var err = new Error((data && data.error) ? data.error : ('HTTP ' + x.status));
+        err.data = data;
+        onErr(err);
+      }
     };
     x.send(JSON.stringify(body));
   },
@@ -3719,6 +4917,20 @@ var APP = {
     invoice:   { input: 'inv-photo',  state: 'inv-photo-state',  verb: 'Reading the invoice' },
     check:     { input: 'chk-photo',  state: 'chk-photo-state',  verb: 'Reading the check' },
     statement: { input: 'stmt-photo', state: 'stmt-photo-state', verb: 'Reading the statement' }
+  },
+
+  // Which saved photograph each form is currently working from. The
+  // server puts every photo away before it reads a word of it, so this
+  // is set whether the reading succeeded or failed, and it travels with
+  // the form when it saves so the entry can be looked at again later.
+  // Cleared when the form is cleared, so the next truck's invoice never
+  // ends up pointing at the last one's paper.
+  held_scan: { invoice: null, check: null, statement: null },
+
+  holdScan: function(kind, res) {
+    this.held_scan[kind] = (res && res.scan_id) || null;
+    if (res && res.scan_kept === false && res.scan_note) return '<br>' + this.escHtml(res.scan_note);
+    return '';
   },
 
   onPhotoPicked: function(input, kind) {
@@ -3750,7 +4962,16 @@ var APP = {
         if (res.kind === 'check') self.applyCheckExtract(res);
         else if (res.kind === 'statement') self.applyStatementExtract(res);
         else self.applyInvoiceExtract(res);
-      }, function(err) { self.captureState('bad', err.message); });
+      }, function(err) {
+        // The reading failed; the photograph did not. Hold on to it so
+        // that typing the figures in by hand still ends up with the
+        // picture attached to the entry.
+        var kept = self.holdScan(kind, err.data);
+        self.captureState('bad', self.escHtml(err.message) +
+          (err.data && err.data.scan_id
+            ? '<br>The photo is saved. Type what it says and it stays with the entry.'
+            : kept));
+      });
     };
     reader.readAsDataURL(file);
     input.value = '';
@@ -3782,6 +5003,7 @@ var APP = {
 
   applyInvoiceExtract: function(res) {
     var d = res.draft || {};
+    var scanNote = this.holdScan('invoice', res);
     var msg = this.fillFrom([
       ['inv-vendor', d.vendor_name, 'vendor'],
       ['inv-num', d.invoice_number, 'invoice number'],
@@ -3802,27 +5024,56 @@ var APP = {
       msg += '<br>The invoice says terms are &ldquo;' + d.terms_text + '&rdquo;.';
     }
     msg += '<br><b>Check the amount against the paper before saving.</b>';
-    this.captureState(res.needs_eyes ? 'check' : 'good', msg);
+    this.captureState(res.needs_eyes ? 'check' : 'good', msg + scanNote);
   },
 
   applyCheckExtract: function(res) {
     var d = res.draft || {};
+    var scanNote = this.holdScan('check', res);
+
+    // The amount is only filled in when the paper vouched for it.
+    //
+    // A check states its amount twice -- the numeric box and the written
+    // line -- and the server compares them rather than asking the model
+    // whether they agree, because a model that misread one will say they
+    // do. On a disagreement the server sends no amount at all, and this
+    // leaves the box empty on purpose: a figure on screen is a figure
+    // somebody saves without looking.
     var msg = this.fillFrom([
       ['chk-num', d.check_number, 'check number'],
-      ['chk-amt', d.amount === null ? '' : d.amount, 'amount'],
-      ['chk-payee', d.payee, 'payee'],
+      ['chk-amt', (d.amount === null || d.amount === undefined) ? '' : d.amount, 'amount'],
+      ['chk-payee', (res.vendor && res.vendor.name) || d.payee, 'payee'],
       ['chk-date', d.check_date, 'date'],
       ['chk-memo', d.memo, 'memo']
     ]);
-    var notes = d.unreadable || [];
-    for (var i = 0; i < notes.length; i++) msg += '<br>' + notes[i];
+
+    var headline = '';
+    if (res.trust === 'verified') {
+      headline = '<b>The check says the amount twice and both agree.</b>';
+    } else if (res.trust === 'conflict') {
+      headline = '<b>The two amounts on this check do not agree, so the amount '
+               + 'has been left blank.</b>';
+    } else {
+      headline = '<b>Only one amount on this one, so there is nothing to check it '
+               + 'against.</b>';
+    }
+    msg = headline + '<br>' + msg;
+
+    var notes = res.why || d.unreadable || [];
+    for (var i = 0; i < notes.length; i++) msg += '<br>' + this.escHtml(notes[i]);
+
+    if (res.vendor) {
+      msg += '<br>Matched to ' + this.escHtml(res.vendor.name) + ' on your vendor list.';
+    }
     if (res.duplicate) {
       msg += '<br><b>Check #' + res.duplicate.check_number + ' is already logged</b> for ' +
              this.money(res.duplicate.amount, true) +
              '. Logging it twice would overstate what is out.';
     }
-    msg += '<br><b>Check the amount against the check before saving.</b>';
-    this.captureState(res.needs_eyes ? 'check' : 'good', msg);
+    if (res.trust !== 'verified') {
+      msg += '<br><b>Check it against the paper before saving.</b>';
+    }
+    this.captureState(res.needs_eyes ? 'check' : 'good', msg + scanNote);
   },
 
   applyStatementExtract: function(res) {
