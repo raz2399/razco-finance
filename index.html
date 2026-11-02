@@ -839,7 +839,7 @@
 
       <div class="rn-kpis">
         <div class="rn-kpi hero">
-          <div class="rn-kpi-l">Left after everything clears</div>
+          <div class="rn-kpi-l">Left after the checks you wrote clear</div>
           <div class="rn-kpi-v" id="k-left">&mdash;</div>
           <div class="rn-kpi-n" id="k-left-n">&nbsp;</div>
         </div>
@@ -924,7 +924,7 @@
       <!-- ============ MOBILE: what you do on the floor ============ -->
       <div class="rn-mobile">
         <div class="rn-hero">
-          <div class="rn-hero-l">Left after everything clears</div>
+          <div class="rn-hero-l">Left after the checks you wrote clear</div>
           <div class="rn-hero-v" id="m-left">&mdash;</div>
           <div class="rn-hero-n" id="m-left-n">&nbsp;</div>
         </div>
@@ -1537,6 +1537,46 @@
           <div id="rec-attn" class="rn-rows"></div>
         </div>
 
+        <!-- The bank, read as the book of record.
+
+             This is the part that makes Razi-Nova different from
+             QuickBooks rather than a copy of it. QuickBooks waits to be
+             told what cleared, then waits again to be told which bill it
+             paid. Here the statement arrives overnight and the books are
+             already right in the morning; this card exists so he can see
+             what that did, and take it back if he disagrees. -->
+        <div class="card" id="rec-settle-card">
+          <h3>What the bank settled</h3>
+          <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+            A check that cleared the bank is a payment that happened. This reads them
+            off the statement and takes the money off what you owe, oldest invoice
+            first. It runs by itself every night. Nothing before
+            <strong id="rec-cutover">the cutover</strong> is ever touched &mdash;
+            that is already inside your opening balances.
+          </p>
+          <div>
+            <button class="rn-big" id="rec-settle-preview">Show me what it would do</button>
+            <button class="rn-big" id="rec-settle-undo"
+              style="background:#fff;color:#a12025;border:1px solid var(--border);margin-left:8px">
+              Undo everything it did
+            </button>
+          </div>
+          <div id="rec-settle-msg" style="display:none;border-radius:9px;padding:11px 13px;font-size:13px;margin-top:12px;line-height:1.5"></div>
+          <div id="rec-settle-body" style="margin-top:12px"></div>
+        </div>
+
+        <!-- Money that certainly left, against no vendor, and therefore
+             coming off nothing he owes. -->
+        <div class="card" id="rec-whose-card" style="display:none">
+          <h3>Whose check was this?</h3>
+          <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+            These cleared the bank, so the money is gone &mdash; but the statement does
+            not say who to. Until you name them they come off nothing you owe. Checks
+            written through <strong>Print checks</strong> never end up here.
+          </p>
+          <div id="rec-whose" class="rn-rows"></div>
+        </div>
+
         <!-- Appears only when the imported statement and the bank
              connection both hold the same transactions. -->
         <div class="card" id="rec-dupe-card" style="display:none">
@@ -1942,7 +1982,10 @@ var APP = {
     if (tabName === 'reconcile') {
       var rec = this;
       this.bind2('rec-preview', function() { rec.recRun(false); });
+      this.bind2('rec-settle-preview', function() { rec.settlePreview(); });
+      this.bind2('rec-settle-undo', function() { rec.settleUndo(); });
       this.loadAttention();
+      this.loadWhose();
       this.loadDupes();
       this.loadRecCategories();
       this.load1099();
@@ -2688,6 +2731,183 @@ var APP = {
         });
       })(sels[s]);
     }
+  },
+
+  // ---------- the bank as the book of record ----------
+  settleMsg: function(kind, html) {
+    var m = document.getElementById('rec-settle-msg');
+    if (!m) return;
+    m.style.display = 'block';
+    m.innerHTML = html;
+    if (kind === 'ok') {
+      m.style.background = '#E8F5E9'; m.style.border = '1px solid #A5D6A7'; m.style.color = '#1B5E20';
+    } else if (kind === 'warn') {
+      m.style.background = '#FFF8E1'; m.style.border = '1px solid #FFE082'; m.style.color = '#8D6E00';
+    } else {
+      m.style.background = '#FDECEA'; m.style.border = '1px solid #F5B7B1'; m.style.color = '#922B21';
+    }
+  },
+
+  settlePreview: function() {
+    var self = this;
+    var btn = document.getElementById('rec-settle-preview');
+    btn.disabled = true; btn.innerHTML = 'Looking&hellip;';
+    this.get('/settle', function(status, d) {
+      btn.disabled = false; btn.innerHTML = 'Show me what it would do';
+      if (status !== 200 || !d) {
+        self.settleMsg('bad', self.escHtml((d && d.error) || 'Could not work it out.'));
+        return;
+      }
+      var cut = document.getElementById('rec-cutover');
+      if (cut && d.cutover) cut.innerHTML = d.cutover;
+      self.settleMsg(d.totals && d.totals.disagreements ? 'warn' : 'ok', self.escHtml(d.says));
+      self.paintSettlePlan(d);
+    });
+  },
+
+  paintSettlePlan: function(d) {
+    var self = this;
+    var h = '';
+    var make = (d.would_create || []);
+    var conf = (d.would_confirm || []);
+
+    if (make.length) {
+      h += '<h4 style="margin:14px 0 6px;font-size:13px">Would be recorded as payments</h4>';
+      h += '<table style="width:100%;border-collapse:collapse;font-size:12.5px">';
+      for (var i = 0; i < make.length; i++) {
+        var c = make[i];
+        h += '<tr style="border-top:1px solid #F1F3F5">' +
+          '<td style="padding:6px 8px 6px 0;white-space:nowrap">' + self.escHtml(c.payment_date) + '</td>' +
+          '<td style="padding:6px 8px 6px 0">' +
+            (c.check_number ? 'Check ' + c.check_number : self.escHtml(c.vendor_name || 'Vendor draft')) + '</td>' +
+          '<td style="padding:6px 0;text-align:right;font-weight:600">' + self.money(c.amount) + '</td>' +
+          '<td style="padding:6px 0 6px 10px;color:var(--text-light)">' +
+            (c.allocations && c.allocations.length
+              ? 'off ' + c.allocations.length + ' invoice' + (c.allocations.length === 1 ? '' : 's')
+              : 'credit &mdash; no open invoice to put it against') + '</td>' +
+          '</tr>';
+      }
+      h += '</table>';
+    }
+
+    if (conf.length) {
+      h += '<h4 style="margin:14px 0 6px;font-size:13px">Checks you logged, confirmed cleared</h4>';
+      h += '<div style="font-size:12.5px;color:var(--text-light)">';
+      for (var j = 0; j < conf.length; j++) {
+        h += 'Check ' + conf[j].check_number + ' &mdash; ' + self.money(conf[j].amount) + '<br>';
+      }
+      h += '</div>';
+    }
+
+    var dis = (d.disagreements || []);
+    if (dis.length) {
+      h += '<h4 style="margin:14px 0 6px;font-size:13px;color:#a12025">' +
+           'Cleared for a different amount than you wrote</h4>' +
+           '<div style="font-size:12.5px;line-height:1.6">';
+      for (var k = 0; k < dis.length; k++) {
+        h += 'Check ' + dis[k].check_number + ': you wrote ' + self.money(dis[k].written_for) +
+             ', the bank took ' + self.money(dis[k].cleared_for) +
+             '. <strong>Nothing was changed on this one.</strong><br>';
+      }
+      h += '</div>';
+    }
+
+    if (make.length || conf.length) {
+      h += '<div style="margin-top:14px">' +
+           '<button class="rn-big" id="rec-settle-go">Do it</button></div>';
+    }
+
+    document.getElementById('rec-settle-body').innerHTML = h;
+    this.bind2('rec-settle-go', function() { self.settleRun(); });
+  },
+
+  settleRun: function() {
+    var self = this;
+    var btn = document.getElementById('rec-settle-go');
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Working&hellip;'; }
+    this.postJSON('/settle', { store_id: this.store_id, action: 'run' }, function(d) {
+      self.settleMsg('ok', self.escHtml(d.says));
+      document.getElementById('rec-settle-body').innerHTML = '';
+      self.loadWhose();
+      self.loadHome();
+      self.loadAttention();
+    }, function(err) {
+      if (btn) { btn.disabled = false; btn.innerHTML = 'Do it'; }
+      self.settleMsg('bad', self.escHtml(err.message));
+    });
+  },
+
+  settleUndo: function() {
+    var self = this;
+    if (!window.confirm(
+      'Take back everything the system read off the bank.\n\n' +
+      'Payments it created are removed and the money goes back onto the ' +
+      'invoices. Anything you typed yourself is left alone.')) return;
+    this.postJSON('/settle', { store_id: this.store_id, action: 'undo' }, function(d) {
+      self.settleMsg('ok', self.escHtml(d.says));
+      document.getElementById('rec-settle-body').innerHTML = '';
+      self.loadWhose();
+      self.loadHome();
+    }, function(err) { self.settleMsg('bad', self.escHtml(err.message)); });
+  },
+
+  // ---------- money that belongs to nobody ----------
+  loadWhose: function() {
+    var self = this;
+    this.get('/settle?unattributed=1', function(status, d) {
+      var card = document.getElementById('rec-whose-card');
+      if (status !== 200 || !d || !d.count) { card.style.display = 'none'; return; }
+      card.style.display = 'block';
+
+      // The vendor list is needed to offer a choice, so it is fetched
+      // once here rather than per row.
+      self.get('/vendor-setup', function(st2, vd) {
+        var vendors = (vd && vd.vendors) || [];
+        var opts = '<option value="">Whose was it?</option>';
+        for (var v = 0; v < vendors.length; v++) {
+          opts += '<option value="' + self.escHtml(vendors[v].vendor_id) + '">' +
+                  self.escHtml(vendors[v].name) + '</option>';
+        }
+
+        var h = '<p style="font-size:12.5px;margin:0 0 10px">' + self.escHtml(d.says) + '</p>';
+        for (var i = 0; i < d.payments.length; i++) {
+          var p = d.payments[i];
+          h += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;' +
+               'border-top:1px solid #F1F3F5;flex-wrap:wrap">' +
+            '<span style="min-width:92px;font-size:12.5px;color:var(--text-light)">' +
+              self.escHtml(p.payment_date) + '</span>' +
+            '<span style="min-width:110px;font-weight:600;font-size:13px">' +
+              (p.check_number ? 'Check ' + p.check_number : self.escHtml(p.method || 'Payment')) + '</span>' +
+            '<span style="min-width:90px;text-align:right;font-weight:700">' +
+              self.money(p.amount) + '</span>' +
+            '<select class="rn-whose-pick" data-payment="' + self.escHtml(p.payment_id) + '" ' +
+              'style="font:inherit;font-size:12.5px;padding:5px 8px;border:1px solid var(--border);' +
+              'border-radius:7px;flex:1;min-width:180px">' + opts + '</select>' +
+            '</div>';
+        }
+        document.getElementById('rec-whose').innerHTML = h;
+
+        var picks = document.querySelectorAll('.rn-whose-pick');
+        for (var q = 0; q < picks.length; q++) {
+          picks[q].onchange = function() {
+            if (!this.value) return;
+            var sel = this;
+            sel.disabled = true;
+            self.postJSON('/settle', {
+              store_id: self.store_id, action: 'attribute',
+              payment_id: sel.getAttribute('data-payment'), vendor_id: sel.value,
+            }, function(res) {
+              self.settleMsg('ok', self.escHtml(res.says));
+              self.loadWhose();
+              self.loadHome();
+            }, function(err) {
+              sel.disabled = false;
+              self.settleMsg('bad', self.escHtml(err.message));
+            });
+          };
+        }
+      });
+    });
   },
 
   loadDupes: function() {
@@ -4606,7 +4826,14 @@ var APP = {
     document.getElementById('rn-weekrange').innerHTML = d.week_start + ' to ' + d.week_end;
 
     // ---- KPI cards ----
-    this.setKpi('k-left', pos.after_everything, 'After checks clear and vendors are paid');
+    // The headline is the bank less the checks written and not yet
+    // cashed -- not that figure less every unpaid invoice, which is what
+    // it used to be and what read -$196,113 on his real books. That
+    // number took a month of bills off one day's bank balance and
+    // counted none of the month's takings, when about $37,800 a day
+    // comes in. Right, and no use to anybody standing on the floor.
+    var headline = pos.headline !== undefined ? pos.headline : pos.after_checks_clear;
+    this.setKpi('k-left', headline, 'If every check you wrote is cashed tomorrow');
     // A bank balance does not say how old it is, and a six-week-old one
     // looks exactly like this morning's. Every other figure here rests on
     // it, so when it is stale, say so in words rather than a date nobody
@@ -4630,10 +4857,27 @@ var APP = {
     }
     this.setKpi('k-ap', pos.ap_open, apNote);
 
-    document.getElementById('m-left').innerHTML = this.money(pos.after_everything);
-    document.getElementById('m-left').className = 'rn-hero-v' + (pos.after_everything < 0 ? ' neg' : '');
-    document.getElementById('m-left-n').innerHTML =
-      this.money(pos.in_bank) + ' in the bank, ' + this.money(pos.checks_outstanding) + ' in checks not cashed';
+    document.getElementById('m-left').innerHTML = this.money(headline);
+    document.getElementById('m-left').className = 'rn-hero-v' + (headline < 0 ? ' neg' : '');
+    var leftNote = this.money(pos.in_bank) + ' in the bank, ' +
+                   this.money(pos.checks_outstanding) + ' in checks not cashed';
+    // What is owed, said as a schedule rather than as a hole in today's
+    // cash, next to what actually arrives to meet it.
+    if (pos.due_this_week !== undefined && pos.due_this_week !== null) {
+      leftNote += '<br>' + this.money(pos.due_this_week) + ' due in the next 7 days';
+      if (pos.expected_this_week) {
+        leftNote += ', about ' + this.money(pos.expected_this_week) + ' expected in';
+      }
+      if (pos.overdue) {
+        leftNote += ' &middot; <strong style="color:#a12025">' +
+                    this.money(pos.overdue) + ' past due</strong>';
+      }
+      if (pos.covers_due_this_week === false) {
+        leftNote += '<br><strong style="color:#a12025">This week looks short. ' +
+                    'Check what is due before writing more checks.</strong>';
+      }
+    }
+    document.getElementById('m-left-n').innerHTML = leftNote;
     document.getElementById('m-in').innerHTML = this.money(tot.income);
     document.getElementById('m-out').innerHTML = this.money(tot.expense);
 

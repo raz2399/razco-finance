@@ -384,6 +384,19 @@ export const STORE = () => STORE_ID;
 // amount, a payment that failed, all of it recorded carefully and shown
 // to nobody. A warning nobody reads is worse than no warning, because it
 // creates the impression that something is watching.
+// Money that left the bank with no vendor against it, so it comes off
+// nothing he owes. Named once, from the phone, standing anywhere.
+export const getUnattributed = () => call('/settle?unattributed=1');
+
+export const sayWhose = (paymentId, vendorId) =>
+  call('/settle', {
+    method: 'POST',
+    body: JSON.stringify({
+      store_id: STORE_ID, action: 'attribute',
+      payment_id: paymentId, vendor_id: vendorId,
+    }),
+  });
+
 export const getAttention = () => call('/attention');
 
 export const clearAttention = (exceptionId, note) =>

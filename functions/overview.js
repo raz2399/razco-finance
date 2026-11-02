@@ -105,6 +105,7 @@ exports.handler = safely('overview', async (event) => {
       syncRes,
       trendRes,
       allocRes,
+      bankRes,
     ] = await Promise.all([
       supabase.from('tender_types').select('tender_id, description, bucket, sort_order'),
       supabase.from('tender_daily')
@@ -115,7 +116,7 @@ exports.handler = safely('overview', async (event) => {
         .eq('store_id', store_id),
       supabase.from('vendors').select('vendor_id, name, payment_type, terms_code, terms_days').eq('store_id', store_id),
       supabase.from('payments')
-        .select('payment_id, method, payment_date, amount, vendor_id, check_number, memo, status, cleared_date')
+        .select('payment_id, method, payment_date, amount, vendor_id, check_number, memo, status, cleared_date, created_from_bank')
         .eq('store_id', store_id),
       supabase.from('bank_accounts')
         .select('account_id, nickname, last_four, current_balance, balance_as_of, next_check_number')
@@ -127,7 +128,16 @@ exports.handler = safely('overview', async (event) => {
       // Which payments settle an invoice. A payment that settles nothing is a
       // cost in its own right, and has to be counted as one.
       supabase.from('payment_allocations').select('payment_id'),
+      // Deposits, for working out what a week actually brings in. Four
+      // weeks of real money beats any forecast, and it is the figure
+      // that makes what he owes mean something.
+      supabase.from('bank_transactions')
+        .select('posted_date, amount, is_pending')
+        .eq('store_id', store_id)
+        .gte('posted_date', iso(addDays(new Date(today + 'T12:00:00Z'), -28))),
     ]);
+
+    const bankRows = bankRes && bankRes.data ? bankRes.data : [];
 
     const bucketOf = {};
     const nameOf = {};
@@ -184,6 +194,24 @@ exports.handler = safely('overview', async (event) => {
     payments.forEach((p) => {
       if (settles[p.payment_id]) return;
       if (p.status === 'void' || p.status === 'cancelled') return;
+
+      // A payment the system read off the bank, that nobody has yet said
+      // belongs to a vendor, is NOT counted here.
+      //
+      // It settles nothing only because nothing is known about it yet.
+      // Most of these are checks paying bills that were already counted
+      // as cost on the day the delivery landed, so counting them again
+      // when the check clears would charge him twice for one load of
+      // groceries -- quietly, and in the direction that makes the week
+      // look worse than it was.
+      //
+      // The moment he names the vendor it allocates, and the cost lives
+      // on the invoice where it belongs. If it turns out to belong to a
+      // vendor with nothing open, it is a cost in its own right and
+      // counts from then on. Until then it sits in "whose check was
+      // this?" rather than in a figure on the screen.
+      if (p.created_from_bank && !p.vendor_id) return;
+
       const d = p.payment_date;
       if (byDay[d]) byDay[d].expense += money(p.amount);
     });
@@ -226,6 +254,62 @@ exports.handler = safely('overview', async (event) => {
 
     const afterChecks = money(inBank - checksOut);
     const afterEverything = money(afterChecks - apOpen);
+
+    // ---- what the big number on the screen should actually be ---------------
+    //
+    // It used to be `afterEverything`: the bank, less the checks written,
+    // less EVERY unpaid invoice. On his real books that read -$196,113
+    // and it frightened him into asking whether the system could be
+    // trusted at all. It was right to ask. The figure is arithmetically
+    // correct and completely meaningless, because it subtracts a month
+    // of bills from a single day's bank balance while counting none of
+    // the month's takings. Over the last thirty days $718,467 came into
+    // that account -- about $37,800 a day. A number that ignores all of
+    // it can only ever be terrifying, and a terrifying number that is
+    // never actionable is one he learns to disregard, which is worse
+    // than not showing it.
+    //
+    // What he actually needs to know, standing on the floor, is: if
+    // every check I have written is cashed tomorrow, am I still good?
+    // That is the bank less the checks out, and nothing else. Bills not
+    // yet due are not a claim on today's cash; they are a schedule, and
+    // a schedule belongs next to the money coming in to meet it.
+    //
+    // So: `afterChecks` is the headline, and what is owed is shown
+    // beside it as what it is -- due over days, against takings that
+    // arrive in the same days.
+    const DAY = 24 * 60 * 60 * 1000;
+    const plusDays = (n) => new Date(new Date(today + 'T12:00:00Z').getTime() + n * DAY)
+      .toISOString().slice(0, 10);
+    const weekOut = plusDays(7);
+
+    const dueSoonInvoices = openInvoices.filter(
+      (i) => i.due_date && i.due_date <= weekOut
+    );
+    const dueThisWeek = money(dueSoonInvoices.reduce((s, i) => s + money(i.balance_due), 0));
+    const overdue = money(openInvoices
+      .filter((i) => i.due_date && i.due_date < today)
+      .reduce((s, i) => s + money(i.balance_due), 0));
+
+    // What comes in, from what actually came in. Measured, not forecast:
+    // the daily average of real deposits over the last four weeks.
+    const sinceDate = plusDays(-28);
+    const deposits = (bankRows || []).filter(
+      (b) => money(b.amount) > 0 && String(b.posted_date || '') >= sinceDate
+        && !b.is_pending
+    );
+    const depositDays = {};
+    deposits.forEach((b) => { depositDays[b.posted_date] = true; });
+    const daysCounted = Object.keys(depositDays).length;
+    const takingsPerDay = daysCounted
+      ? money(deposits.reduce((s, b) => s + money(b.amount), 0) / daysCounted)
+      : null;
+    const expectedThisWeek = takingsPerDay === null ? null : money(takingsPerDay * 7);
+
+    // The question the screen should answer.
+    const coversDueThisWeek = expectedThisWeek === null
+      ? null
+      : money(afterChecks + expectedThisWeek) >= dueThisWeek;
 
     // ---- owed by vendor -----------------------------------------------------
     const owedMap = {};
@@ -410,7 +494,26 @@ exports.handler = safely('overview', async (event) => {
           drafts_pending_count: draftInvoices.length,
           checks_to_write: checksToWrite,
           checks_to_write_count: checkInvoices.length,
+          // The headline. Bank, less the checks written and not yet
+          // cashed. Answers "if every check I wrote lands tomorrow, am
+          // I still good", which is a question with an action behind it.
+          headline: afterChecks,
+          headline_label: 'Left after the checks you wrote clear',
+
+          // Kept, because the weekly close and the brief still report
+          // it and it IS the right figure for a balance-sheet view.
+          // It is no longer what greets him on the floor.
           after_everything: afterEverything,
+
+          // What is owed, shown as a schedule rather than as a hole in
+          // today's cash.
+          due_this_week: dueThisWeek,
+          due_this_week_count: dueSoonInvoices.length,
+          overdue: overdue,
+          takings_per_day: takingsPerDay,
+          expected_this_week: expectedThisWeek,
+          covers_due_this_week: coversDueThisWeek,
+
           next_check_number: acct ? acct.next_check_number : null,
         },
         checks: outstanding

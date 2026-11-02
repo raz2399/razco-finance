@@ -182,6 +182,35 @@ function checkTrue(name, cond, note) {
     b.week_totals.expense === 4200.00 + 860.00 + 3000.00 + 700.00 + 492.64,
     'a payment against an invoice must not be added on top of the invoice');
 
+  // A check the system read off the bank that nobody has named yet must
+  // NOT reach the expense line. It settles nothing only because nothing
+  // is known about it; most of these pay bills already counted as cost
+  // on the day the delivery landed, so counting them again charges him
+  // twice for one load of groceries -- quietly, and in the direction
+  // that makes the week look worse than it was.
+  console.log('\nA payment the bank wrote, with nobody named');
+  const beforeExpense = b.week_totals.expense;
+  DATA.payments.push({
+    payment_id: 'p-bank', method: 'check', payment_date: '2026-09-11',
+    amount: 1500.00, vendor_id: null, check_number: 9942, memo: 'read from the bank',
+    status: 'cleared', cleared_date: '2026-09-11', created_from_bank: true,
+  });
+  const b2 = JSON.parse((await handler({
+    httpMethod: 'GET',
+    queryStringParameters: { store_id: 'store1', week_start: '2026-09-07' },
+  })).body);
+  check('it does not touch the expense line', b2.week_totals.expense, beforeExpense);
+
+  // Named, against a vendor with nothing open, it is a cost of its own.
+  DATA.payments.filter(function (x) { return x.payment_id === 'p-bank'; })[0].vendor_id = 'v1';
+  const b3 = JSON.parse((await handler({
+    httpMethod: 'GET',
+    queryStringParameters: { store_id: 'store1', week_start: '2026-09-07' },
+  })).body);
+  check('named, it counts', b3.week_totals.expense,
+        Math.round((beforeExpense + 1500.00) * 100) / 100);
+  DATA.payments = DATA.payments.filter(function (x) { return x.payment_id !== 'p-bank'; });
+
   console.log('\nCash position');
   const p = b.position;
   check('in the bank', p.in_bank, 18000.00);
