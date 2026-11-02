@@ -11,6 +11,7 @@
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const { requireUser, safely } = require('./lib/guard');
+const { attach } = require('./lib/keepscan');
 
 // The store is in Lindsay, California. Its day ends when the store closes,
 // not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
@@ -608,6 +609,13 @@ exports.handler = safely('invoices', async (event) => {
     if (ins.error) return json(500, { error: 'Could not save the invoice: ' + ins.error.message });
 
     const invoiceId = ins.data && ins.data[0] ? ins.data[0].invoice_id : null;
+
+    // Tie the photograph to the row it became. The picture was saved
+    // before it was ever read, so this only records which invoice it
+    // turned out to be -- and if it fails, the photograph is still on
+    // file under the day it was taken.
+    if (body.scan_id && invoiceId) await attach(supabase, body.scan_id, 'invoice', invoiceId);
+
     const acct = await supabase
       .from('bank_accounts').select('account_id').eq('store_id', store_id).limit(1).maybeSingle();
 

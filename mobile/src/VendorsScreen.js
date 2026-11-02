@@ -14,11 +14,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, TextInput, RefreshControl, ActivityIndicator,
-  TouchableOpacity, SafeAreaView, StyleSheet,
+  TouchableOpacity, SafeAreaView, StyleSheet, Linking,
 } from 'react-native';
 import {
   findVendors, getVendorLedger, money, todayPacific,
   settleInvoices, unsettleInvoices, settleWholeVendor, payWholeVendor,
+  getPaperLink,
 } from './api';
 import VendorLineSheet from './VendorLineSheet';
 import Confirm from './Confirm';
@@ -166,6 +167,27 @@ export default function VendorsScreen({ onBack }) {
     }
   }
 
+  // Open the photograph behind a line, in whatever the phone uses to
+  // look at pictures. The link is minted on the press and lasts an hour,
+  // so nothing in this app is holding an address for an invoice.
+  async function openPaper(e) {
+    try {
+      const url = await getPaperLink(e.id);
+      if (!url) {
+        setNotice({ bad: true, text: 'There is no photo on file for this line.' });
+        return;
+      }
+      const can = await Linking.canOpenURL(url);
+      if (!can) {
+        setNotice({ bad: true, text: 'This phone would not open the photo.' });
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (err) {
+      setNotice({ bad: true, text: err.message });
+    }
+  }
+
   function pickSort(key) {
     if (key === sort) { setDir(dir === 'asc' ? 'desc' : 'asc'); return; }
     setSort(key);
@@ -270,6 +292,7 @@ export default function VendorsScreen({ onBack }) {
                       e={e}
                       busy={working}
                       onFix={() => { setEditing(e); setSheetOpen(true); }}
+                      onPaper={() => openPaper(e)}
                       onPaid={() => act(
                         () => (e.paid_outside > 0
                           ? unsettleInvoices([e.id])
@@ -487,7 +510,7 @@ function VendorRow({ v, onPress }) {
   );
 }
 
-function Line({ e, onFix, onPaid, busy }) {
+function Line({ e, onFix, onPaid, onPaper, busy }) {
   const isPay = e.kind === 'payment';
   const dead = !!e.voided;
   // Settled with no payment here to account for it.
@@ -517,7 +540,9 @@ function Line({ e, onFix, onPaid, busy }) {
         <Text style={st.lineEntered}>keyed in {enteredAt(e.entered_at)}</Text>
 
         {/* A voided line keeps no buttons: there is nothing left to do to
-            it, and it moves no money either way. */}
+            it, and it moves no money either way. The paper is the one
+            exception, further down -- a line somebody struck out is
+            exactly the one an argument will be about. */}
         {!dead ? (
           <View style={st.lineActs}>
             <TouchableOpacity
@@ -542,6 +567,22 @@ function Line({ e, onFix, onPaid, busy }) {
                 </Text>
               </TouchableOpacity>
             ) : null}
+          </View>
+        ) : null}
+
+        {/* Only where there is actually a photograph on file. A button
+            that sometimes opens nothing is a button he stops pressing. */}
+        {e.has_paper ? (
+          <View style={st.lineActs}>
+            <TouchableOpacity
+              style={st.act}
+              onPress={onPaper}
+              disabled={busy}
+              activeOpacity={0.6}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={st.actText}>See the paper</Text>
+            </TouchableOpacity>
           </View>
         ) : null}
       </View>

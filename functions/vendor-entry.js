@@ -44,6 +44,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const { requireUser, storeFor, safely } = require('./lib/guard');
 const { readVendorSheet } = require('./lib/sheet');
+const { attach } = require('./lib/keepscan');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -277,6 +278,11 @@ async function addInvoice(store_id, body, who) {
     learnedCategory = !learn.error;
   }
 
+  // The photograph this came from, tied to the invoice it became. Not
+  // fatal if it fails -- the scan is already kept and findable on its
+  // own; it just will not be one tap away from this line.
+  if (body.scan_id) await attach(supabase, body.scan_id, 'invoice', ins.data.invoice_id);
+
   await noted(store_id, 'manual_invoice',
     'Invoice ' + (number || '(no number)') + ' for $' + total.toFixed(2) +
     ' entered by hand against ' + vendor.name,
@@ -332,6 +338,9 @@ async function addPayment(store_id, body, who) {
     cleared_date: status === 'cleared' ? (isDate(body.cleared_date) ? body.cleared_date : payDate) : null,
   }).select('payment_id, amount, method, check_number, payment_date, status').single();
   if (ins.error) return json(500, { error: ins.error.message });
+
+  // The photograph of the check this came from.
+  if (body.scan_id) await attach(supabase, body.scan_id, 'payment', ins.data.payment_id);
 
   // Against which invoices, if he said. Without this the payment reduces
   // what he owes but nothing records WHICH bill it settled -- and that is

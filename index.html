@@ -2057,6 +2057,49 @@ var APP = {
 
   // Delete or void, decided by what the line has touched rather than by
   // which button was pressed. The screen says which happened.
+  // Open the photograph of a line.
+  //
+  // The tab is opened on the click itself, before anything is asked of
+  // the server. Opening it afterwards, when the link comes back, is the
+  // thing every browser treats as a pop-up and blocks -- and the way
+  // that fails is silently, so he presses the button and decides the
+  // feature does not work.
+  //
+  // The link is asked for fresh every time and lasts an hour. Nothing on
+  // this page holds a lasting address for an invoice.
+  openPaper: function(id, btn) {
+    var self = this;
+    var label = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Opening&hellip;'; }
+
+    var tab = window.open('', '_blank');
+    if (tab && tab.document) {
+      tab.document.write('<title>The paper</title>' +
+        '<body style="font:15px -apple-system,system-ui,sans-serif;' +
+        'padding:28px;color:#333">Fetching the photo&hellip;</body>');
+    }
+
+    function done() { if (btn) { btn.disabled = false; btn.innerHTML = label; } }
+
+    this.get('/scans?entity_id=' + encodeURIComponent(id), function(status, d) {
+      done();
+      var scan = d && d.scans && d.scans[0];
+      if (status !== 200 || !scan || !scan.url) {
+        var why = (d && d.error) ? d.error
+          : !scan ? 'There is no photo on file for this line.'
+          : 'The photo is on file but could not be opened just now.';
+        if (tab && tab.document) {
+          tab.document.body.innerHTML = '<b>' + self.escHtml(why) + '</b>';
+        } else {
+          window.alert(why);
+        }
+        return;
+      }
+      if (tab) tab.location.href = scan.url;
+      else window.location.href = scan.url;
+    });
+  },
+
   removeLine: function(kind, id) {
     var self = this;
     if (!window.confirm('Remove this ' + kind + '?')) return;
@@ -3573,6 +3616,18 @@ var APP = {
         }
 
         var acts = '';
+        // The paper. Shown only on lines that actually have a photograph
+        // on file, so an empty button never promises something that is
+        // not there. A voided line keeps its button: a line somebody
+        // struck out is exactly the one an argument will be about.
+        if (e.has_paper) {
+          acts += '<button class="vl-act" data-act="paper" data-kind="' + e.kind +
+                  '" data-id="' + e.id + '" style="font:inherit;font-size:11.5px;' +
+                  'font-weight:700;padding:3px 8px;border:1px solid var(--border);' +
+                  'background:#fff;border-radius:7px;cursor:pointer;' +
+                  'color:var(--text-light)" title="Open the photo of this paper">' +
+                  'Paper</button> ';
+        }
         if (!e.voided) {
           acts += '<button class="vl-act" data-act="edit" data-kind="' + e.kind +
                   '" data-id="' + e.id + '" style="font:inherit;font-size:11.5px;' +
@@ -3644,6 +3699,7 @@ var APP = {
           var what = this.getAttribute('data-act');
           var id = this.getAttribute('data-id');
           if (what === 'edit') { self.editVendorLine(this.getAttribute('data-kind'), id); return; }
+          if (what === 'paper') { self.openPaper(id, this); return; }
           if (what === 'remove') { self.removeLine(this.getAttribute('data-kind'), id); return; }
           if (what === 'settle') {
             if (!window.confirm(
@@ -3991,6 +4047,10 @@ var APP = {
       this.chkMsg('bad', 'Check number, payee and amount are all needed.');
       return;
     }
+    // The photograph of the check, if one was taken. On a check this is
+    // worth more than on an invoice: the paper states the amount twice,
+    // and the figure in the box is somebody's reading of it.
+    if (this.held_scan.check) payload.scan_id = this.held_scan.check;
 
     var btn = document.getElementById('chk-save');
     btn.disabled = true; btn.innerHTML = 'Saving...';
@@ -4007,6 +4067,7 @@ var APP = {
       }
       self.chkMsg('ok', 'Check ' + payload.check_number + ' logged. Real available cash is now ' +
         self.money(d.real_available_cash) + '.');
+      self.held_scan.check = null;
       document.getElementById('chk-num').value = '';
       document.getElementById('chk-amt').value = '';
       document.getElementById('chk-payee').value = '';
@@ -4299,6 +4360,8 @@ var APP = {
     var codVal = document.getElementById('inv-cod-check').value;
     if (codVal) payload.check_number = codVal;
     if (allowDuplicate) payload.allow_duplicate = true;
+    // The photograph this invoice was read off, if there was one.
+    if (this.held_scan.invoice) payload.scan_id = this.held_scan.invoice;
 
     if (!payload.vendor || !payload.invoice_number || !payload.total_amount) {
       this.invMsg('bad', 'Vendor, invoice number and amount are all needed.');
@@ -4329,7 +4392,10 @@ var APP = {
       self.invMsg(d.pay_method === 'auto_debit' ? 'warn' : 'ok',
         '<strong>' + self.escHtml(d.vendor_name) + '</strong> &mdash; ' + self.escHtml(d.instruction));
 
-      // clear the whole form so the next truck starts clean
+      // clear the whole form so the next truck starts clean -- the
+      // photograph included, or the next invoice typed in by hand would
+      // be filed against this one's paper
+      self.held_scan.invoice = null;
       document.getElementById('inv-vendor').value = '';
       document.getElementById('inv-num').value = '';
       document.getElementById('inv-amt').value = '';
@@ -4827,7 +4893,15 @@ var APP = {
       var data = null;
       try { data = JSON.parse(x.responseText); } catch (e) { data = null; }
       if (x.status >= 200 && x.status < 300 && data && !data.error) onOk(data);
-      else onErr(new Error((data && data.error) ? data.error : ('HTTP ' + x.status)));
+      else {
+        // The body comes along with the failure. A reading that went
+        // wrong still says which photograph it was, and that is the one
+        // most worth holding on to: the figures now get typed by hand,
+        // and the picture is the only record of what they came from.
+        var err = new Error((data && data.error) ? data.error : ('HTTP ' + x.status));
+        err.data = data;
+        onErr(err);
+      }
     };
     x.send(JSON.stringify(body));
   },
@@ -4843,6 +4917,20 @@ var APP = {
     invoice:   { input: 'inv-photo',  state: 'inv-photo-state',  verb: 'Reading the invoice' },
     check:     { input: 'chk-photo',  state: 'chk-photo-state',  verb: 'Reading the check' },
     statement: { input: 'stmt-photo', state: 'stmt-photo-state', verb: 'Reading the statement' }
+  },
+
+  // Which saved photograph each form is currently working from. The
+  // server puts every photo away before it reads a word of it, so this
+  // is set whether the reading succeeded or failed, and it travels with
+  // the form when it saves so the entry can be looked at again later.
+  // Cleared when the form is cleared, so the next truck's invoice never
+  // ends up pointing at the last one's paper.
+  held_scan: { invoice: null, check: null, statement: null },
+
+  holdScan: function(kind, res) {
+    this.held_scan[kind] = (res && res.scan_id) || null;
+    if (res && res.scan_kept === false && res.scan_note) return '<br>' + this.escHtml(res.scan_note);
+    return '';
   },
 
   onPhotoPicked: function(input, kind) {
@@ -4874,7 +4962,16 @@ var APP = {
         if (res.kind === 'check') self.applyCheckExtract(res);
         else if (res.kind === 'statement') self.applyStatementExtract(res);
         else self.applyInvoiceExtract(res);
-      }, function(err) { self.captureState('bad', err.message); });
+      }, function(err) {
+        // The reading failed; the photograph did not. Hold on to it so
+        // that typing the figures in by hand still ends up with the
+        // picture attached to the entry.
+        var kept = self.holdScan(kind, err.data);
+        self.captureState('bad', self.escHtml(err.message) +
+          (err.data && err.data.scan_id
+            ? '<br>The photo is saved. Type what it says and it stays with the entry.'
+            : kept));
+      });
     };
     reader.readAsDataURL(file);
     input.value = '';
@@ -4906,6 +5003,7 @@ var APP = {
 
   applyInvoiceExtract: function(res) {
     var d = res.draft || {};
+    var scanNote = this.holdScan('invoice', res);
     var msg = this.fillFrom([
       ['inv-vendor', d.vendor_name, 'vendor'],
       ['inv-num', d.invoice_number, 'invoice number'],
@@ -4926,11 +5024,12 @@ var APP = {
       msg += '<br>The invoice says terms are &ldquo;' + d.terms_text + '&rdquo;.';
     }
     msg += '<br><b>Check the amount against the paper before saving.</b>';
-    this.captureState(res.needs_eyes ? 'check' : 'good', msg);
+    this.captureState(res.needs_eyes ? 'check' : 'good', msg + scanNote);
   },
 
   applyCheckExtract: function(res) {
     var d = res.draft || {};
+    var scanNote = this.holdScan('check', res);
 
     // The amount is only filled in when the paper vouched for it.
     //
@@ -4974,7 +5073,7 @@ var APP = {
     if (res.trust !== 'verified') {
       msg += '<br><b>Check it against the paper before saving.</b>';
     }
-    this.captureState(res.needs_eyes ? 'check' : 'good', msg);
+    this.captureState(res.needs_eyes ? 'check' : 'good', msg + scanNote);
   },
 
   applyStatementExtract: function(res) {

@@ -158,6 +158,9 @@ export default function CheckScreen({ onBack, onDone }) {
         amount: clean,
         payment_date: date,
         memo: memo,
+        // The photograph this came from, so the check can be looked at
+        // again a year from now when somebody asks what it was for.
+        scan_id: read && read.scan_id ? read.scan_id : undefined,
       });
 
       const applied = (r && r.applied_to) || 0;

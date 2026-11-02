@@ -17,12 +17,23 @@ const { createClient } = require('@supabase/supabase-js');
 const { requireUser, safely } = require('./lib/guard');
 const { judge } = require('./lib/readcheck');
 const { matchVendor } = require('./lib/bankrules');
+const { keep, noteReading } = require('./lib/keepscan');
 
 // Used when quoting an amount back to him. Referenced before it existed
 // once already in this repo -- "json is not defined" -- and the cost was
 // a crash the moment the line ran, which is exactly the line that only
 // runs when something has gone wrong.
 const money = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+// Every reply carries what happened to the photograph -- including the
+// failures. A reply that is silent about it lets him believe a copy was
+// made when none was, which is worse than no copy at all.
+const withScan = (held, body) => Object.assign({
+  scan_id: held && held.kept ? held.scan_id : null,
+  scan_kept: !!(held && held.kept),
+  scan_note: held && held.kept ? null
+    : 'The photo itself could not be saved' + (held && held.why ? ': ' + held.why : '.'),
+}, body);
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -155,6 +166,21 @@ exports.handler = safely('invoice-extract', async (event) => {
     return json(413, { error: 'That photo is too large. Take it again at normal quality.' });
   }
 
+  // The photograph is put away BEFORE it is read.
+  //
+  // After would lose exactly the ones worth keeping: a photo whose
+  // reading failed has no figures left, so the picture is all there is.
+  // If keeping it fails the reading still goes ahead -- a read photo
+  // beats nothing -- and the reply says plainly that no copy was made
+  // rather than letting him believe there is one.
+  const held = await keep(supabase, {
+    store_id: store_id,
+    base64: base64_image,
+    mime_type: mime_type,
+    kind: kind,
+    taken_by: auth.user && auth.user.email ? auth.user.email : null,
+  });
+
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -178,10 +204,11 @@ exports.handler = safely('invoice-extract', async (event) => {
 
     if (!res.ok) {
       const detail = await res.text();
-      return json(502, {
-        error: 'Could not read the photo right now.',
+      return json(502, withScan(held, {
+        error: 'Could not read the photo right now.'
+          + (held.kept ? ' The photo itself has been saved.' : ''),
         detail: detail.slice(0, 300),
-      });
+      }));
     }
 
     const payload = await res.json();
@@ -193,9 +220,19 @@ exports.handler = safely('invoice-extract', async (event) => {
       data = JSON.parse(text);
     } catch (e) {
       const m = text.match(/\{[\s\S]*\}/);
-      if (!m) return json(502, { error: 'The photo could not be turned into invoice fields.' });
+      if (!m) {
+        return json(502, withScan(held, {
+          error: 'The photo could not be turned into invoice fields.'
+            + (held.kept ? ' The photo itself has been saved.' : ''),
+        }));
+      }
       try { data = JSON.parse(m[0]); }
-      catch (e2) { return json(502, { error: 'The photo could not be turned into invoice fields.' }); }
+      catch (e2) {
+        return json(502, withScan(held, {
+          error: 'The photo could not be turned into invoice fields.'
+            + (held.kept ? ' The photo itself has been saved.' : ''),
+        }));
+      }
     }
 
     const num = (v) => {
@@ -268,7 +305,8 @@ exports.handler = safely('invoice-extract', async (event) => {
         }
       }
 
-      return json(200, {
+      await noteReading(supabase, held.scan_id, data);
+      return json(200, withScan(held, {
         ok: true,
         kind: kind,
         draft: draft,
@@ -283,7 +321,7 @@ exports.handler = safely('invoice-extract', async (event) => {
           || !!duplicate,
         why: notes,
         model: MODEL,
-      });
+      }));
     }
 
     // ---------------- a page of a bank statement ----------------
@@ -304,7 +342,8 @@ exports.handler = safely('invoice-extract', async (event) => {
                    ' could not be read well enough to use.');
       }
 
-      return json(200, {
+      await noteReading(supabase, held.scan_id, data);
+      return json(200, withScan(held, {
         ok: true, kind,
         draft: {
           account_last_four: data.account_last_four || null,
@@ -320,7 +359,7 @@ exports.handler = safely('invoice-extract', async (event) => {
           ? 'That is a lot of lines from a photograph. Import the CSV instead so nothing is missed.'
           : null,
         model: MODEL,
-      });
+      }));
     }
 
     // ---------------- a vendor invoice ----------------
@@ -375,7 +414,8 @@ exports.handler = safely('invoice-extract', async (event) => {
       duplicate = (d.data || [])[0] || null;
     }
 
-    return json(200, {
+    await noteReading(supabase, held.scan_id, data);
+    return json(200, withScan(held, {
       ok: true,
       kind,
       draft,
@@ -390,7 +430,7 @@ exports.handler = safely('invoice-extract', async (event) => {
       duplicate,
       needs_eyes: draft.total === null || notes.length > 0 || !!duplicate,
       model: MODEL,
-    });
+    }));
   } catch (err) {
     return json(500, { error: err.message, where: 'invoice-extract' });
   }

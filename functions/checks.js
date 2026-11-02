@@ -10,6 +10,7 @@
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const { requireUser, safely } = require('./lib/guard');
+const { attach } = require('./lib/keepscan');
 
 // The store is in Lindsay, California. Its day ends when the store closes,
 // not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
@@ -204,6 +205,13 @@ exports.handler = safely('checks', async (event) => {
 
     const ins = await supabase.from('payments').insert(row).select('payment_id, check_number, amount');
     if (ins.error) return json(500, { error: 'Could not save the check: ' + ins.error.message });
+
+    // The photograph of the check, tied to the entry it became. On a
+    // check this matters more than on an invoice: the two amounts on the
+    // paper are the only way to settle an argument about what was
+    // written, and the figure typed in here is somebody's reading of it.
+    const paymentId = ins.data && ins.data[0] ? ins.data[0].payment_id : null;
+    if (body.scan_id && paymentId) await attach(supabase, body.scan_id, 'payment', paymentId);
 
     // Recalculate so the page can show the new number straight away.
     const open = await supabase

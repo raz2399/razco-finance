@@ -80,6 +80,7 @@ function query(table) {
   const api = {
     select() { return api; },
     eq(col, val) { rows = rows.filter((r) => r[col] === val); return api; },
+    in(col, vals) { rows = rows.filter((r) => vals.indexOf(r[col]) > -1); return api; },
     maybeSingle() { return Promise.resolve({ data: rows[0] || null, error: null }); },
     then(res) { return Promise.resolve({ data: rows, error: null }).then(res); },
   };
@@ -91,9 +92,13 @@ Module._resolveFilename = function (request, ...rest) {
   if (request === '@supabase/supabase-js') return 'MOCK_SB12';
   return origResolve.call(this, request, ...rest);
 };
+// One client object, kept, so a test can break a single table on it and
+// then put it back -- which is the only way to prove that a table going
+// wrong does not take the whole endpoint down with it.
+const sb = { from: query };
 require.cache.MOCK_SB12 = {
   id: 'MOCK_SB12', filename: 'MOCK_SB12', loaded: true,
-  exports: { createClient: () => ({ from: query }) },
+  exports: { createClient: () => sb },
 };
 process.env.SUPABASE_URL = 'https://example.supabase.co';
 process.env.SUPABASE_SERVICE_KEY = 'test';
@@ -233,6 +238,28 @@ const GET = (params) => handler({
   const pdRow = JSON.parse((await GET({ q: 'pan dulce' })).body).vendors[0];
   check('same figure in the search as in the ledger', pdRow.owed, pd.totals.owed);
   check('one invoice still open, not three', pdRow.open_count, 1);
+
+  console.log('\nThe paper behind a line');
+  // The flag says only whether a photograph exists; the link that opens
+  // it is minted elsewhere, when he presses the button.
+  DB.scans = [{ scan_id: 's1', store_id: 'store1', entity_id: 'o2' }];
+  const withPaper = JSON.parse((await GET({ vendor_id: 'v4' })).body);
+  const lineWith = withPaper.entries.filter((e) => e.id === 'o2')[0];
+  const lineWithout = withPaper.entries.filter((e) => e.id === 'o1')[0];
+  check('the line with a photo says so', lineWith.has_paper, true);
+  check('the line without one does not', lineWithout.has_paper, false);
+
+  // And the part that matters more than the feature: a photograph index
+  // that falls over must not cost him the ledger.
+  const goodQuery = sb.from;
+  sb.from = (t) => (t === 'scans'
+    ? { select: () => { throw new Error('relation "scans" does not exist'); } }
+    : goodQuery(t));
+  const broken = await GET({ vendor_id: 'v4' });
+  sb.from = goodQuery;
+  check('a broken scans table does not take the ledger down', broken.statusCode, 200);
+  check('and the lines are all still there',
+    JSON.parse(broken.body).entries.length, withPaper.entries.length);
 
   console.log('\nA vendor that is not his');
   const nope = await handler({

@@ -252,6 +252,31 @@ exports.handler = safely('vendor-ledger', async (event) => {
       e.balance_after = running;
     });
 
+    // Which of these lines have the paper on file.
+    //
+    // One query for the whole ledger rather than one per line, and only
+    // the ids -- never a link. A link is minted when he actually asks to
+    // look at one, by /scans, and it lasts an hour. Painting the page
+    // with sixty permanent links to invoices would be handing out sixty
+    // permanent ways in.
+    const ids = entries.map((e) => e.id).filter(Boolean);
+    const withPaper = {};
+    if (ids.length) {
+      // No scans table, no scans column, no matter: the ledger is the
+      // point of this endpoint, and an index of photographs failing must
+      // never stop him seeing what he owes. Caught both ways -- an error
+      // the client reports, and one it throws.
+      try {
+        const sc = await supabase
+          .from('scans')
+          .select('entity_id')
+          .eq('store_id', store_id)
+          .in('entity_id', ids);
+        if (!sc.error) (sc.data || []).forEach((r) => { withPaper[r.entity_id] = 1; });
+      } catch (e) { /* the ledger goes out without the paper flags */ }
+    }
+    entries.forEach((e) => { e.has_paper = !!withPaper[e.id]; });
+
     let shown = entries;
     if (from) shown = shown.filter((e) => (e.date || '') >= from);
     if (to) shown = shown.filter((e) => (e.date || '') <= to);
