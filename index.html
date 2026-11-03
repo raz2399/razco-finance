@@ -2812,7 +2812,45 @@ var APP = {
       h += '</div>';
     }
 
-    if (make.length || conf.length) {
+    // Costs with no invoice behind them. These are the ones that were
+    // reaching no figure anywhere: payroll, the tax drafts, every card
+    // purchase on card 5337. Grouped, because a list of forty card
+    // charges is not something anybody reads.
+    var costs = (d.would_cost || []);
+    if (costs.length) {
+      var byLabel = {};
+      for (var c2 = 0; c2 < costs.length; c2++) {
+        var L = costs[c2].label || 'Other';
+        if (!byLabel[L]) byLabel[L] = { n: 0, amt: 0 };
+        byLabel[L].n += 1;
+        byLabel[L].amt += Number(costs[c2].amount) || 0;
+      }
+      var labels = [];
+      for (var k2 in byLabel) { if (byLabel.hasOwnProperty(k2)) labels.push(k2); }
+      labels.sort(function(a, b) { return byLabel[b].amt - byLabel[a].amt; });
+
+      h += '<h4 style="margin:14px 0 6px;font-size:13px">Costs that were reaching no figure at all</h4>' +
+           '<table style="width:100%;border-collapse:collapse;font-size:12.5px">';
+      for (var l2 = 0; l2 < labels.length; l2++) {
+        h += '<tr style="border-top:1px solid #F1F3F5">' +
+          '<td style="padding:6px 8px 6px 0">' + self.escHtml(labels[l2]) + '</td>' +
+          '<td style="padding:6px 8px 6px 0;color:var(--text-light)">' +
+            byLabel[labels[l2]].n + '</td>' +
+          '<td style="padding:6px 0;text-align:right;font-weight:600">' +
+            self.money(byLabel[labels[l2]].amt) + '</td>' +
+          '</tr>';
+      }
+      h += '</table>';
+    }
+
+    var learn = (d.aliases_to_learn || []);
+    if (learn.length) {
+      h += '<p style="font-size:12.5px;color:var(--text-light);margin:12px 0 0;line-height:1.5">' +
+           'It also worked out how the bank spells ' + learn.length + ' of your vendors, ' +
+           'so next month those match on the name instead of needing the amounts to line up.</p>';
+    }
+
+    if (make.length || conf.length || costs.length) {
       h += '<div style="margin-top:14px">' +
            '<button class="rn-big" id="rec-settle-go">Do it</button></div>';
     }
