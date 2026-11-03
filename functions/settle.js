@@ -30,7 +30,7 @@ const dollars = (n) => '$' + (Math.round((Number(n) || 0) * 100) / 100)
 function inWords(p) {
   if (!p.ok) return p.why;
   const t = p.totals;
-  if (!t.payments_to_create && !t.checks_confirmed) {
+  if (!t.payments_to_create && !t.checks_confirmed && !t.costs_to_record) {
     return 'The books already agree with the bank. Nothing to settle.';
   }
   const bits = [];
@@ -42,6 +42,19 @@ function inWords(p) {
   if (t.checks_confirmed) {
     bits.push(t.checks_confirmed + ' check' + (t.checks_confirmed === 1 ? '' : 's')
       + ' you logged, now confirmed as cleared');
+  }
+  if (t.costs_to_record) {
+    bits.push(t.costs_to_record + ' cost' + (t.costs_to_record === 1 ? '' : 's')
+      + ' worth ' + dollars(t.money_in_costs) + ' that were reaching no figure at all '
+      + '— payroll, the tax drafts, the card purchases');
+  }
+  if (t.settled_by_learning) {
+    bits.push(t.settled_by_learning + ' more settled once it worked out how the bank '
+      + 'spells those vendors');
+  }
+  if (t.need_naming) {
+    bits.push(t.need_naming + ' line' + (t.need_naming === 1 ? '' : 's')
+      + ' it will not guess at — name those below');
   }
   if (t.money_onto_invoices) {
     bits.push(dollars(t.money_onto_invoices) + ' coming off what you owe across '
@@ -189,6 +202,9 @@ exports.handler = safely('settle', async (event) => {
       // Capped: this is a summary for a screen, not an export.
       would_create: planned.created.slice(0, 50),
       would_confirm: planned.linked.slice(0, 50),
+      would_cost: planned.costs.slice(0, 80),
+      to_ask: planned.to_ask.slice(0, 50),
+      aliases_to_learn: planned.learn.slice(0, 50),
       disagreements: planned.disagreements,
       left_alone: planned.skipped.slice(0, 50),
     });

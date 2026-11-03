@@ -218,9 +218,13 @@ function runTheRealThing() {
         // A vendor draft.
         { store_id: 'store1', bank_txn_id: 'b-draft', posted_date: '2026-10-31',
           description: 'BBUSA BIMBO BAKERIES WEB RAZ ALI', amount: -900.43, is_pending: false },
-        // Payroll.
+        // Payroll -- a cost with no invoice behind it, ever.
         { store_id: 'store1', bank_txn_id: 'b-pay', posted_date: '2026-10-30',
           description: 'PAYROLL RAZCO LINDSAY IN CCD', amount: -6789.53, is_pending: false },
+        // A card purchase. Money out that used to reach no figure at all.
+        { store_id: 'store1', bank_txn_id: 'b-card', posted_date: '2026-10-31',
+          description: 'DBT CRD 0926 28404739 FACEBK LSHSADEQS4 CARD# 5337',
+          amount: -360, is_pending: false },
         // Money in.
         { store_id: 'store1', bank_txn_id: 'b-in', posted_date: '2026-10-30',
           description: 'DEPOSIT MERCHANT BNKCD CCD', amount: 14674.30, is_pending: false },
@@ -393,6 +397,110 @@ function runTheRealThing() {
         assert.strictEqual(DB.payments.length, n);
         assert.strictEqual(owed(), o);
       });
+    }))
+
+    .then(() => { console.log('\ncosts that used to reach no figure at all'); })
+
+    .then(() => check('payroll and the card purchase are recorded as costs', () => {
+      reset();
+      return plan(sb, 'store1').then((p) => {
+        const codes = p.costs.map((c) => c.label);
+        assert.ok(codes.indexOf('Payroll') > -1, 'payroll still reaches nothing');
+        assert.ok(codes.indexOf('Card purchase') > -1, 'card 5337 still reaches nothing');
+        const card = p.costs.filter((c) => c.label === 'Card purchase')[0];
+        assert.strictEqual(card.method, 'card');
+        // The flag the expense line depends on. True here would mean the
+        // cost is treated as paying a bill and never counted.
+        assert.strictEqual(card.settles_ap, false);
+      });
+    }))
+
+    .then(() => check('a cost never lands on an invoice', () => {
+      reset();
+      return plan(sb, 'store1')
+        .then((p) => apply(sb, 'store1', p))
+        .then(() => {
+          recompute();
+          const card = DB.payments.filter((p) => p.method === 'card')[0];
+          assert.ok(card, 'the card purchase was not written');
+          assert.strictEqual(card.vendor_id, null);
+          const allocs = DB.payment_allocations.filter(
+            (a) => a.payment_id === card.payment_id);
+          assert.strictEqual(allocs.length, 0,
+            'a card purchase was allocated against a vendor bill');
+        });
+    }))
+
+    .then(() => { console.log('\nthe pending draft, and the day it posts'); })
+
+    .then(() => check('a pending draft settles its bill straight away', () => {
+      // Not doing this is what put "FRITO LAY is past due -- Pay now" on
+      // his screen while the money was already gone.
+      reset();
+      DB.bank_transactions.push({
+        store_id: 'store1', bank_txn_id: 'b-pend', posted_date: '2026-10-31',
+        description: 'OK PRODUCE CCD ACH ENTRY MEMO POSTED TODAY',
+        amount: -500, is_pending: true, plaid_transaction_id: 'plaid-pending-1',
+      });
+      return plan(sb, 'store1')
+        .then((p) => apply(sb, 'store1', p))
+        .then(() => {
+          recompute();
+          const old = DB.invoices.filter((i) => i.invoice_id === 'inv-old')[0];
+          assert.strictEqual(old.status, 'paid',
+            'the pending draft did not settle the invoice, so he will be told to pay it again');
+          const made = DB.payments.filter((p) => p.pending_plaid_id === 'plaid-pending-1')[0];
+          assert.ok(made, 'nothing recorded the pending line');
+          // Committed, not final.
+          assert.strictEqual(made.status, 'outstanding');
+          assert.strictEqual(made.from_pending, true);
+        });
+    }))
+
+    .then(() => check('AND WHEN IT POSTS IT IS NOT PAID TWICE', () => {
+      // The one way this whole design could quietly double his money.
+      // The pending row is deleted by the sync and the posted row
+      // arrives looking brand new; without the handover the same bill
+      // gets settled a second time.
+      const before = {
+        payments: DB.payments.length,
+        owed: owed(),
+        paid: DB.invoices.reduce((s, i) => s + Number(i.amount_paid || 0), 0),
+      };
+
+      // What the sync does: the posted line names the pending one, and
+      // the pending row goes.
+      DB.bank_transactions = DB.bank_transactions.filter(
+        (t) => t.bank_txn_id !== 'b-pend');
+      DB.bank_transactions.push({
+        store_id: 'store1', bank_txn_id: 'b-posted', posted_date: '2026-11-01',
+        description: 'OK PRODUCE CCD ACH ENTRY', amount: -500, is_pending: false,
+        plaid_transaction_id: 'plaid-posted-1', plaid_pending_id: 'plaid-pending-1',
+      });
+      // The sync parks the payment on Plaid's pending id.
+      DB.payments.filter((p) => p.pending_plaid_id === 'plaid-pending-1')
+        .forEach((p) => { p.bank_txn_id = null; });
+
+      return plan(sb, 'store1')
+        .then((p) => {
+          assert.strictEqual(p.created.length, 0,
+            'the posted line was about to be paid a second time');
+          return apply(sb, 'store1', p);
+        })
+        .then(() => {
+          recompute();
+          assert.strictEqual(DB.payments.length, before.payments,
+            'a second payment was created for one draft');
+          assert.strictEqual(owed(), before.owed, 'what he owes moved when the draft posted');
+          const nowPaid = DB.invoices.reduce((s, i) => s + Number(i.amount_paid || 0), 0);
+          assert.strictEqual(nowPaid, before.paid, 'the same bill was paid twice');
+          // And it is final now.
+          const made = DB.payments.filter((p) => p.payment_id
+            && p.bank_txn_id === 'b-posted')[0];
+          assert.ok(made, 'the payment was not carried onto the posted line');
+          assert.strictEqual(made.status, 'cleared');
+          assert.strictEqual(made.from_pending, false);
+        });
     }))
 
     .then(() => { console.log('\nall of it can be taken back'); })

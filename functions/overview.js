@@ -116,7 +116,7 @@ exports.handler = safely('overview', async (event) => {
         .eq('store_id', store_id),
       supabase.from('vendors').select('vendor_id, name, payment_type, terms_code, terms_days').eq('store_id', store_id),
       supabase.from('payments')
-        .select('payment_id, method, payment_date, amount, vendor_id, check_number, memo, status, cleared_date, created_from_bank')
+        .select('payment_id, method, payment_date, amount, vendor_id, check_number, memo, status, cleared_date, created_from_bank, settles_ap')
         .eq('store_id', store_id),
       supabase.from('bank_accounts')
         .select('account_id, nickname, last_four, current_balance, balance_as_of, next_check_number')
@@ -195,6 +195,17 @@ exports.handler = safely('overview', async (event) => {
       if (settles[p.payment_id]) return;
       if (p.status === 'void' || p.status === 'cancelled') return;
 
+      // A cost with no invoice behind it -- payroll, the sales tax
+      // draft, a card purchase on card 5337 -- IS the expense. These
+      // reached no figure at all before: the money left the bank and
+      // nothing on any screen moved, which is why the week kept looking
+      // cheaper than it was. settles_ap === false says so outright.
+      if (p.settles_ap === false) {
+        const dd = p.payment_date;
+        if (byDay[dd]) byDay[dd].expense += money(p.amount);
+        return;
+      }
+
       // A payment the system read off the bank, that nobody has yet said
       // belongs to a vendor, is NOT counted here.
       //
@@ -204,12 +215,6 @@ exports.handler = safely('overview', async (event) => {
       // when the check clears would charge him twice for one load of
       // groceries -- quietly, and in the direction that makes the week
       // look worse than it was.
-      //
-      // The moment he names the vendor it allocates, and the cost lives
-      // on the invoice where it belongs. If it turns out to belong to a
-      // vendor with nothing open, it is a cost in its own right and
-      // counts from then on. Until then it sits in "whose check was
-      // this?" rather than in a figure on the screen.
       if (p.created_from_bank && !p.vendor_id) return;
 
       const d = p.payment_date;

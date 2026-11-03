@@ -165,6 +165,43 @@ async function syncItem(item) {
   // least of all a delete.
   const supersedes = incoming.map((t) => t.pending_transaction_id).filter(Boolean);
   if (LIVE && supersedes.length) {
+    // Before the pending row goes, anything settled against it has to be
+    // moved onto the row that replaces it.
+    //
+    // This is the one way the whole design could quietly double his
+    // money: a pending draft settles an invoice, the pending row is
+    // deleted, the posted row arrives looking brand new, and the next
+    // pass settles the same bill a second time. So the payment is
+    // re-pointed first, and only then is the old row dropped.
+    const dying = await supabase.from('bank_transactions')
+      .select('bank_txn_id, plaid_transaction_id')
+      .in('plaid_transaction_id', supersedes);
+
+    const newIdFor = {};
+    incoming.forEach((t) => {
+      if (t.pending_transaction_id) newIdFor[t.pending_transaction_id] = t.transaction_id;
+    });
+
+    for (const row of (dying.data || [])) {
+      const posted = incoming.filter(
+        (t) => t.pending_transaction_id === row.plaid_transaction_id)[0];
+      if (!posted) continue;
+
+      // The posted row is written below with its own bank_txn_id, so the
+      // payment is parked on the pending id and picked up by the
+      // settlement pass, which knows to carry it across rather than
+      // create a second one.
+      await supabase.from('payments').update({
+        // Keyed on PLAID's id for the pending line, because our own row
+        // is about to be deleted and its uuid with it. The posted line
+        // names this id, which is how the settlement pass finds the
+        // payment again instead of making a second one.
+        pending_plaid_id: row.plaid_transaction_id,
+        bank_txn_id: null,
+        updated_at: new Date().toISOString(),
+      }).eq('bank_txn_id', row.bank_txn_id);
+    }
+
     await supabase.from('bank_transactions')
       .delete().in('plaid_transaction_id', supersedes);
   }
