@@ -1165,8 +1165,8 @@
           <div style="font-size:13px;margin-bottom:10px">Selected: <strong id="inv-sel-total">$0.00</strong> <span id="inv-sel-count" style="color:#666"></span></div>
           <div style="display:flex;gap:10px">
             <div style="flex:1">
-              <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">CHECK NUMBER</label>
-              <input id="inv-check-num" type="text" inputmode="numeric" placeholder="9801">
+              <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">CHECK NUMBER &mdash; LEAVE BLANK TO PRINT IT</label>
+              <input id="inv-check-num" type="text" inputmode="numeric" placeholder="only if you wrote it by hand">
             </div>
             <div style="flex:1">
               <label style="display:block;font-size:11px;color:#666;font-weight:700;margin-bottom:5px">DATE</label>
@@ -4687,22 +4687,32 @@ var APP = {
     var names = [];
     for (var k in vendors) { if (vendors.hasOwnProperty(k)) names.push(k); }
     if (names.length > 1) { window.alert('One check pays one vendor. Unselect the others first.'); return; }
+    // The number is optional. Typed, he wrote it by hand and is saying
+    // which one -- that is what keeps a handwritten check from turning
+    // up later as money nobody can place. Left blank, it goes to Print
+    // checks and takes its number off the pad in the printer.
     var num = document.getElementById('inv-check-num').value;
-    if (!num) { window.alert('Enter the check number you are writing.'); return; }
 
     var btn = document.getElementById('inv-pay');
     btn.disabled = true; btn.innerHTML = 'Writing...';
 
     this.post('/invoices', {
-      store_id: this.store_id, action: 'pay', invoice_ids: ids, check_number: num,
+      store_id: this.store_id, action: 'pay', invoice_ids: ids,
+      check_number: num || undefined,
       payment_date: document.getElementById('inv-check-date').value
     }, function(status, d) {
       btn.disabled = false; btn.innerHTML = 'Write the check';
       if (status !== 200 || !d || d.error) { window.alert((d && d.error) || 'Could not write the check.'); return; }
       document.getElementById('inv-check-num').value = '';
-      self.invMsg('ok', 'Check ' + self.escHtml(num) + ' for ' + self.money(d.amount) + ' to ' +
-        self.escHtml(d.vendor_name) + ' covering ' + d.invoices_paid +
-        (d.invoices_paid === 1 ? ' invoice.' : ' invoices.') + ' It clears itself on the next bank import.');
+      self.invMsg('ok',
+        (num ? 'Check ' + self.escHtml(num) : 'A check')
+        + ' for ' + self.money(d.amount) + ' to ' + self.escHtml(d.vendor_name)
+        + ' covering ' + d.invoices_paid
+        + (d.invoices_paid === 1 ? ' invoice.' : ' invoices.')
+        + (num
+          ? ' It clears itself off when the bank takes it.'
+          : ' It has no number yet &mdash; it is waiting in <b>Print checks</b>, '
+            + 'which takes the number off the pad in the printer.'));
       self.loadInvoices();
       self.loadChecks();
       self.loadCashPosition();

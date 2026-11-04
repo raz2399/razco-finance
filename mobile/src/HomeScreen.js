@@ -10,7 +10,7 @@ import {
 import { getOverview, getAttention, money } from './api';
 import { C, S } from './theme';
 
-export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks, onFixNumbers, onLogCheck }) {
+export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks, onFixNumbers, onLogCheck, onWriteCheck }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -125,7 +125,12 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
             month of bills off a single day's bank balance and counted
             none of the month's takings, when about $37,800 a day comes
             into that account. A number that can only ever be frightening
-            is a number he stops reading. */}
+            is a number he stops reading.
+
+            What is here now answers a question with an action behind
+            it: if every check I have written is cashed tomorrow, am I
+            still good? What is owed sits underneath, as a schedule,
+            next to the money that arrives to meet it. */}
         <View style={st.hero}>
           <Text style={st.heroLabel}>
             {pos.headline_label || 'Left after the checks you wrote clear'}
@@ -137,6 +142,7 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
             {fig(pos.in_bank)} in the bank · {fig(pos.checks_outstanding)} in checks not cashed
           </Text>
 
+          {/* What is owed, and whether the week pays for it. */}
           {pos.due_this_week !== undefined && pos.due_this_week !== null ? (
             <Text style={st.heroNote}>
               {fig(pos.due_this_week)} due in the next 7 days
@@ -187,6 +193,14 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
 
         <TouchableOpacity style={S.big} onPress={onRecordDelivery} activeOpacity={0.85}>
           <Text style={S.bigText}>Record a delivery</Text>
+        </TouchableOpacity>
+
+        {/* Writing one against the bills it actually pays. Sits above
+            "Log a check" because this is the one that leaves nothing to
+            work out afterwards: the invoices are picked at the time, so
+            the check never turns up later as money nobody can place. */}
+        <TouchableOpacity style={st.secondary} onPress={onWriteCheck} activeOpacity={0.8}>
+          <Text style={st.secondaryText}>Write a check</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={st.secondary} onPress={onLogCheck} activeOpacity={0.8}>

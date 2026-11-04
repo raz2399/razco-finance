@@ -356,7 +356,18 @@ exports.handler = safely('invoices', async (event) => {
     if (body.action === 'pay') {
       const ids = body.invoice_ids || [];
       if (!ids.length) return json(400, { error: 'No invoices selected' });
-      if (!body.check_number) return json(400, { error: 'Check number is required' });
+
+      // The number is optional now, and that matters more than it looks.
+      //
+      // With a number: he wrote it by hand at the counter and is telling
+      // the system which one. That is the case that keeps twenty-odd
+      // handwritten checks a month out of the "whose was this?" queue --
+      // the bank sees them clear and has no idea who they were to.
+      //
+      // Without one: it goes into Print checks, which hands out the
+      // number against the pad actually in the printer. Demanding a
+      // number here meant he had to guess one before printing, and
+      // guessing is how 9960 went into the books as 9986.
 
       const sel = await supabase
         .from('invoices')
@@ -377,6 +388,44 @@ exports.handler = safely('invoices', async (event) => {
       const amount = round(picked.reduce((s, p) => s + Number(p.balance_due), 0));
       const payDate = body.payment_date || todayStr();
 
+      // A number he typed has to be one that is not already spent. Two
+      // checks carrying one number is the failure the printing side
+      // refuses a whole run over; it is no less bad written by hand.
+      if (body.check_number && !body.allow_duplicate) {
+        const clash = await supabase
+          .from('payments')
+          .select('payment_id, amount, payment_date, status')
+          .eq('store_id', store_id)
+          .eq('method', 'check')
+          .eq('check_number', String(body.check_number))
+          .limit(1)
+          .maybeSingle();
+        if (clash.data) {
+          return json(409, {
+            error: 'Check ' + body.check_number + ' is already on the books for $'
+              + Number(clash.data.amount).toFixed(2) + ' on ' + clash.data.payment_date
+              + '. Two checks with one number is how the bank pays the wrong one.',
+            duplicate_of: clash.data,
+          });
+        }
+        const atBank = await supabase
+          .from('bank_transactions')
+          .select('bank_txn_id, amount, posted_date')
+          .eq('store_id', store_id)
+          .eq('check_number', Number(body.check_number))
+          .lt('amount', 0)
+          .limit(1)
+          .maybeSingle();
+        if (atBank.data) {
+          return json(409, {
+            error: 'Check ' + body.check_number + ' already went through the bank for $'
+              + Math.abs(Number(atBank.data.amount)).toFixed(2) + ' on '
+              + atBank.data.posted_date + '.',
+            duplicate_of: atBank.data,
+          });
+        }
+      }
+
       const vend = await supabase
         .from('vendors').select('name').eq('vendor_id', picked[0].vendor_id).limit(1).maybeSingle();
       const vendorName = vend.data ? vend.data.name : 'Vendor';
@@ -390,7 +439,7 @@ exports.handler = safely('invoices', async (event) => {
           account_id: acct.data ? acct.data.account_id : null,
           vendor_id: picked[0].vendor_id,
           method: 'check',
-          check_number: String(body.check_number),
+          check_number: body.check_number ? String(body.check_number) : null,
           amount,
           payment_date: payDate,
           memo: vendorName + ' — ' + picked.map((p) => p.invoice_number).join(', '),
