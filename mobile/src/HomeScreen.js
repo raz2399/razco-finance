@@ -10,7 +10,7 @@ import {
 import { getOverview, getAttention, money } from './api';
 import { C, S } from './theme';
 
-export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks, onFixNumbers, onLogCheck }) {
+export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks, onFixNumbers, onLogCheck, onWriteCheck }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -193,6 +193,14 @@ export default function HomeScreen({ onRecordDelivery, onOpenSales, onOpenChecks
 
         <TouchableOpacity style={S.big} onPress={onRecordDelivery} activeOpacity={0.85}>
           <Text style={S.bigText}>Record a delivery</Text>
+        </TouchableOpacity>
+
+        {/* Writing one against the bills it actually pays. Sits above
+            "Log a check" because this is the one that leaves nothing to
+            work out afterwards: the invoices are picked at the time, so
+            the check never turns up later as money nobody can place. */}
+        <TouchableOpacity style={st.secondary} onPress={onWriteCheck} activeOpacity={0.8}>
+          <Text style={st.secondaryText}>Write a check</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={st.secondary} onPress={onLogCheck} activeOpacity={0.8}>

@@ -18,6 +18,7 @@ import FixScreen from './src/FixScreen';
 import ChecksScreen from './src/ChecksScreen';
 import CheckScreen from './src/CheckScreen';
 import PrintChecksScreen from './src/PrintChecksScreen';
+import WriteCheckScreen from './src/WriteCheckScreen';
 import VendorsScreen from './src/VendorsScreen';
 import LoginScreen from './src/LoginScreen';
 import { restoreSession, clearSession } from './src/api';
@@ -116,6 +117,17 @@ export default function App() {
     );
   }
 
+  if (screen === 'writecheck') {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <StatusBar style="dark" />
+        {/* Writing a check changes both what is owed and what is out, so
+            Home refetches on the way out and after each one. */}
+        <WriteCheckScreen onBack={() => { refreshHome(); home(); }} onDone={refreshHome} />
+      </View>
+    );
+  }
+
   if (screen === 'printchecks') {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -194,6 +206,7 @@ export default function App() {
         onOpenSales={() => setScreen('sales')}
         onOpenChecks={() => setScreen('checks')}
         onLogCheck={() => setScreen('check')}
+        onWriteCheck={() => setScreen('writecheck')}
         onFixNumbers={() => setScreen('fix')}
       />
     </View>

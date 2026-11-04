@@ -336,6 +336,27 @@ export const payWholeVendor = (vendorId, method, checkNumber, payDate) =>
     method, check_number: checkNumber, payment_date: payDate,
   });
 
+// Writing one check against invoices he picked himself.
+//
+// checkNumber is optional and the difference matters. Given, he wrote
+// it by hand and is telling the system which one -- that is what keeps
+// handwritten checks out of the "whose was this?" queue, because the
+// bank sees them clear and has no idea who they were to. Left out, the
+// check goes into Print checks and gets its number from the pad that is
+// actually in the printer.
+export const payChosenInvoices = (invoiceIds, checkNumber, payDate, allowDuplicate) =>
+  call('/invoices', {
+    method: 'POST',
+    body: JSON.stringify({
+      store_id: STORE_ID,
+      action: 'pay',
+      invoice_ids: invoiceIds,
+      check_number: checkNumber || undefined,
+      payment_date: payDate,
+      allow_duplicate: !!allowDuplicate,
+    }),
+  });
+
 // A day at the register: by tender, by department, by cashier.
 export const getDay = (date) => call('/day' + (date ? '?date=' + date : ''));
 
