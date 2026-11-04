@@ -100,15 +100,33 @@ function seriesOf(used) {
     const s = Math.floor(n / 1000) * 1000;
     const b = by[s] || (by[s] = {
       series: s, count: 0, lowest: n, highest: n, last_used: date,
+      last_number: n,
     });
     b.count += 1;
     if (n < b.lowest) b.lowest = n;
     if (n > b.highest) b.highest = n;
-    if (date > b.last_used) b.last_used = date;
+    // The number used most recently. Ties on the same day go to the
+    // higher number, because within one day the pad still went forwards.
+    if (date > b.last_used || (date === b.last_used && n > b.last_number)) {
+      b.last_used = date;
+      b.last_number = n;
+    }
   });
   return Object.keys(by).map((k) => {
     const b = by[k];
     b.next_free = b.highest + 1;
+    // Where the book ACTUALLY is, which is not the same thing.
+    //
+    // next_free is the highest number ever seen plus one. That is the
+    // safe floor for avoiding a collision, and it is the wrong thing to
+    // put in front of him. His 9000 book had a stray 9999 on it from
+    // September, so "highest ever" said 10000 while the pad in the
+    // printer was on 9960. He typed a number, nothing checked it, and a
+    // check went out recorded 26 ahead of itself.
+    //
+    // The pad moves forwards in order, so where it is today is one past
+    // the most recent number used -- by DATE, not by size.
+    b.next_expected = b.last_number + 1;
     b.left_in_book = (b.series + 999) - b.highest;
     return b;
   // Most recently used first. Razco runs two books at once -- 6000s and
@@ -188,7 +206,11 @@ exports.handler = safely('check-print', async (event) => {
       // real checks were in the 6000s and 9000s, and silently printing
       // 1000 would have been worse than asking.
       books: books,
-      suggested_next: books.length ? books[0].next_free : null,
+      // What the pad in the printer is almost certainly on.
+      suggested_next: books.length ? books[0].next_expected : null,
+      // The floor that avoids a collision with anything ever seen. Kept
+      // visible because the two disagreeing is itself worth knowing.
+      highest_ever_next: books.length ? books[0].next_free : null,
       // A book runs out at x999. Worth knowing before a payment run,
       // not halfway through one.
       nearly_out: books.filter((b) => b.left_in_book <= 25),
@@ -208,6 +230,34 @@ exports.handler = safely('check-print', async (event) => {
         };
       }),
       count: waiting.length,
+    });
+  }
+
+  // ---------------- where the printing lands on his paper ---------------
+  //
+  // Set once, from the alignment sheet, and kept. Before this the only
+  // way to move the printing was a number on the end of a URL that was
+  // forgotten as soon as the page closed.
+  if (body.action === 'align') {
+    const ax = Number(body.offset_x);
+    const ay = Number(body.offset_y);
+    if (!isFinite(ax) || !isFinite(ay) || Math.abs(ax) > 3 || Math.abs(ay) > 3) {
+      return json(400, {
+        error: 'Give the two offsets in inches, each between -3 and 3. '
+          + 'A whole check is only about three inches tall.',
+      });
+    }
+    const upd = await supabase.from('bank_accounts')
+      .update({ check_offset_x: ax, check_offset_y: ay })
+      .eq('store_id', store_id);
+    if (upd.error) return json(500, { error: upd.error.message });
+    return json(200, {
+      ok: true,
+      offset_x: ax,
+      offset_y: ay,
+      says: 'Saved. Every check from now on prints ' + ax + '" across and '
+        + ay + '" down from where it used to. Print the alignment sheet '
+        + 'again to check it against the paper.',
     });
   }
 
@@ -245,6 +295,56 @@ exports.handler = safely('check-print', async (event) => {
     return json(400, { error: 'Only checks can be printed.' });
   }
 
+  // ---- does this number match the pad in the printer? -----------------
+  //
+  // The pad goes forwards one at a time. If the number he gives is far
+  // ahead of where the book actually is, either he has mistyped it or a
+  // stack of checks has gone somewhere nobody recorded. Both are worth
+  // stopping for.
+  //
+  // This is not hypothetical. Check 9960 came out of the printer and was
+  // written down as 9986 -- twenty-six ahead -- and nothing said a word.
+  // The paper and the books disagreed from that moment on, and the only
+  // reason it was caught is that he happened to photograph the check.
+  const books = seriesOf(used);
+  const sameSeries = books.filter(
+    (b) => b.series === Math.floor(start / 1000) * 1000)[0];
+
+  if (sameSeries && !body.confirm_gap) {
+    const expected = sameSeries.next_expected;
+    const gap = start - expected;
+    // A few skipped is ordinary -- he handwrites one at the counter now
+    // and then, and those numbers never come through here. Twenty-six is
+    // not ordinary. The line sits where it catches a mistyped number
+    // without nagging about normal use.
+    if (gap > 10) {
+      return json(409, {
+        error: 'That would start at ' + start + ', but this book is on '
+          + expected + '. That skips ' + gap + ' check'
+          + (gap === 1 ? '' : 's') + '.\n\nCheck the number printed on the '
+          + 'paper in the printer. If it really does say ' + start
+          + ', send it again to confirm — the skipped numbers will be '
+          + 'treated as gone.',
+        expected_next: expected,
+        you_asked_for: start,
+        skips: gap,
+        needs_confirm: true,
+      });
+    }
+    if (gap < 0) {
+      // Going backwards is almost always a typo, and the collision check
+      // below would catch a real reuse anyway. Worth saying plainly.
+      return json(409, {
+        error: 'That would start at ' + start + ', behind where this book '
+          + 'already is (' + expected + '). Checks do not go backwards. '
+          + 'Check the number on the paper.',
+        expected_next: expected,
+        you_asked_for: start,
+        needs_confirm: true,
+      });
+    }
+  }
+
   // Keep the order stable so the numbers on the paper match the order
   // they come out of the printer.
   const ordered = ids.map((id) => rows.filter((r) => r.payment_id === id)[0]);
@@ -262,6 +362,19 @@ exports.handler = safely('check-print', async (event) => {
         + 'Nothing was printed. Start from a number that has not been used.',
       clashes: clash,
     });
+  }
+
+  // A small gap goes ahead, but it is still a few checks nobody can
+  // account for, so it is reported rather than passed over.
+  let gapNote = null;
+  if (sameSeries) {
+    const g = start - sameSeries.next_expected;
+    if (g > 0) {
+      gapNote = 'This run starts at ' + start + ' and the book was on '
+        + sameSeries.next_expected + ', so ' + g + ' check'
+        + (g === 1 ? ' is' : 's are') + ' unaccounted for. '
+        + 'Fine if you wrote ' + (g === 1 ? 'it' : 'them') + ' by hand.';
+    }
   }
 
   const vById = {};
@@ -335,6 +448,7 @@ exports.handler = safely('check-print', async (event) => {
     ok: true,
     printed: printed,
     count: printed.length,
+    gap_note: gapNote,
     sheet_url: sheetPath,
     next_check_number: start + ordered.length,
     layout: acct ? acct.check_layout : 'top',

@@ -7,8 +7,22 @@
 [functions."daily-brief"]
   schedule = "0 13 * * *"
 
-# The bank, before the brief reads it. Banks post overnight, so by 11:30 UTC
-# -- half four Pacific -- yesterday has settled and the morning brief an hour
-# later is reading today's balance rather than the day before's.
+# The bank, every two hours, all day.
+#
+# It used to run once, at 11:30 UTC -- half four Pacific -- so that the
+# morning brief an hour later read today's balance rather than
+# yesterday's. That is still true: :30 past every second hour includes
+# 11:30, so the brief is unaffected.
+#
+# Once a day is not enough any more, because this run no longer just
+# fetches. It settles: a draft that lands at ten in the morning marks
+# its bill paid at noon instead of tomorrow morning, which is the
+# difference between the screen being right and the screen telling him
+# to pay something the bank already took.
+#
+# Running it twelve times a day is safe because settling is idempotent
+# -- every payment carries the id of the bank line it came from, behind
+# a unique index, so the same line can never become money twice. The
+# sync itself is incremental and pulls nothing it has already seen.
 [functions."plaid-sync"]
-  schedule = "30 11 * * *"
+  schedule = "30 */2 * * *"

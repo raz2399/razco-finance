@@ -297,9 +297,83 @@ Promise.resolve()
     });
   }))
 
-  .then(() => {
-    console.log('\nwhat it prints');
-  })
+  .then(() => { console.log('\nthe number on the paper is the truth'); })
+
+  // What actually happened: check 9960 came out of the printer and went
+  // into the books as 9986. Twenty-six ahead, in silence. From that
+  // moment the paper and the books disagreed, and the only reason
+  // anybody noticed is that he happened to photograph the check.
+  .then(() => check('the suggestion follows the pad, not the highest number ever', () => {
+    reset();
+    // A stray high number from months ago must not drag the suggestion
+    // with it. His 9000 book had a 9999 on it from September while the
+    // pad in the printer was on 9960.
+    DB.bank_transactions.push({
+      bank_txn_id: 'b-stray', store_id: 'store1', check_number: 9999,
+      posted_date: '2026-09-10', amount: -1275,
+    });
+    return get().then((b) => {
+      assert.strictEqual(b.suggested_next, 9926,
+        'a September stray pulled the suggestion to ' + b.suggested_next);
+      // The collision floor is still known, and still higher.
+      assert.strictEqual(b.highest_ever_next, 10000);
+    });
+  }))
+
+  .then(() => check('a number far ahead of the pad is refused, not accepted', () => {
+    reset();
+    // 9926 is where the book is. 9952 is the 9986-shaped mistake.
+    return print(['p-1'], 9952).then((r) => {
+      assert.strictEqual(r.status, 409,
+        'it accepted a number 26 ahead without a word — exactly what went wrong');
+      assert.strictEqual(r.body.skips, 26);
+      assert.strictEqual(r.body.expected_next, 9926);
+      assert.ok(r.body.needs_confirm);
+      // And nothing was written.
+      assert.ok(!DB.payments.filter((p) => p.check_number === 9952).length);
+    });
+  }))
+
+  .then(() => check('but he can confirm it when the paper really does say that', () => {
+    reset();
+    return handler({
+      httpMethod: 'POST', headers: { authorization: 'Bearer t' },
+      queryStringParameters: {},
+      body: JSON.stringify({ store_id: 'store1', payment_ids: ['p-1'],
+        start_number: 9952, confirm_gap: true }),
+    }).then((r) => {
+      assert.strictEqual(r.statusCode, 200, 'confirming did not get through');
+    });
+  }))
+
+  .then(() => check('going backwards is refused', () => {
+    reset();
+    return print(['p-1'], 9900).then((r) => {
+      assert.strictEqual(r.status, 409);
+      assert.ok(/backwards/i.test(r.body.error), r.body.error);
+    });
+  }))
+
+  .then(() => check('a handful skipped goes through, and says so', () => {
+    reset();
+    // He handwrote a few at the counter. Ordinary, but still worth
+    // naming rather than passing over in silence.
+    return print(['p-1'], 9930).then((r) => {
+      assert.strictEqual(r.status, 200);
+      assert.ok(r.body.gap_note, 'four skipped checks went unmentioned');
+      assert.ok(/4 checks are unaccounted/.test(r.body.gap_note), r.body.gap_note);
+    });
+  }))
+
+  .then(() => check('starting exactly where the pad is says nothing at all', () => {
+    reset();
+    return print(['p-1'], 9926).then((r) => {
+      assert.strictEqual(r.status, 200);
+      assert.strictEqual(r.body.gap_note, null, 'it nagged about a correct number');
+    });
+  }))
+
+  .then(() => { console.log('\nwhat it prints'); })
 
   .then(() => check('numbers run in order, and the payments are marked outstanding', () => {
     reset();
