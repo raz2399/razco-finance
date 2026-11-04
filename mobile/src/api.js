@@ -413,13 +413,29 @@ export const clearAttention = (exceptionId, note) =>
 // binary through TestFlight before anything could be printed at all.
 export const checksToPrint = () => call('/check-print');
 
-export const printChecks = (paymentIds, startNumber) =>
+// confirmGap is sent only after he has looked at the paper and said the
+// number really is that far ahead. Without it the server refuses a start
+// number that skips checks, which is what stops a 9960 going into the
+// books as 9986.
+export const printChecks = (paymentIds, startNumber, confirmGap) =>
   call('/check-print', {
     method: 'POST',
     body: JSON.stringify({
       store_id: STORE_ID,
       payment_ids: paymentIds,
       start_number: startNumber,
+      confirm_gap: !!confirmGap,
+    }),
+  });
+
+// Where the printing lands on his particular check stock. Set once from
+// the alignment sheet and kept on the account.
+export const saveCheckAlignment = (offsetX, offsetY) =>
+  call('/check-print', {
+    method: 'POST',
+    body: JSON.stringify({
+      store_id: STORE_ID, action: 'align',
+      offset_x: Number(offsetX), offset_y: Number(offsetY),
     }),
   });
 

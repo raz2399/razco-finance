@@ -83,8 +83,30 @@ exports.handler = safely('check-sheet', async (event) => {
       + '— the checks are already numbered, so nothing is lost.');
   }
 
-  const dx = Number(q.dx || 0) || 0;
-  const dy = Number(q.dy || 0) || 0;
+  // ---- where the printing lands on HIS paper ---------------------------
+  //
+  // The positions below are for a standard business check. Every bank's
+  // stock sits slightly differently, and his Bank of the Sierra pad does
+  // not match the default. Until now the only way to move the printing
+  // was to pass dx/dy on the URL by hand, and whatever he worked out was
+  // forgotten the moment he closed the page.
+  //
+  // So the account carries the offsets, and they are applied here. The
+  // nudge on the URL still works and is added on top, which is what
+  // makes the alignment sheet usable: try a value, look at the paper,
+  // keep it.
+  const acctRes = await supabase
+    .from('bank_accounts')
+    .select('check_offset_x, check_offset_y')
+    .eq('store_id', claim.store_id)
+    .limit(1)
+    .maybeSingle();
+
+  const savedX = acctRes.data ? Number(acctRes.data.check_offset_x) || 0 : 0;
+  const savedY = acctRes.data ? Number(acctRes.data.check_offset_y) || 0 : 0;
+
+  const dx = savedX + (Number(q.dx || 0) || 0);
+  const dy = savedY + (Number(q.dy || 0) || 0);
 
   const res = await supabase
     .from('payments')
@@ -112,6 +134,84 @@ exports.handler = safely('check-sheet', async (event) => {
 
   const at = (spot, extra) =>
     'left:' + (spot[0] + dx) + 'in;top:' + (spot[1] + dy + (extra || 0)) + 'in';
+
+  // ---- the alignment sheet --------------------------------------------
+  //
+  // Printed on one real check. Every field prints where the system
+  // thinks it goes, with a ruler in inches running out from it. He looks
+  // at the paper, reads off how far the writing is from where it should
+  // be, and types those two numbers in once. They are saved to the
+  // account and every check after that lands right.
+  //
+  // This exists because the alternative is him describing a photograph
+  // to somebody who then guesses at sixteenths of an inch.
+  if (q.cal === '1') {
+    let cal = '<div class="sheet">';
+    const ticks = (x, y, horizontal) => {
+      let out = '';
+      for (let i = -8; i <= 8; i++) {
+        const v = i * 0.125;
+        const lx = horizontal ? x + v : x;
+        const ly = horizontal ? y : y + v;
+        if (lx < 0 || ly < 0 || lx > 8.2 || ly > 10.7) continue;
+        const major = i % 8 === 0;
+        const mid = i % 4 === 0;
+        out += '<div style="position:absolute;left:' + lx + 'in;top:' + ly + 'in;'
+          + 'width:' + (horizontal ? '0.6pt' : (major ? '0.26in' : mid ? '0.17in' : '0.09in'))
+          + ';height:' + (horizontal ? (major ? '0.26in' : mid ? '0.17in' : '0.09in') : '0.6pt')
+          + ';background:#000"></div>';
+        if (major && i !== 0) {
+          out += '<div class="f" style="left:' + (lx + (horizontal ? 0.02 : 0.28))
+            + 'in;top:' + (ly + (horizontal ? 0.26 : -0.06)) + 'in;font-size:7pt">'
+            + (i > 0 ? '+' : '') + v.toFixed(1) + '"</div>';
+        }
+      }
+      return out;
+    };
+
+    Object.keys(AT).forEach((name) => {
+      const spot = AT[name];
+      const x = spot[0] + dx;
+      const y = spot[1] + dy;
+      cal += '<div class="f" style="left:' + x + 'in;top:' + y + 'in;'
+        + 'font-size:8pt;font-weight:700">\u2190 ' + name + '</div>';
+      cal += ticks(x, y, true) + ticks(x, y, false);
+    });
+
+    cal += '<div class="f" style="left:0.5in;top:9.9in;font-size:9pt;max-width:7.4in;'
+      + 'white-space:normal;line-height:1.4">'
+      + 'Alignment sheet. Each label sits where Razi-Nova will print that field. '
+      + 'Find <b>payee</b> and measure, in inches, how far it is from where the '
+      + 'payee line actually starts on the check. Right is +, left is \u2212 for '
+      + 'across; down is +, up is \u2212 for the other. '
+      + 'Current offset: across ' + dx.toFixed(3) + '&quot;, down ' + dy.toFixed(3)
+      + '&quot;. Put the two numbers into Razi-Nova and print this again to check.'
+      + '</div>';
+    cal += '</div>';
+
+    const calHtml = '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+      + '<meta name="robots" content="noindex, nofollow">'
+      + '<title>Check alignment</title><style>'
+      + 'html,body{margin:0;padding:0;background:#e9edf3}'
+      + '.sheet{position:relative;width:8.5in;height:11in;background:#fff;'
+      + 'margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",'
+      + 'Roboto,Helvetica,Arial,sans-serif}'
+      + '.f{position:absolute;white-space:pre;font-size:11pt}'
+      + '@media print{html,body{background:#fff}.sheet{margin:0}'
+      + '@page{size:letter;margin:0}}'
+      + '</style></head><body>' + cal + '</body></html>';
+
+    return {
+      statusCode: 200,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Robots-Tag': 'noindex, nofollow',
+        'Referrer-Policy': 'no-referrer',
+      },
+      body: calHtml,
+    };
+  }
 
   let sheets = '';
   ordered.forEach((p) => {

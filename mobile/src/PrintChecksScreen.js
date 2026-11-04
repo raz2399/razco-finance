@@ -27,7 +27,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, ActivityIndicator,
   TextInput, SafeAreaView, StyleSheet, RefreshControl, Linking,
 } from 'react-native';
-import { checksToPrint, printChecks, siteRoot, money } from './api';
+import { checksToPrint, printChecks, saveCheckAlignment, siteRoot, money } from './api';
 import { C, S } from './theme';
 
 export default function PrintChecksScreen({ onBack, onDone }) {
@@ -40,6 +40,14 @@ export default function PrintChecksScreen({ onBack, onDone }) {
   const [start, setStart] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
+  // Set when the server refuses a start number that skips checks. The
+  // next press carries the confirmation.
+  const [confirmGap, setConfirmGap] = useState(false);
+  // Where the printing lands on his check stock, measured off the
+  // alignment sheet.
+  const [alignX, setAlignX] = useState('');
+  const [alignY, setAlignY] = useState('');
+  const [alignSaved, setAlignSaved] = useState(null);
 
   const load = useCallback(async (isRefresh) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
@@ -79,12 +87,48 @@ export default function PrintChecksScreen({ onBack, onDone }) {
     setBusy(true);
     setError(null);
     try {
-      const r = await printChecks(chosen.map((c) => c.payment_id), startNum);
+      const r = await printChecks(chosen.map((c) => c.payment_id), startNum, confirmGap);
       setDone(r);
+      setConfirmGap(false);
       if (onDone) onDone();
     } catch (e) {
       // The server refuses the whole run on a clash rather than printing
       // some of it, so this is the real message and worth showing whole.
+      //
+      // A refusal because the number skips checks is different: it is
+      // not a fault, it is the system asking him to look at the paper.
+      // Check 9960 once went into the books as 9986 because nothing
+      // asked. If he confirms, the next press goes through.
+      if (e.data && e.data.needs_confirm) setConfirmGap(true);
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // The alignment sheet. Printed on one real check, it shows where every
+  // field will land with a ruler out from it, so the offsets can be
+  // measured off the paper instead of guessed at.
+  async function openAlignment() {
+    if (!done || !done.sheet_url) {
+      setError('Number a check first — the alignment sheet prints on a real one.');
+      return;
+    }
+    try {
+      await Linking.openURL(siteRoot() + done.sheet_url + '&cal=1');
+    } catch (e) {
+      setError('Could not open the alignment sheet. ' + e.message);
+    }
+  }
+
+  async function saveAlignment() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await saveCheckAlignment(alignX || 0, alignY || 0);
+      setError(null);
+      setAlignSaved(r.says);
+    } catch (e) {
       setError(e.message);
     } finally {
       setBusy(false);
@@ -161,6 +205,74 @@ export default function PrintChecksScreen({ onBack, onDone }) {
             Check the paper before you sign. If one came out wrong, void it &mdash;
             the number stays spent, because that check exists.
           </Text>
+
+          {done.gap_note ? (
+            <Text style={[st.hint, { color: '#8D6E00', fontWeight: '700' }]}>
+              {done.gap_note}
+            </Text>
+          ) : null}
+
+          {/* Lining the printing up with his own check stock.
+
+              Every bank's paper sits differently. Until now the only way
+              to move the printing was a number on the end of a URL, and
+              whatever he worked out was gone when the page closed. */}
+          <View style={st.card}>
+            <Text style={st.alignTitle}>Printing in the wrong place?</Text>
+            <Text style={st.hint}>
+              Print this on one real check. It shows where every field will
+              land, with a ruler out from it. Measure how far off the payee
+              line is, put the two numbers in below, and every check after
+              that lands right.
+            </Text>
+            <TouchableOpacity
+              style={[S.big, st.ghost, { marginBottom: 12 }]}
+              onPress={openAlignment}
+              activeOpacity={0.85}
+            >
+              <Text style={[S.bigText, { color: C.red }]}>Print the alignment sheet</Text>
+            </TouchableOpacity>
+
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={st.alignLabel}>Across (right +)</Text>
+                <TextInput
+                  style={st.alignInput}
+                  value={alignX}
+                  onChangeText={setAlignX}
+                  keyboardType="numbers-and-punctuation"
+                  placeholder="0.00"
+                  placeholderTextColor="#9aa3af"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={st.alignLabel}>Down (down +)</Text>
+                <TextInput
+                  style={st.alignInput}
+                  value={alignY}
+                  onChangeText={setAlignY}
+                  keyboardType="numbers-and-punctuation"
+                  placeholder="0.00"
+                  placeholderTextColor="#9aa3af"
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[S.big, { marginTop: 12 }]}
+              onPress={saveAlignment}
+              disabled={busy}
+              activeOpacity={0.85}
+            >
+              <Text style={S.bigText}>Save the alignment</Text>
+            </TouchableOpacity>
+
+            {alignSaved ? (
+              <Text style={[st.hint, { color: '#176b33', fontWeight: '700' }]}>
+                {alignSaved}
+              </Text>
+            ) : null}
+          </View>
         </ScrollView>
       </SafeAreaView>
     );
@@ -351,6 +463,14 @@ const st = StyleSheet.create({
     backgroundColor: C.white, marginTop: 5,
   },
 
+  alignTitle: { fontSize: 15, fontWeight: '800', color: C.text, marginBottom: 6 },
+  alignLabel: { fontSize: 12, fontWeight: '700', color: '#5d6779', marginBottom: 4 },
+  alignInput: {
+    borderWidth: 1, borderColor: '#d6dbe3', borderRadius: 9,
+    paddingHorizontal: 12, paddingVertical: 11, fontSize: 16, color: C.text,
+    backgroundColor: '#fff',
+  },
+  ghost: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#d6dbe3' },
   hint: { fontSize: 12, color: C.mute, lineHeight: 17, marginTop: 9 },
   foot: { fontSize: 11.5, color: C.mute, textAlign: 'center', marginTop: 14, lineHeight: 16 },
   empty: { fontSize: 13.5, color: C.mute, lineHeight: 20 },

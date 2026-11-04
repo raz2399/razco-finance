@@ -164,8 +164,42 @@ async function build(store_id) {
            ', ' + dollars(checksOut));
   }
 
+  // ---- the only part that still needs him -----------------------------
+  //
+  // Everything else now happens on its own: the bank is read every two
+  // hours and what it says is settled against the books. What cannot be
+  // settled is money that certainly left the account with nothing on
+  // the books saying whose it was -- three vendors called C&S, a check
+  // with no number printed on the statement.
+  //
+  // Those belong in the message that reaches his phone, not on a screen
+  // he has to remember to open. A queue nobody is told about is a queue
+  // that grows.
+  // Allowed to fail without taking the brief with it. The brief is the
+  // message he actually reads; a count of unnamed payments is not worth
+  // losing it over.
+  let unnamed = [];
+  try {
+    const orphan = await supabase
+      .from('payments')
+      .select('amount, check_number, payment_date, method, vendor_id, settles_ap, status')
+      .eq('store_id', store_id);
+    unnamed = (orphan.data || []).filter(
+      (p) => !p.vendor_id && p.settles_ap !== false && p.status !== 'void');
+  } catch (e) { unnamed = []; }
+  if (unnamed.length) {
+    const sum = unnamed.reduce((a, b) => a + (Number(b.amount) || 0), 0);
+    L.push('');
+    L.push(unnamed.length + ' payment' + (unnamed.length === 1 ? '' : 's') + ' worth '
+      + dollars(sum) + ' left the bank with no vendor against them, so they are '
+      + 'coming off nothing you owe. Reconcile > "Whose check was this?" — '
+      + 'name each one once and it never asks again.');
+  }
+
   return {
     date: today,
+    needs_naming: unnamed.length,
+    needs_naming_total: money(unnamed.reduce((a, b) => a + (Number(b.amount) || 0), 0)),
     text: L.join('\n'),
     urgent: needs.filter((n) => n.indexOf('!!') === 0).length,
     numbers: {
