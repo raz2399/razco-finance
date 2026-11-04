@@ -63,6 +63,15 @@ const sorry = (title, line) => page(200,
 // The same geometry as the Pay screen, in inches from the top-left of
 // the sheet. Kept here as well because this page must be able to stand
 // alone in a browser that has never seen the app.
+// A check written in California is dated the American way. Printing
+// 2026-11-03 where QuickBooks prints 11/03/2026 is not a style choice --
+// it is a date a teller has to stop and think about.
+function checkDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  if (!m) return String(iso || '');
+  return m[2] + '/' + m[3] + '/' + m[1];
+}
+
 const AT = {
   date: [6.45, 0.95],
   payee: [0.95, 1.42],
@@ -197,6 +206,7 @@ exports.handler = safely('check-sheet', async (event) => {
       + 'margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",'
       + 'Roboto,Helvetica,Arial,sans-serif}'
       + '.f{position:absolute;white-space:pre;font-size:11pt}'
+    + '.stubamt{left:auto !important;right:0.75in;text-align:right}'
       + '@media print{html,body{background:#fff}.sheet{margin:0}'
       + '@page{size:letter;margin:0}}'
       + '</style></head><body>' + cal + '</body></html>';
@@ -223,12 +233,23 @@ exports.handler = safely('check-sheet', async (event) => {
     const address = [v.address_line1, v.address_line2,
       [v.city, v.state].filter(Boolean).join(', '), v.postal_code].filter(Boolean);
 
-    const stub = esc(p.payment_date) + '   #' + esc(p.check_number) + '   '
-      + esc(v.name || '') + '   $' + amount.toFixed(2)
-      + (p.memo ? '   ' + esc(p.memo) : '');
+    // The stub.
+    //
+    // It used to be one cramped line that began with the check number --
+    // and that number is already printed on the paper by the bank. When
+    // the two disagreed, as they did on 9960, the stub was the thing
+    // asserting the wrong one. So the number is not printed here at all:
+    // it cannot contradict the paper if it is not on it.
+    //
+    // Laid out like QuickBooks' because his are the two sitting side by
+    // side on the desk, and the one he has filed for years is the one he
+    // can read without looking twice.
+    const stubName = esc(v.name || '');
+    const stubWhen = esc(checkDate(p.payment_date));
+    const stubMemo = p.memo ? esc(p.memo) : '';
 
     sheets += '<div class="sheet">'
-      + '<div class="f big" style="' + at(AT.date) + '">' + esc(p.payment_date) + '</div>'
+      + '<div class="f big" style="' + at(AT.date) + '">' + esc(checkDate(p.payment_date)) + '</div>'
       + '<div class="f big" style="' + at(AT.payee) + '">' + esc(v.name || '') + '</div>'
       + '<div class="f big" style="' + at(AT.figures) + '">' + esc(amountInFigures(amount)) + '</div>'
       + '<div class="f words" style="' + at(AT.words) + '">' + esc(fill(words, 95)) + '</div>';
@@ -240,9 +261,21 @@ exports.handler = safely('check-sheet', async (event) => {
     if (p.memo) {
       sheets += '<div class="f" style="' + at(AT.memo) + '">' + esc(p.memo) + '</div>';
     }
-    sheets += '<div class="f stub" style="' + at(AT.stub1) + '">' + stub + '</div>'
-      + '<div class="f stub" style="' + at(AT.stub2) + '">' + stub + '</div>'
-      + '</div>';
+    const stubBlock = (spot) =>
+      '<div class="f stub" style="' + at(spot) + '">RAZCO LINDSAY INC   '
+        + 'RAZCO FOODS SUPERMARKET</div>'
+      + '<div class="f stub" style="' + at(spot, 0.40) + '">' + stubWhen
+        + '      <b>' + stubName + '</b></div>'
+      // The leading asterisks guard the figure on the check face, where
+      // somebody could otherwise write a digit in front of it. On a stub
+      // there is nothing to guard, and QuickBooks prints it plain.
+      + '<div class="f stub stubamt" style="' + at(spot, 0.0) + '">'
+        + esc(String(amountInFigures(amount)).replace(/^\*+/, '')) + '</div>'
+      + (stubMemo
+        ? '<div class="f stub" style="' + at(spot, 0.74) + '">' + stubMemo + '</div>'
+        : '');
+
+    sheets += stubBlock(AT.stub1) + stubBlock(AT.stub2) + '</div>';
   });
 
   const first = ordered[0];
