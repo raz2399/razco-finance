@@ -136,5 +136,61 @@ check('the phone hands the link to the browser, it does not print itself', () =>
     'numbers are only handed out when he presses print');
 });
 
+// ---------------------------------------------------------------------
+// Against the QuickBooks check sitting next to it on the desk.
+//
+// He printed 9958 from QuickBooks and 9960 from here, on the same stock
+// and the same printer, and put them side by side. These are the
+// differences that had nothing to do with alignment.
+
+console.log('\nthe same shape as the QuickBooks one');
+
+const sheetSrc = require('fs').readFileSync(
+  require('path').join(__dirname, '..', 'functions', 'check-sheet.js'), 'utf8');
+
+check('the date is written the American way', () => {
+  // QuickBooks printed 11/03/2026. This printed 2026-11-03, which is a
+  // date a teller has to stop and think about.
+  const m = /function checkDate[\s\S]*?\n}/.exec(sheetSrc);
+  assert.ok(m, 'there is no date formatter at all');
+  // eslint-disable-next-line no-new-func
+  const fn = new Function(m[0] + '; return checkDate;')();
+  assert.strictEqual(fn('2026-11-03'), '11/03/2026');
+  assert.strictEqual(fn('2026-01-09'), '01/09/2026');
+  // Anything that is not a date is left exactly as it came.
+  assert.strictEqual(fn(''), '');
+  assert.strictEqual(fn('tomorrow'), 'tomorrow');
+});
+
+check('the stub never prints the check number', () => {
+  // The number is already on the paper, printed by the bank. The only
+  // thing printing it again can do is disagree with it -- which is
+  // exactly what happened when 9960 went out carrying "#9986".
+  assert.ok(!/#'\s*\+\s*esc\(p\.check_number\)/.test(sheetSrc),
+    'the stub is printing a check number again');
+});
+
+check('the stub figure carries no protection asterisks', () => {
+  // They guard the figure on the check face, where a digit could be
+  // written in front of it. On a stub there is nothing to guard.
+  assert.ok(/replace\(\/\^\\\*\+\/, ''\)/.test(sheetSrc)
+    || /replace\(\/\^\\\*\+\/,''\)/.test(sheetSrc),
+    'the stub still shows **598.65 rather than 598.65');
+});
+
+check('the saved offsets are actually used', () => {
+  // The account has carried offset columns all along and nothing read
+  // them, so the only way to move the printing was a number typed onto
+  // the end of a URL and lost when the page closed.
+  assert.ok(/check_offset_x/.test(sheetSrc), 'the sheet never reads the saved offset');
+  assert.ok(/savedX \+ \(Number\(q\.dx/.test(sheetSrc),
+    'the nudge should be added on top of what is saved');
+});
+
+check('there is an alignment sheet to measure from', () => {
+  assert.ok(/q\.cal === '1'/.test(sheetSrc), 'no alignment sheet');
+  assert.ok(/payee/.test(sheetSrc));
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
