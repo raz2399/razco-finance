@@ -101,10 +101,19 @@ check('pending is never marked, however complete the books look', () => {
   assert.strictEqual(r.state, 'pending');
 });
 
-check('pending stays pending even when it needs a name', () => {
-  const r = readRow(line({ is_pending: true }), pay({ vendor_id: null }), VN, []);
-  assert.strictEqual(r.state, 'pending');
-  assert.strictEqual(r.needs, 'name');
+check('a pending line asks nothing of him, whatever is missing', () => {
+  // Settlement waits for the bank to post on purpose, so a pending line
+  // not being in the books is correct behaviour, not a fault. Reporting
+  // it as one put a red warning on his phone next to a $13,291 delivery
+  // that was fine and a $1.00 fuel hold that was never real money.
+  const nameless = readRow(line({ is_pending: true }), pay({ vendor_id: null }), VN, []);
+  assert.strictEqual(nameless.state, 'pending');
+  assert.strictEqual(nameless.needs, null);
+  assert.strictEqual(nameless.suggest, null);
+
+  const unknown = readRow(line({ is_pending: true }), null, VN, []);
+  assert.strictEqual(unknown.state, 'pending');
+  assert.strictEqual(unknown.needs, null);
 });
 
 check('pending money in is pending, not in', () => {
@@ -286,7 +295,8 @@ check('the tally counts every line exactly once', () => {
 check('can_name counts only what one press could actually do', () => {
   const rows = [
     readRow(line({ bank_txn_id: 'a' }), pay({ vendor_id: null }), VN, [inv()]),
-    // Same suggestion, but pending: the press must not touch it.
+    // Same facts, but pending: the press must not touch it, and it must
+    // not be counted as something waiting for him either.
     readRow(line({ bank_txn_id: 'b', is_pending: true }),
       pay({ payment_id: 'p2', vendor_id: null }), VN, [inv()]),
     // Needs a name, nothing to suggest.

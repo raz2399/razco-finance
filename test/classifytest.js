@@ -58,6 +58,64 @@ const line = (over) => Object.assign({
   amount: -100, check_number: null, is_pending: false,
 }, over);
 
+// ---------------------------------------------------------------------
+// Things that are not spending, in his bank's own words
+//
+// Each of these was found on his real statement, and each was being
+// counted as something it is not.
+// ---------------------------------------------------------------------
+
+check('paying the Citi card is internal, never a cost', () => {
+  // Paying a card settles a debt; the buying happened earlier, on the
+  // card. Counted as a cost it would charge him twice the day those
+  // card purchases are ever entered as bills.
+  ['PAYMENT CITI CARD ONLINE WEB RASMY ALI',
+   'CITI CARD ONLINE PAYMENT ACH ENTRY MEMO POSTED',
+   'PAYMENT CITI AUTOPAY WEB RAZCO FOOD SUPERMARKE'].forEach((d) => {
+    const r = classifyLine({ description: d, amount: -10663.85 }, { vendors: [], aliases: [] });
+    assert.strictEqual(r.what, 'internal', d + ' should be internal, got ' + r.what);
+    assert.strictEqual(r.code, 'card_payment');
+  });
+});
+
+check('the Citi pattern matches what the bank actually writes', () => {
+  // The old pattern wanted "CARD PAYMENT". His bank writes "PAYMENT
+  // CITI CARD ONLINE WEB", which contains no such phrase, so $42,900
+  // since September fell through to `ask` and reached no figure at all.
+  const r = classifyLine(
+    { description: 'PAYMENT CITI CARD ONLINE WEB RASMY ALI', amount: -32240.07 },
+    { vendors: [], aliases: [] });
+  assert.notStrictEqual(r.what, 'ask');
+});
+
+check('a fuel pre-authorisation is not a purchase', () => {
+  // A pump holds a token amount to check the card is live, reverses it,
+  // then posts the real sum. Counting the hold files fuel never bought.
+  const r = classifyLine({ description: 'PRE SHELL 12740573006 LOC', amount: -1.00 },
+    { vendors: [], aliases: [] });
+  assert.strictEqual(r.what, 'internal');
+  assert.strictEqual(r.code, 'fuel_hold');
+});
+
+check('the card settlement deposit is never income', () => {
+  // $1.19m of it since September. Sales are counted from the POS, so
+  // counting the deposit as income too would double the takings.
+  const r = classifyLine({ description: 'DEPOSIT MERCHANT BNKCD CCD', amount: 19502.87 },
+    { vendors: [], aliases: [] });
+  assert.strictEqual(r.what, 'internal');
+  assert.strictEqual(r.code, 'card_settlement');
+});
+
+check('a real card PURCHASE is still a cost', () => {
+  // The distinction that matters: buying on the card is spending,
+  // paying the card off is not. Both say "card".
+  const r = classifyLine(
+    { description: 'DBT CRD 0926 28404739 FACEBK LSHSADEQS4 CARD# 5337', amount: -250 },
+    { vendors: [], aliases: [] });
+  assert.strictEqual(r.what, 'cost');
+});
+
+
 console.log('\nthe bills the app kept telling him to pay twice');
 
 // Each of these four was on his screen saying "past due -- Pay now"
