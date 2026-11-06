@@ -5,7 +5,7 @@
 // screens working it out separately would eventually disagree, and a
 // disagreement here looks like money appearing or vanishing.
 //
-// Four states, and every line is exactly one of them:
+// Five states, and every line is exactly one of them:
 //
 //   settled   it posted, and the books have an answer for it. Marked.
 //   needs     it posted, and something is still missing. Marked, but
@@ -14,6 +14,18 @@
 //   pending   the bank can still change its mind. Nothing is marked
 //             until it cannot.
 //   in        money arriving.
+//   closed    before the cutover. Marked, and never a problem.
+//
+// That last one exists because of what the first version of this did to
+// his real statement. Three weeks back reaches into the fortnight before
+// the cutover, and every one of those lines is unknown to Razi-Nova by
+// design -- that history is netted inside the QuickBooks opening
+// balances and settlement is forbidden from touching it. Marked as
+// "needs you" they came to 92 red lines and $371,787 of false alarm, all
+// of it telling him to fix something that is already right. A statement
+// view that cries wolf about the opening balances is worse than no
+// statement view, so the floor the whole settlement engine stands on is
+// known here too.
 //
 // Nothing here talks to the database, so the rules can be tested
 // against made-up rows instead of against his real books.
@@ -62,9 +74,10 @@ function soleInvoiceFor(amount, when, invoices) {
  * `pay` is the payments row carrying this bank_txn_id, or null.
  * `vName` maps vendor_id to a name. `invoices` is the open ones.
  */
-function readRow(t, pay, vName, invoices) {
+function readRow(t, pay, vName, invoices, cutover) {
   const amount = money(t.amount);
   const pending = !!t.is_pending;
+  const before = !!cutover && String(t.posted_date || '') < String(cutover);
 
   const out = {
     bank_txn_id: t.bank_txn_id,
@@ -79,7 +92,15 @@ function readRow(t, pay, vName, invoices) {
     suggest: null,
     needs: null,
     state: 'settled',
+    before_cutover: before,
   };
+
+  if (before) {
+    // Already netted inside the opening balances. Nothing here is work,
+    // and nothing here may be touched -- the same floor settlement has.
+    out.state = 'closed';
+    return out;
+  }
 
   if (amount > 0) {
     // Money in. Nothing to chase, nothing to pay twice.
@@ -123,7 +144,7 @@ function readRow(t, pay, vName, invoices) {
 
 /** The tally under the page. */
 function tally(rows) {
-  const c = { settled: 0, needs: 0, pending: 0, in: 0, can_name: 0 };
+  const c = { settled: 0, needs: 0, pending: 0, in: 0, closed: 0, can_name: 0 };
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     c[r.state] = (c[r.state] || 0) + 1;
