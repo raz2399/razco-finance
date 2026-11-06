@@ -26,6 +26,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const { requireUser, safely } = require('./lib/guard');
+const { proposeFor } = require('./lib/deptguess');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -139,6 +140,60 @@ exports.handler = safely('vendor-setup', async (event) => {
   //
   // A vendor added by mistake five minutes ago, with nothing against
   // it, is simply deleted.
+  // Accept the proposed departments in one press.
+  //
+  // The proposals are worked out here again rather than taken from the
+  // request. A list of vendor/category pairs posted from a screen is a
+  // list of claims about where $280,000 of buying belongs, and the
+  // screen could be showing something stale -- a category renamed, a
+  // vendor coded in the meantime. So the browser says "yes to what you
+  // proposed", not "write these pairs", and the server proposes afresh
+  // and writes only what it would still propose now.
+  if (event.httpMethod === 'POST' && body.action === 'accept_departments') {
+    const [vs, cs] = await Promise.all([
+      supabase.from('vendors')
+        .select('vendor_id, name, default_category_id')
+        .eq('store_id', store_id).eq('active', true),
+      supabase.from('expense_categories')
+        .select('category_id, name, department_id')
+        .eq('store_id', store_id).eq('active', true),
+    ]);
+    if (vs.error) return json(500, { error: vs.error.message });
+    if (cs.error) return json(500, { error: cs.error.message });
+
+    const take = proposeFor(vs.data || [], cs.data || []);
+
+    // Only the ones he asked for, when he asked for a subset.
+    const only = Array.isArray(body.vendor_ids) && body.vendor_ids.length
+      ? take.filter((p) => body.vendor_ids.indexOf(p.vendor_id) > -1)
+      : take;
+
+    const done = [];
+    const problems = [];
+    for (let i = 0; i < only.length; i++) {
+      const p = only[i];
+      const up = await supabase.from('vendors')
+        .update({ default_category_id: p.category_id, updated_at: new Date().toISOString() })
+        .eq('vendor_id', p.vendor_id).eq('store_id', store_id);
+      if (up.error) { problems.push(p.vendor + ': ' + up.error.message); continue; }
+      done.push({ vendor: p.vendor, category: p.category, because: p.because });
+    }
+
+    const left = (vs.data || []).filter((v) =>
+      (!v.default_category_id || Number(v.default_category_id) === 1)
+      && done.map((d) => d.vendor).indexOf(v.name) === -1).length;
+
+    return json(200, {
+      ok: true, accepted: done.length, done: done, problems: problems, left: left,
+      says: done.length
+        ? done.length + ' vendor' + (done.length === 1 ? '' : 's')
+          + ' coded to a department. ' + (left
+            ? left + ' still need you -- their names do not say what they sell.'
+            : 'Every vendor now has a department.')
+        : 'Nothing to accept: no vendor name says clearly what it sells.',
+    });
+  }
+
   if (event.httpMethod === 'POST' && body.action === 'remove') {
     const vendor_id = body.vendor_id;
     if (!vendor_id) return json(400, { error: 'Which vendor?' });
@@ -280,7 +335,7 @@ exports.handler = safely('vendor-setup', async (event) => {
       (p) => p.eq('store_id', store_id).eq('active', true)),
     all('invoices', 'vendor_id, total_amount, balance_due, status',
       (p) => p.eq('store_id', store_id)),
-    all('expense_categories', 'category_id, name, ledger_type',
+    all('expense_categories', 'category_id, name, ledger_type, department_id, parent_id',
       (p) => p.eq('store_id', store_id).eq('active', true)),
   ]);
 
@@ -299,13 +354,36 @@ exports.handler = safely('vendor-setup', async (event) => {
     }
   });
 
+  // Category 1 is the old single merchandise bucket. A vendor parked
+  // there was never told what it sells, so it belongs on this list
+  // exactly as an unset one does -- otherwise $280,000 of buying counts
+  // as "done" and the department margins stay empty for ever.
+  const unsetCat = (v) => !v.default_category_id || Number(v.default_category_id) === 1;
+
   const needCategory = vendors
-    .filter((v) => !v.default_category_id)
+    .filter(unsetCat)
     .map((v) => ({
       vendor_id: v.vendor_id, name: v.name,
       billed: spend[v.vendor_id] || 0, open: open[v.vendor_id] || 0,
     }))
     .sort((a, b) => (b.billed - a.billed) || a.name.localeCompare(b.name));
+
+  // What the system would propose, and the word in the name that made it
+  // propose that. Shown rather than applied: coding a vendor decides
+  // where its buying lands, and a wrong one moves margin from one
+  // department to another without either figure looking wrong.
+  const proposed = proposeFor(vendors.filter(unsetCat), cats);
+  const byVendor = {};
+  proposed.forEach((p) => { byVendor[p.vendor_id] = p; });
+  needCategory.forEach((v) => {
+    const p = byVendor[v.vendor_id];
+    if (p) {
+      v.suggest = {
+        category_id: p.category_id, category: p.category,
+        department_id: p.department_id, because: p.because,
+      };
+    }
+  });
 
   const needTerms = vendors
     .filter((v) => v.terms_days === null || v.terms_days === undefined)
@@ -326,7 +404,12 @@ exports.handler = safely('vendor-setup', async (event) => {
       // Said out loud because it is the number that decides whether the
       // list is worth opening: most of these vendors have no open bills.
       need_terms_with_open_bills: needTerms.filter((v) => v.open > 0).length,
+      // How many of the category list the system can fill in itself.
+      // Said out loud because the rest is work only he can do, and he
+      // should be able to see how much of it there is.
+      category_proposed: proposed.length,
     },
+    proposed: proposed,
     need_category: needCategory,
     need_terms: needTerms,
     // The whole list, for anywhere that needs to offer a choice of
