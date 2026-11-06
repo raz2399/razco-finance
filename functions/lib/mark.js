@@ -102,16 +102,31 @@ function readRow(t, pay, vName, invoices, cutover) {
     return out;
   }
 
+  if (pending) {
+    // A pending line is not work, and must not be dressed up as work.
+    //
+    // Settlement waits for the bank to post, on purpose: a pending line
+    // can still change its amount or disappear entirely. So "the books
+    // have never heard of it" is not a fault on a pending row, it is the
+    // system doing exactly what it should. Saying it anyway put a red
+    // warning on his phone beside a $13,291 delivery that was perfectly
+    // fine, and beside a $1.00 fuel hold that was never real money.
+    //
+    // Nothing for him to act on, so nothing is claimed.
+    out.state = 'pending';
+    return out;
+  }
+
   if (amount > 0) {
     // Money in. Nothing to chase, nothing to pay twice.
-    out.state = pending ? 'pending' : 'in';
+    out.state = 'in';
     return out;
   }
 
   if (!pay) {
     // Money left the account and nothing in the books knows about it.
     out.needs = 'not_in_books';
-    out.state = pending ? 'pending' : 'needs';
+    out.state = 'needs';
     return out;
   }
 
@@ -132,13 +147,13 @@ function readRow(t, pay, vName, invoices, cutover) {
         why: 'exact amount, one open invoice',
       };
     }
-    out.state = pending ? 'pending' : 'needs';
+    out.state = 'needs';
     return out;
   }
 
   // Either it is against a vendor, or it is a cost that was never a bill.
   // Both are answered for.
-  out.state = pending ? 'pending' : 'settled';
+  out.state = 'settled';
   return out;
 }
 

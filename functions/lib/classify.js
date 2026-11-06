@@ -62,7 +62,6 @@ const COSTS = [
   { code: 'compliance', test: /WORKWISE|COMPLIA/, label: 'Compliance', category: 'Professional Services' },
   { code: 'equipment_lease', test: /NAVITAS|CASH CONC MILLENIUM|LEASE/, label: 'Equipment lease', category: 'Equipment Lease' },
   { code: 'bank_charge', test: /SERVICE CHARGE|ANALYSIS (CHARGE|FEE)|OVERDRAFT|NSF FEE|CHK ORDERS|HARLAND CLARKE/, label: 'Bank charges', category: 'Interest & Bank Fees' },
-  { code: 'card_autopay', test: /CITI AUTOPAY|CARD PAYMENT|CREDIT CRD AUTOPAY/, label: 'Credit card payment', category: null },
   { code: 'loan', test: /\bLOAN\b|SBA |NOTE PAYMENT/, label: 'Loan payment', category: 'Interest & Bank Fees' },
   { code: 'insurance', test: /INSURANCE|PREMIUM/, label: 'Insurance', category: 'Insurance' },
   { code: 'rent', test: /\bRENT\b|LEASE PAYMENT/, label: 'Rent', category: 'Rent' },
@@ -71,6 +70,30 @@ const COSTS = [
 // Money moving between his own pockets. Never a cost, never income.
 const INTERNAL = [
   { code: 'card_settlement', test: /MERCHANT BNKCD|BNKCD DEPOSIT|CARD SETTLE/ },
+
+  // Paying a credit card is settling a debt, not buying anything. The
+  // buying happened earlier, on the card.
+  //
+  // This sat in the cost list with no category, and -- worse -- its
+  // pattern did not match what his bank actually writes. "PAYMENT CITI
+  // CARD ONLINE WEB RASMY ALI" contains "CARD ONLINE" but never "CARD
+  // PAYMENT", so $42,900 of it since September fell through to `ask`
+  // and reached no figure at all.
+  //
+  // Internal is the safe answer and the only one that cannot double
+  // count: if the card's own purchases are ever entered as bills, a
+  // payment counted as a cost would charge him twice for the same
+  // spending. What it does NOT do is put that spending into the P&L --
+  // nothing can, until the card's purchases are captured somewhere.
+  // That gap is real and is his to decide about, so it is reported
+  // rather than papered over with a guess.
+  { code: 'card_payment', test: /CITI\s*(CARD\s*)?(ONLINE|AUTOPAY)|CARD (ONLINE )?PAYMENT|CREDIT CRD AUTOPAY|CARDMEMBER SERV/ },
+
+  // A fuel pump authorises a token amount to check the card is live,
+  // then reverses it and posts the real sum. "PRE SHELL ... LOC" for a
+  // dollar is a hold, not a purchase, and treating it as a cost files a
+  // dollar of fuel that was never bought.
+  { code: 'fuel_hold', test: /^PRE [A-Z]|PREAUTH|PRE-AUTH|AUTH HOLD/ },
   { code: 'cash_deposit', test: /BUSINESS DEPOSIT|CASH DEPOSIT|^DEPOSIT\b/ },
   { code: 'atm', test: /DLY SETTLE MVNT|ATM (LOAD|REPLENISH)/ },
   { code: 'transfer', test: /TRANSFER TO|TRANSFER FROM|INTERNAL TRANSFER|BOOK TRANSFER/ },
