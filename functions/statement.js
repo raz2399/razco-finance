@@ -172,13 +172,28 @@ exports.handler = safely('statement', async (event) => {
         + ' off what you owe');
     }
 
-    return json(200, {
-      ok: true,
-      did: did,
-      says: bits.length
-        ? bits.join('. ') + '.'
-        : 'Nothing left to do -- everything the bank knows is on the books.',
-    });
+    // What is left, and why the press could not touch it. Without this
+    // the button answers "nothing to do" on a statement showing red
+    // lines, which reads as the button being broken rather than as the
+    // system being honest about what it cannot know.
+    const left = tally(ctx.marked).needs;
+    let says;
+    if (bits.length) {
+      says = bits.join('. ') + '.';
+      if (left) {
+        says += ' ' + left + ' line' + (left === 1 ? '' : 's')
+          + ' still need you -- the bank gives no payee on those, and no '
+          + 'single open bill matches the amount, so naming them would be a guess.';
+      }
+    } else if (left) {
+      says = 'Nothing could be done automatically. ' + left + ' line'
+        + (left === 1 ? '' : 's') + ' need you: the bank gives no payee, and '
+        + 'no single open bill matches the amount, so the system will not guess.';
+    } else {
+      says = 'Nothing left to do -- everything the bank knows is on the books.';
+    }
+
+    return json(200, { ok: true, did: did, left: left, says: says });
   }
 
   // ---- the statement ---------------------------------------------------
