@@ -34,6 +34,13 @@ const GROUPS = [
     ],
   },
   {
+    title: 'Reconciling',
+    items: [
+      { key: 'statement', name: 'Your statement',
+        sub: 'Yellow is dealt with \u2014 one press does the rest' },
+    ],
+  },
+  {
     title: 'When something is wrong',
     items: [
       { key: 'fix', name: 'Fix a number',

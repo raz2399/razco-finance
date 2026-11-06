@@ -427,3 +427,22 @@ export const saveCheckAlignment = (offsetX, offsetY) =>
 
 // Where that print page lives, so the screen can open it.
 export const siteRoot = () => String(BASE).replace(/\/\.netlify\/functions\/?$/, '');
+
+// ---------------------------------------------------------------------
+// The statement, marked
+//
+// Yellow is cleared, a red edge means it still wants him. The marking is
+// worked out on the server so the phone and the dashboard cannot drift
+// apart about which lines are done.
+export const getStatement = (days) =>
+  call('/statement?days=' + (Number(days) || 21));
+
+// One press: settle everything the bank proves, then accept only the
+// namings that cannot mean two things.
+export const applyStatement = (days) =>
+  call('/statement', {
+    method: 'POST',
+    body: JSON.stringify({
+      store_id: STORE_ID, action: 'apply_all', days: Number(days) || 21,
+    }),
+  });

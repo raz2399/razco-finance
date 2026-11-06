@@ -725,6 +725,32 @@
       margin-bottom:9px;border-left:3px solid var(--text-light);background:#f7f9fc}
     .alert-critical{background:#fdf1f1;border-left-color:var(--danger);color:#8d2024}
     .alert-warning{background:#fdf8ec;border-left-color:var(--warning);color:#8a6414}
+    /* ---- the highlighter ----
+       A real highlighter sits on top of the ink rather than replacing it,
+       so the mark is a translucent wash and the figures stay black. The
+       edge is the darker end of the same pigment: on paper the pen leaves
+       a heavier line where it starts, which is why a marked line reads as
+       marked rather than as a coloured row.
+
+       A red left edge overrides nothing -- it sits on a marked line,
+       because a check that cleared against nobody has both facts at once:
+       the bank is finished with it and he is not. */
+    .mk{position:relative;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+      padding:9px 11px;border-top:1px solid #f1f3f7;font-size:13px}
+    .mk-on{background:rgba(255,214,51,.42);box-shadow:inset 3px 0 0 #e8b400}
+    .mk-needs{box-shadow:inset 3px 0 0 #a8301f}
+    .mk-pending{opacity:.72}
+    .mk-date{min-width:62px;color:#5b6472;font-variant-numeric:tabular-nums}
+    .mk-what{flex:1;min-width:150px;font-weight:600}
+    .mk-amt{min-width:94px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+    .mk-note{flex-basis:100%;font-size:12px;color:#6b7483;padding-left:62px}
+    .mk-in .mk-amt{color:var(--success)}
+    .mk-tag{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+      padding:2px 6px;border-radius:5px;background:#eef1f5;color:#5b6472}
+    .mk-tag.red{background:#f7dedb;color:#8d2024}
+    .mk-key{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#5b6472}
+    .mk-key span{display:flex;align-items:center;gap:6px}
+    .mk-chip{width:22px;height:13px;border-radius:3px;display:inline-block}
     input,select,textarea{border:1px solid var(--border)!important;border-radius:10px!important;
       padding:12px 13px!important;font-size:16px!important;background:#fff!important;
       color:var(--text)!important}
@@ -1529,9 +1555,35 @@
           <p class="rn-screensub">Tie the bank to the books, and fill in what only you can know.</p>
         </div>
 
-        <!-- Raised by the system over time and, until now, read by nobody.
-             Sits above everything else here because it is the only part of
-             this screen that is already waiting for him. -->
+        <!-- The statement, with a highlighter run down it.
+             Yellow is cleared. A red edge on a yellow line means it
+             cleared and still wants something: money off nothing you owe
+             is not finished with, however yellow it looks. Pending is
+             left unmarked, because the bank can still take it back.
+             This sits first because it is the whole screen in one view,
+             and the one button at the top of it is the day's work. -->
+        <div class="card" id="rec-stmt-card">
+          <h3>Your statement</h3>
+          <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+            Every line the bank has, marked. <strong>Yellow has been dealt
+            with.</strong> A red edge means it cleared but still wants
+            something from you. Unmarked lines are still pending at the bank.
+          </p>
+          <div>
+            <button class="rn-big" id="rec-stmt-apply">Do all of it</button>
+            <select id="rec-stmt-days" style="font:inherit;font-size:12.5px;padding:8px 10px;
+              border:1px solid var(--border);border-radius:7px;margin-left:8px">
+              <option value="21">Last 3 weeks</option>
+              <option value="45">Last 6 weeks</option>
+              <option value="90">Last 3 months</option>
+            </select>
+          </div>
+          <div id="rec-stmt-msg" style="display:none;border-radius:9px;padding:11px 13px;font-size:13px;margin-top:12px;line-height:1.5"></div>
+          <div id="rec-stmt-legend" style="display:none;margin-top:14px"></div>
+          <div id="rec-stmt-body" style="margin-top:10px"><p style="font-size:13px;color:var(--text-light)">Loading&hellip;</p></div>
+        </div>
+
+        <!-- Raised by the system over time and, until now, read by nobody. -->
         <div class="card" id="rec-attn-card" style="display:none">
           <h3>Needs you</h3>
           <div id="rec-attn" class="rn-rows"></div>
@@ -1984,6 +2036,10 @@ var APP = {
       this.bind2('rec-preview', function() { rec.recRun(false); });
       this.bind2('rec-settle-preview', function() { rec.settlePreview(); });
       this.bind2('rec-settle-undo', function() { rec.settleUndo(); });
+      this.bind2('rec-stmt-apply', function() { rec.statementApply(); });
+      var sd = document.getElementById('rec-stmt-days');
+      if (sd) sd.onchange = function() { rec.loadStatement(); };
+      this.loadStatement();
       this.loadAttention();
       this.loadWhose();
       this.loadDupes();
@@ -2890,6 +2946,131 @@ var APP = {
   },
 
   // ---------- money that belongs to nobody ----------
+  // ---------- the statement, marked ----------
+  //
+  // One request, one list, and the marking is already decided on the
+  // server. The screen does no judging of its own: if it worked out
+  // which lines were cleared here as well, the two would drift and one
+  // of them would eventually be wrong about money.
+  statementDays: function() {
+    var sel = document.getElementById('rec-stmt-days');
+    return (sel && sel.value) || '21';
+  },
+
+  loadStatement: function() {
+    var self = this;
+    var body = document.getElementById('rec-stmt-body');
+    this.get('/statement?days=' + this.statementDays(), function(status, d) {
+      if (status !== 200 || !d || !d.ok) {
+        body.innerHTML = '<p style="font-size:13px;color:var(--text-light)">' +
+          'Could not read the statement just now.</p>';
+        return;
+      }
+
+      var c = d.counts || {};
+      var legend = document.getElementById('rec-stmt-legend');
+      legend.style.display = 'block';
+      legend.innerHTML =
+        '<div class="mk-key">' +
+          '<span><i class="mk-chip" style="background:rgba(255,214,51,.42);' +
+            'box-shadow:inset 3px 0 0 #e8b400"></i>' + (c.settled || 0) + ' dealt with</span>' +
+          '<span><i class="mk-chip" style="background:rgba(255,214,51,.42);' +
+            'box-shadow:inset 3px 0 0 #a8301f"></i>' + (c.needs || 0) + ' want you</span>' +
+          '<span><i class="mk-chip" style="background:#fff;border:1px solid var(--border)"></i>' +
+            (c.pending || 0) + ' still pending</span>' +
+          '<span>' + (c['in'] || 0) + ' money in</span>' +
+        '</div>';
+
+      var btn = document.getElementById('rec-stmt-apply');
+      if (btn) {
+        btn.textContent = c.can_name
+          ? 'Do all of it (' + c.can_name + ' ready)'
+          : 'Do all of it';
+      }
+
+      var rows = d.rows || [];
+      if (!rows.length) {
+        body.innerHTML = '<p style="font-size:13px;color:var(--text-light)">' +
+          'No bank activity in this stretch.</p>';
+        return;
+      }
+
+      var h = '';
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var cls = 'mk';
+        // Pending is deliberately left unmarked. Nothing gets a mark
+        // while the bank can still take it back.
+        if (r.state === 'settled') cls += ' mk-on';
+        if (r.state === 'needs') cls += ' mk-on mk-needs';
+        if (r.state === 'pending') cls += ' mk-pending';
+        if (r.state === 'in') cls += ' mk-in';
+
+        var what = r.vendor || r.description || 'Bank line';
+        if (r.check_number) what = 'Check ' + r.check_number + ' · ' + what;
+
+        var tag = '';
+        if (r.state === 'pending') tag = '<span class="mk-tag">pending</span>';
+        else if (r.needs === 'name') tag = '<span class="mk-tag red">whose?</span>';
+        else if (r.needs === 'not_in_books') tag = '<span class="mk-tag red">unknown</span>';
+        else if (r.is_cost) tag = '<span class="mk-tag">cost</span>';
+
+        var note = '';
+        if (r.suggest) {
+          note = '<span class="mk-note">Looks like ' +
+            this.escHtml(r.suggest.vendor || 'a vendor') +
+            (r.suggest.invoice_number ? ', invoice ' + this.escHtml(r.suggest.invoice_number) : '') +
+            ' — same amount, only one bill open for it.</span>';
+        } else if (r.needs === 'not_in_books') {
+          note = '<span class="mk-note">The bank took this and the books have never heard of it.</span>';
+        }
+
+        h += '<div class="' + cls + '">' +
+          '<span class="mk-date">' + this.escHtml(String(r.date || '').slice(5)) + '</span>' +
+          '<span class="mk-what">' + this.escHtml(what) + '</span>' +
+          tag +
+          '<span class="mk-amt">' + this.money(r.amount) + '</span>' +
+          note +
+        '</div>';
+      }
+      body.innerHTML = h;
+    });
+  },
+
+  // One press. Settles everything the bank proves, then accepts only the
+  // namings that cannot mean two things. Deliberately not a "fix
+  // everything" button: what it is unsure of stays on the page.
+  statementApply: function() {
+    var self = this;
+    var btn = document.getElementById('rec-stmt-apply');
+    var msg = document.getElementById('rec-stmt-msg');
+    var label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Working…'; }
+
+    this.postJSON('/statement', {
+      store_id: this.store_id, action: 'apply_all', days: Number(this.statementDays())
+    }, function(status, d) {
+      if (btn) { btn.disabled = false; btn.textContent = label; }
+      msg.style.display = 'block';
+      if (status !== 200 || !d || !d.ok) {
+        msg.className = 'alert alert-critical';
+        msg.textContent = (d && d.error) || 'That did not go through. Nothing was changed.';
+        return;
+      }
+      var problems = (d.did && d.did.problems) || [];
+      msg.className = problems.length ? 'alert alert-warning' : 'alert';
+      msg.textContent = d.says + (problems.length
+        ? ' ' + problems.length + ' line' + (problems.length === 1 ? '' : 's') +
+          ' could not be done and were left alone.'
+        : '');
+
+      // Everything downstream of the books just moved.
+      self.loadStatement();
+      self.loadAttention();
+      self.loadWhose();
+    });
+  },
+
   loadWhose: function() {
     var self = this;
     this.get('/settle?unattributed=1', function(status, d) {
