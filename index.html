@@ -1710,6 +1710,30 @@
           <h2 class="rn-screentitle">Week</h2>
           <p class="rn-screensub">Monday to Sunday night. Sales, profit, and the close.</p>
         </div>
+      <!-- The figure a grocer actually runs on: what each department
+           makes. Sits above the P&L because the P&L tells him whether
+           the store made money and this tells him where. -->
+      <div class="card" id="margin-card">
+        <h3>What each department makes</h3>
+        <p style="font-size:12.5px;color:var(--text-light);margin:-4px 0 12px;line-height:1.5">
+          Sales from the register against what you bought for that department.
+          <strong>Stock is not counted</strong>, so this is purchases, not cost of
+          goods sold &mdash; read it over a month, not a week. One pallet bought and
+          not yet sold can make a department look like it lost money.
+        </p>
+        <div>
+          <select id="margin-weeks" style="font:inherit;font-size:12.5px;padding:8px 10px;
+            border:1px solid var(--border);border-radius:7px">
+            <option value="4" selected>Last 4 weeks</option>
+            <option value="8">Last 8 weeks</option>
+            <option value="13">Last quarter</option>
+            <option value="1">Last week (noisy)</option>
+          </select>
+        </div>
+        <div id="margin-msg" style="display:none;border-radius:9px;padding:11px 13px;font-size:13px;margin-top:12px;line-height:1.5"></div>
+        <div id="margin-body" style="margin-top:12px"><p style="font-size:13px;color:var(--text-light)">Loading&hellip;</p></div>
+      </div>
+
       <div id="pl-data">
         <p>Loading P&L...</p>
       </div>
@@ -2051,7 +2075,13 @@ var APP = {
       this.loadRecCategories();
       this.load1099();
     }
-    if (tabName === 'week') { this.loadPL(); this.loadSales(); this.loadClose(); }
+    if (tabName === 'week') {
+      this.loadPL(); this.loadSales(); this.loadClose();
+      var wk = this;
+      this.loadMargin();
+      var mw = document.getElementById('margin-weeks');
+      if (mw) mw.onchange = function() { wk.loadMargin(); };
+    }
     if (tabName === 'home') this.loadHome();
   },
 
@@ -3000,6 +3030,89 @@ var APP = {
   },
 
   // ---------- money that belongs to nobody ----------
+  // ---------- what each department makes ----------
+  loadMargin: function() {
+    var self = this;
+    var sel = document.getElementById('margin-weeks');
+    var weeks = (sel && sel.value) || '4';
+    var body = document.getElementById('margin-body');
+    var msg = document.getElementById('margin-msg');
+
+    this.get('/margin?weeks=' + weeks, function(status, d) {
+      if (status !== 200 || !d || !d.ok) {
+        body.innerHTML = '<p style="font-size:13px;color:var(--text-light)">' +
+          'Could not work that out just now.</p>';
+        return;
+      }
+
+      // When the inputs cannot carry a percentage the server has already
+      // removed every one of them, so this explains an empty column
+      // rather than warning about a full one.
+      var warn = [];
+      if (d.why_not) warn.push(d.why_not);
+      if (d.uncoded_total > 0) {
+        warn.push(self.money(d.uncoded_total) + ' of buying from ' + d.uncoded_count +
+          ' vendor' + (d.uncoded_count === 1 ? '' : 's') +
+          ' has no department yet, so it sits in none of these lines. ' +
+          'Fix that under Reconcile \u203a What does each vendor sell.');
+      } else if (d.caution) {
+        warn.push(d.caution);
+      }
+      msg.style.display = warn.length ? 'block' : 'none';
+      msg.className = d.trustworthy ? 'alert' : 'alert alert-warning';
+      msg.innerHTML = warn.join(' ');
+
+      var rows = d.rows || [];
+      var t = d.totals || {};
+      var h = '';
+
+      if (t.comparable_pct !== null && t.comparable_pct !== undefined) {
+        h += '<div style="padding:11px 0 14px;border-bottom:1px solid var(--border)">' +
+          '<div style="font-size:11px;font-weight:800;letter-spacing:.06em;' +
+            'text-transform:uppercase;color:var(--text-light)">' +
+            'Across the ' + t.departments_comparable + ' department' +
+            (t.departments_comparable === 1 ? '' : 's') + ' with both halves coded</div>' +
+          '<div class="number" style="margin-top:4px">' + t.comparable_pct + '%</div>' +
+          '<div style="font-size:12px;color:var(--text-light)">' +
+            self.money(t.comparable_sales) + ' sold, ' +
+            self.money(t.comparable_purchases) + ' bought</div>' +
+        '</div>';
+      }
+
+      h += '<table style="width:100%;margin-top:4px"><thead><tr>' +
+        '<th style="text-align:left">Department</th>' +
+        '<th style="text-align:right">Sold</th>' +
+        '<th style="text-align:right">Bought</th>' +
+        '<th style="text-align:right">' +
+          (d.trustworthy ? 'Makes' : 'Makes&nbsp;*') + '</th>' +
+        '</tr></thead><tbody>';
+
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var dim = r.passthrough || r.pct === null;
+        h += '<tr' + (dim ? ' style="opacity:.62"' : '') + '>' +
+          '<td><strong>' + self.escHtml(r.name) + '</strong>' +
+            (r.note ? '<div style="font-size:11px;color:var(--text-light);font-weight:400">' +
+              self.escHtml(r.note) + '</div>' : '') + '</td>' +
+          '<td style="text-align:right">' + self.money(r.sales) + '</td>' +
+          '<td style="text-align:right">' +
+            (r.purchases ? self.money(r.purchases) : '\u2014') + '</td>' +
+          '<td style="text-align:right;font-weight:800' +
+            (r.pct !== null && r.pct < 0 ? ';color:var(--danger)' : '') + '">' +
+            (r.pct === null ? '\u2014' : r.pct + '%') + '</td>' +
+        '</tr>';
+      }
+      h += '</tbody></table>';
+      if (!d.trustworthy) {
+        h += '<p style="font-size:11.5px;color:var(--text-light);margin:11px 0 0;' +
+          'line-height:1.5">* Left blank on purpose. The sold and bought columns ' +
+          'are what they say they are; a percentage from them would not be, so ' +
+          'none is shown until it would hold up.</p>';
+      }
+      body.innerHTML = h;
+    });
+  },
+
   // ---------- the statement, marked ----------
   //
   // One request, one list, and the marking is already decided on the
