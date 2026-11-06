@@ -135,4 +135,29 @@ async function attach(supabase, scan_id, entity_type, entity_id) {
   }
 }
 
-module.exports = { keep, noteReading, attach, pathFor, EXT };
+/**
+ * A row with no photograph behind it.
+ *
+ * Storage failing should cost him the picture, not the figures. The row
+ * is the mailbox the reading gets delivered to; the file is only the
+ * photo. Keeping those two separate means a bad minute for the bucket
+ * does not also mean he has to type the invoice in by hand.
+ */
+async function keepRowOnly(supabase, opts) {
+  try {
+    const ins = await supabase.from('scans').insert({
+      store_id: opts.store_id,
+      path: null,
+      mime_type: opts.mime_type || null,
+      bytes: 0,
+      kind: opts.kind || 'invoice',
+      taken_by: opts.taken_by || null,
+    }).select('scan_id').single();
+    if (ins.error) return { kept: false, why: ins.error.message };
+    return { kept: false, scan_id: ins.data.scan_id, no_photo: true };
+  } catch (e) {
+    return { kept: false, why: (e && e.message) || 'Could not record the photo.' };
+  }
+}
+
+module.exports = { keep, keepRowOnly, noteReading, attach, pathFor, EXT };

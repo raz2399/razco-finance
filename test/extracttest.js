@@ -8,6 +8,7 @@ const Module = require('module');
 require('./stub-guard');
 
 const DB = {
+  scans: [],
   vendors: [
     { vendor_id: 'v1', store_id: 'store1', name: 'Pac Agri Foods',
       payment_type: 'check', terms_code: 'net15', terms_days: 15 },
@@ -20,8 +21,12 @@ const DB = {
 
 function query(table) {
   let rows = (DB[table] || []).slice();
+  let mode = null;
+  let payload = null;
   const api = {
     select() { return api; },
+    insert(p) { mode = 'insert'; payload = p; return api; },
+    update(p) { mode = 'update'; payload = p; return api; },
     eq(col, val) { rows = rows.filter((r) => r[col] === val); return api; },
     neq(col, val) { rows = rows.filter((r) => r[col] !== val); return api; },
     ilike(col, pattern) {
@@ -29,9 +34,27 @@ function query(table) {
       rows = rows.filter((r) => String(r[col] || '').toLowerCase().includes(needle));
       return api;
     },
+    is(col, v) { rows = rows.filter((r) => (v === null ? r[col] == null : r[col] === v)); return api; },
+    in(col, vs) { rows = rows.filter((r) => vs.indexOf(r[col]) > -1); return api; },
+    order() { return api; },
     limit(n) { rows = rows.slice(0, n); return api; },
-    then(res) { return Promise.resolve({ data: rows, error: null }).then(res); },
+    maybeSingle() { return finish(true); },
+    single() { return finish(true); },
+    then(res) { return finish(false).then(res); },
   };
+  function finish(one) {
+    if (mode === 'insert') {
+      const r = Object.assign({ scan_id: 'scan-' + ((DB[table] || []).length + 1) }, payload);
+      if (!DB[table]) DB[table] = [];
+      DB[table].push(r);
+      return Promise.resolve({ data: one ? r : [r], error: null });
+    }
+    if (mode === 'update') {
+      rows.forEach((r) => Object.assign(r, payload));
+      return Promise.resolve({ data: rows, error: null });
+    }
+    return Promise.resolve({ data: one ? (rows[0] || null) : rows, error: null });
+  }
   return api;
 }
 
@@ -40,9 +63,18 @@ Module._resolveFilename = function (request, ...rest) {
   if (request === '@supabase/supabase-js') return 'MOCK_SB5';
   return origResolve.call(this, request, ...rest);
 };
+const storage = {
+  from() {
+    return {
+      upload: async (p) => ({ data: { path: p }, error: null }),
+      remove: async () => ({ error: null }),
+      createSignedUrl: async (p) => ({ data: { signedUrl: 'https://s/' + p }, error: null }),
+    };
+  },
+};
 require.cache.MOCK_SB5 = {
   id: 'MOCK_SB5', filename: 'MOCK_SB5', loaded: true,
-  exports: { createClient: () => ({ from: query }) },
+  exports: { createClient: () => ({ from: query, storage: storage }) },
 };
 process.env.SUPABASE_URL = 'https://example.supabase.co';
 process.env.SUPABASE_SERVICE_KEY = 'test';
@@ -52,7 +84,26 @@ process.env.ANTHROPIC_API_KEY = 'test-key';
 let modelSays = null;
 let modelFails = false;
 let lastRequest = null;
+// The reading moved to a background function, so the honest way to test
+// invoice-extract is to let that function actually run against the same
+// fake database -- which is exactly what happens in production, only
+// without the network in between.
+let background = null;
 global.fetch = async (url, options) => {
+  if (String(url).indexOf('paper-read-background') > -1) {
+    if (!background) {
+      background = require(
+        path.join(__dirname, '..', 'functions', 'paper-read-background.js')).handler;
+    }
+    // Run it, and wait, so the row is filled before the caller looks.
+    await background({
+      httpMethod: 'POST',
+      headers: options.headers,
+      body: options.body,
+    });
+    return { ok: true, status: 202, json: async () => ({}), text: async () => '' };
+  }
+
   lastRequest = { url, body: JSON.parse(options.body) };
   if (modelFails) {
     return { ok: false, status: 529, text: async () => 'overloaded' };

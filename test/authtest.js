@@ -174,6 +174,13 @@ const req = (headers, body, method) => ({
     // itself -- so it is read out of netlify.toml, not out of a list
     // somebody can add a name to.
     if (scheduled.indexOf(f.replace(/\.js$/, '')) > -1) return;
+    // A background function is started by another function, not by a
+    // person, so there is no session to check. The job itself is signed
+    // instead. The exemption only counts if the file really verifies a
+    // signature, and does it the slow way -- a plain === leaks, a
+    // character at a time, how much of a guess was right.
+    if (/-background\.js$/.test(f)
+        && /createHmac/.test(src) && /timingSafeEqual/.test(src)) return;
     open_.push(f);
   });
   check('nothing left open', open_, []);

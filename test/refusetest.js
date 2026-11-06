@@ -49,16 +49,65 @@ const SCHEDULED = ['daily-brief', 'plaid-sync'];
 // Listed here, but the claim is checked below rather than taken on
 // trust -- an endpoint cannot buy its way out by being on a list.
 const BY_TOKEN = ['check-sheet'];
+// Started by another function rather than by a person, so the job is
+// signed instead of the caller being signed in. A background function
+// has a public URL like any other, so without this anybody who found the
+// address could post photographs at it all day on his account. Listed
+// here, and the signing is verified below -- being on a list buys
+// nothing.
+const BY_STAMP = ['paper-read-background'];
 
 const files = fs.readdirSync(path.join(ROOT, 'functions'))
   .filter((f) => f.endsWith('.js'))
   .map((f) => f.replace(/\.js$/, ''))
   .filter((f) => OPEN.indexOf(f) === -1 && SCHEDULED.indexOf(f) === -1
-    && BY_TOKEN.indexOf(f) === -1)
+    && BY_TOKEN.indexOf(f) === -1 && BY_STAMP.indexOf(f) === -1)
   .sort();
 
 (async () => {
   console.log('Every endpoint can refuse a request it should refuse\n');
+
+  // The signed-job ones. Their exemption from the sign-in check is only
+  // worth anything if they really do refuse an unsigned job.
+  for (const name of BY_STAMP) {
+    const file = path.join(ROOT, 'functions', name + '.js');
+    const src = fs.readFileSync(file, 'utf8');
+    checkTrue(name + ' checks a signature', /createHmac/.test(src)
+      && /timingSafeEqual/.test(src),
+      'it is exempt from the sign-in check, so it had better check something');
+
+    let handler;
+    try { handler = require(file).handler; }
+    catch (e) { checkTrue(name + ' loads', false, e.message); continue; }
+
+    const body = JSON.stringify({ scan_id: 'x', base64_image: 'y' });
+    const unsigned = await handler({ httpMethod: 'POST', headers: {}, body: body });
+    checkTrue(name + ' refuses a job with no signature',
+      unsigned.statusCode === 401, 'got ' + unsigned.statusCode);
+
+    const forged = await handler({
+      httpMethod: 'POST',
+      headers: { 'x-razi-at': String(Date.now()), 'x-razi-stamp': 'deadbeef' },
+      body: body,
+    });
+    checkTrue(name + ' refuses a forged signature',
+      forged.statusCode === 401, 'got ' + forged.statusCode);
+
+    // A real signature, but from an hour ago. Replaying one that was
+    // captured off the wire must not work for ever.
+    const crypto = require('crypto');
+    const old = String(Date.now() - 60 * 60 * 1000);
+    const stamp = crypto
+      .createHmac('sha256', process.env.SUPABASE_SERVICE_KEY || '')
+      .update(old + '.' + body).digest('hex');
+    const stale = await handler({
+      httpMethod: 'POST',
+      headers: { 'x-razi-at': old, 'x-razi-stamp': stamp },
+      body: body,
+    });
+    checkTrue(name + ' refuses a signature from an hour ago',
+      stale.statusCode === 401, 'got ' + stale.statusCode);
+  }
 
   // The token-authorised ones first, since their exemption is only
   // worth anything if they really do check the token.
