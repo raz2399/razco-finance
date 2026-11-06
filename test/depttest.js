@@ -36,8 +36,21 @@ const at = (name) => {
 check('produce houses read as produce', () => {
   assert.strictEqual(at('OK PRODUCE'), DEPT.PRODUCE);
   assert.strictEqual(at('GREEN VALLEY PRODUCE'), DEPT.PRODUCE);
-  assert.strictEqual(at('PRODUCERS'), DEPT.PRODUCE);
-  assert.strictEqual(at('ROSEMARY FARM'), DEPT.PRODUCE);
+  assert.strictEqual(at('FRESHKO PRODUCE SERVICES'), DEPT.PRODUCE);
+});
+
+check('"FARM" and "PRODUCERS" are NOT produce', () => {
+  // Two of his own vendors, and the trap this whole file exists for.
+  // Rosemary Farms ($8,558) is a chicken producer. Producers Dairy of
+  // Fresno ($8,496) is a dairy. Both read as produce at a glance; both
+  // would have been accepted in the one press; and $17,000 of meat and
+  // dairy cost would have moved into produce -- making produce look
+  // like it was losing money and meat look like it was printing it,
+  // with neither figure odd enough to question.
+  assert.strictEqual(at('ROSEMARY FARM'), null);
+  assert.strictEqual(at('ROSEMARY FARMS'), null);
+  assert.strictEqual(at('PRODUCERS'), null);
+  assert.strictEqual(at('sandoval bros produce'), DEPT.PRODUCE);
 });
 
 check('seafood and ranches read as meat', () => {

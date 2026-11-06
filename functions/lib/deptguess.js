@@ -46,8 +46,20 @@ const SIGNS = [
   { dept: DEPT.TORTILLAS, words: ['TORTILLA', 'TORTILLERIA', 'MASA', 'GRUMA', 'MISSION FOODS'] },
   { dept: DEPT.MEAT, words: ['SEAFOOD', 'FISH', 'MEAT', 'BEEF', 'PORK', 'POULTRY', 'CHICKEN',
       'RANCH', 'PACKING', 'CARNE', 'MARISCOS'] },
-  { dept: DEPT.PRODUCE, words: ['PRODUCE', 'PRODUCERS', 'FARM', 'FARMS', 'VEGETABLE',
-      'FRUIT', 'BERRY', 'ORCHARD'] },
+  // "PRODUCE" only. Two words that look like produce and are not:
+  //
+  //   FARM       Rosemary Farms, one of his own vendors at $8,558, is a
+  //              chicken producer. Farms raise animals as readily as
+  //              they grow vegetables.
+  //   PRODUCERS  Producers Dairy of Fresno, another of his, $8,496. The
+  //              word means a dairy here, not a produce house.
+  //
+  // Both would have been proposed as produce and both would have been
+  // accepted in the one press, moving $17,000 of meat and dairy cost
+  // into the produce department -- where it would have made produce look
+  // like it was losing money and meat look like it was printing it.
+  // Neither figure would have looked odd enough to question.
+  { dept: DEPT.PRODUCE, words: ['PRODUCE', 'VEGETABLE', 'FRUIT', 'BERRY', 'ORCHARD'] },
   { dept: DEPT.BAKERY, words: ['BAKERY', 'BAKERIES', 'BAKIRES', 'BAKEMARK', 'BAKE',
       'BREAD', 'PAN DULCE', 'PASTRY'] },
   { dept: DEPT.BEER, words: ['BREWING', 'BREWERY', 'BEER'] },
