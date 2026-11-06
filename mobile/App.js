@@ -14,6 +14,7 @@ import HomeScreen from './src/HomeScreen';
 import DeliveryScreen from './src/DeliveryScreen';
 import SalesScreen from './src/SalesScreen';
 import MenuScreen from './src/MenuScreen';
+import StatementScreen from './src/StatementScreen';
 import FixScreen from './src/FixScreen';
 import ChecksScreen from './src/ChecksScreen';
 import CheckScreen from './src/CheckScreen';
@@ -124,6 +125,17 @@ export default function App() {
         {/* Writing a check changes both what is owed and what is out, so
             Home refetches on the way out and after each one. */}
         <WriteCheckScreen onBack={() => { refreshHome(); home(); }} onDone={refreshHome} />
+      </View>
+    );
+  }
+
+  if (screen === 'statement') {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <StatusBar style="dark" />
+        {/* One press here settles bank lines and names checks, so what is
+            owed and what is on hand both move. Home refetches either way. */}
+        <StatementScreen onBack={() => { refreshHome(); home(); }} onDone={refreshHome} />
       </View>
     );
   }
