@@ -209,6 +209,62 @@ check('soleInvoiceFor takes the amount either sign', () => {
 });
 
 // ---------------------------------------------------------------------
+// The cutover floor
+//
+// These are the cases that the first version of this got wrong against
+// his real statement: 92 lines and $371,787 of money out, all of it
+// before the cutover, all of it correctly netted inside the QuickBooks
+// opening balances, and all of it marked as needing him. A statement
+// view that cries wolf about the opening balances is worse than none.
+// ---------------------------------------------------------------------
+
+const CUT = '2026-10-28';
+
+check('money out before the cutover is closed, not a problem', () => {
+  const r = readRow(line({ posted_date: '2026-10-27' }), null, VN, [], CUT);
+  assert.strictEqual(r.state, 'closed');
+  assert.strictEqual(r.needs, null);
+  assert.strictEqual(r.before_cutover, true);
+});
+
+check('the cutover day itself is in scope', () => {
+  // The floor is "nothing BEFORE", so the day it starts counts.
+  const r = readRow(line({ posted_date: CUT }), null, VN, [], CUT);
+  assert.strictEqual(r.state, 'needs');
+});
+
+check('money in before the cutover is closed too', () => {
+  const r = readRow(line({ posted_date: '2026-10-20', amount: 22000 }), null, VN, [], CUT);
+  assert.strictEqual(r.state, 'closed');
+});
+
+check('a pending line before the cutover is still closed', () => {
+  // Pending beats settled, but nothing beats the floor: a line that old
+  // is inside the opening balances whatever the bank calls it today.
+  const r = readRow(line({ posted_date: '2026-10-20', is_pending: true }), null, VN, [], CUT);
+  assert.strictEqual(r.state, 'closed');
+});
+
+check('nothing before the cutover is ever suggested for naming', () => {
+  // The press must not reach back. Settlement is forbidden to, and a
+  // naming here would take money off a bill twice: once inside the
+  // opening balance and once again now.
+  const r = readRow(line({ posted_date: '2026-10-20' }),
+    pay({ vendor_id: null }), VN, [inv({ invoice_date: '2026-10-18', due_date: '2026-10-25' })], CUT);
+  assert.strictEqual(r.suggest, null);
+  assert.strictEqual(r.state, 'closed');
+});
+
+check('with no cutover set, nothing is closed', () => {
+  // A missing cutover must not quietly close the whole statement. The
+  // other screens refuse to settle without one; this one just marks
+  // honestly and lets the rest of the system say so.
+  const r = readRow(line({ posted_date: '2020-01-01' }), null, VN, [], null);
+  assert.strictEqual(r.state, 'needs');
+  assert.strictEqual(r.before_cutover, false);
+});
+
+// ---------------------------------------------------------------------
 // The tally under the page
 // ---------------------------------------------------------------------
 
@@ -220,7 +276,7 @@ check('the tally counts every line exactly once', () => {
     readRow(line({ bank_txn_id: 'd', amount: 900 }), null, VN, []),
   ];
   const c = tally(rows);
-  assert.strictEqual(c.settled + c.needs + c.pending + c.in, rows.length);
+  assert.strictEqual(c.settled + c.needs + c.pending + c['in'] + c.closed, rows.length);
   assert.strictEqual(c.settled, 1);
   assert.strictEqual(c.needs, 1);
   assert.strictEqual(c.pending, 1);

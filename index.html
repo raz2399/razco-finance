@@ -740,6 +740,9 @@
     .mk-on{background:rgba(255,214,51,.42);box-shadow:inset 3px 0 0 #e8b400}
     .mk-needs{box-shadow:inset 3px 0 0 #a8301f}
     .mk-pending{opacity:.72}
+    /* Before the cutover. Done, but done by QuickBooks: a grey wash says
+       accounted for without Razi-Nova taking credit for it. */
+    .mk-closed{background:#eceff3;box-shadow:inset 3px 0 0 #b9c0ca;color:#5b6472}
     .mk-date{min-width:62px;color:#5b6472;font-variant-numeric:tabular-nums}
     .mk-what{flex:1;min-width:150px;font-weight:600}
     .mk-amt{min-width:94px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
@@ -2979,6 +2982,9 @@ var APP = {
           '<span><i class="mk-chip" style="background:#fff;border:1px solid var(--border)"></i>' +
             (c.pending || 0) + ' still pending</span>' +
           '<span>' + (c['in'] || 0) + ' money in</span>' +
+          (c.closed ? '<span><i class="mk-chip" style="background:#eceff3;' +
+            'box-shadow:inset 3px 0 0 #b9c0ca"></i>' + c.closed +
+            ' before the cutover</span>' : '') +
         '</div>';
 
       var btn = document.getElementById('rec-stmt-apply');
@@ -3005,12 +3011,17 @@ var APP = {
         if (r.state === 'needs') cls += ' mk-on mk-needs';
         if (r.state === 'pending') cls += ' mk-pending';
         if (r.state === 'in') cls += ' mk-in';
+        // Before the cutover: netted inside the opening balances, so it
+        // is finished with, but it was never Razi-Nova's to settle. A
+        // flatter mark says done without claiming this system did it.
+        if (r.state === 'closed') cls += ' mk-closed';
 
         var what = r.vendor || r.description || 'Bank line';
         if (r.check_number) what = 'Check ' + r.check_number + ' · ' + what;
 
         var tag = '';
-        if (r.state === 'pending') tag = '<span class="mk-tag">pending</span>';
+        if (r.state === 'closed') tag = '<span class="mk-tag">opening balance</span>';
+        else if (r.state === 'pending') tag = '<span class="mk-tag">pending</span>';
         else if (r.needs === 'name') tag = '<span class="mk-tag red">whose?</span>';
         else if (r.needs === 'not_in_books') tag = '<span class="mk-tag red">unknown</span>';
         else if (r.is_cost) tag = '<span class="mk-tag">cost</span>';
@@ -3023,6 +3034,9 @@ var APP = {
             ' — same amount, only one bill open for it.</span>';
         } else if (r.needs === 'not_in_books') {
           note = '<span class="mk-note">The bank took this and the books have never heard of it.</span>';
+        } else if (r.state === 'closed' && i && rows[i - 1].state !== 'closed') {
+          note = '<span class="mk-note">From here back is inside your opening balances \u2014 ' +
+            'already accounted for, and nothing here is yours to do.</span>';
         }
 
         h += '<div class="' + cls + '">' +

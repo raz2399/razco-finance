@@ -54,7 +54,7 @@ async function readAll(table, columns, shape) {
 }
 
 async function gather(store_id, sinceDate) {
-  const [rows, payments, invoices, vendors] = await Promise.all([
+  const [rows, payments, invoices, vendors, settings] = await Promise.all([
     readAll('bank_transactions',
       'bank_txn_id, posted_date, description, amount, check_number, is_pending',
       (q) => q.eq('store_id', store_id).gte('posted_date', sinceDate)
@@ -66,7 +66,15 @@ async function gather(store_id, sinceDate) {
       'invoice_id, vendor_id, invoice_number, invoice_date, due_date, total_amount, amount_paid, balance_due, status',
       (q) => q.eq('store_id', store_id).in('status', OPEN)),
     readAll('vendors', 'vendor_id, name', (q) => q.eq('store_id', store_id)),
+    supabase.from('store_settings').select('cutover_date')
+      .eq('store_id', store_id).maybeSingle(),
   ]);
+
+  // The same hard floor settlement works to. Without it the fortnight
+  // before the cutover reads as a wall of problems, when in fact it is
+  // netted inside the QuickBooks opening balances and must never be
+  // touched.
+  const cutover = (settings.data && settings.data.cutover_date) || null;
 
   const vName = {};
   vendors.forEach((v) => { vName[v.vendor_id] = v.name; });
@@ -78,7 +86,9 @@ async function gather(store_id, sinceDate) {
     rows: rows,
     invoices: invoices,
     vName: vName,
-    marked: rows.map((t) => readRow(t, byTxn[t.bank_txn_id] || null, vName, invoices)),
+    cutover: cutover,
+    marked: rows.map((t) =>
+      readRow(t, byTxn[t.bank_txn_id] || null, vName, invoices, cutover)),
   };
 }
 
@@ -180,6 +190,7 @@ exports.handler = safely('statement', async (event) => {
     since: since,
     days: days,
     count: ctx.marked.length,
+    cutover: ctx.cutover,
     counts: counts,
     rows: ctx.marked,
     says: counts.can_name

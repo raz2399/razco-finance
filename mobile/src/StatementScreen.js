@@ -8,6 +8,7 @@
 //   yellow            dealt with
 //   yellow + red edge cleared, and still wants him
 //   plain             still pending at the bank
+//   grey              before the cutover, inside the opening balances
 //
 // Pending is deliberately unmarked. A mark says the reconciling is
 // finished with that line, and the bank can still take a pending line
@@ -24,6 +25,10 @@ import { getStatement, applyStatement } from './api';
 const MARK = 'rgba(255,214,51,0.42)';
 const EDGE = '#e8b400';
 const NEEDS = '#a8301f';
+// Before the cutover: done, but done by QuickBooks. Grey says accounted
+// for without Razi-Nova claiming it settled anything.
+const CLOSED = '#eceff3';
+const CLOSED_EDGE = '#b9c0ca';
 
 const RANGES = [
   { days: 21, name: '3 weeks' },
@@ -153,6 +158,10 @@ export default function StatementScreen({ onBack, onDone }) {
                 text={(counts.pending || 0) + ' still pending'} />
               <Key swatch={{ backgroundColor: C.white, borderLeftColor: C.green }}
                 text={(counts['in'] || 0) + ' money in'} />
+              {counts.closed ? (
+                <Key swatch={{ backgroundColor: CLOSED, borderLeftColor: CLOSED_EDGE }}
+                  text={counts.closed + ' before the cutover'} />
+              ) : null}
             </View>
           </View>
         ) : null}
@@ -185,14 +194,18 @@ function Key({ swatch, text }) {
 }
 
 function Line({ r, first }) {
+  const closed = r.state === 'closed';
   const marked = r.state === 'settled' || r.state === 'needs';
-  const edge = r.state === 'needs' ? NEEDS : (marked ? EDGE : 'transparent');
+  const edge = r.state === 'needs' ? NEEDS
+    : closed ? CLOSED_EDGE
+    : marked ? EDGE : 'transparent';
 
   let what = r.vendor || r.description || 'Bank line';
   if (r.check_number) what = 'Check ' + r.check_number + ' · ' + what;
 
   let tag = null;
-  if (r.state === 'pending') tag = { text: 'pending', red: false };
+  if (closed) tag = { text: 'opening balance', red: false };
+  else if (r.state === 'pending') tag = { text: 'pending', red: false };
   else if (r.needs === 'name') tag = { text: 'whose?', red: true };
   else if (r.needs === 'not_in_books') tag = { text: 'unknown', red: true };
   else if (r.is_cost) tag = { text: 'cost', red: false };
@@ -211,6 +224,7 @@ function Line({ r, first }) {
       st.line,
       !first && { borderTopWidth: 1, borderTopColor: '#f1f3f7' },
       marked && { backgroundColor: MARK },
+      closed && { backgroundColor: CLOSED },
       { borderLeftWidth: 3, borderLeftColor: edge },
       r.state === 'pending' && { opacity: 0.72 },
     ]}>
