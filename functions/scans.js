@@ -53,6 +53,54 @@ exports.handler = safely('scans', async (event) => {
   const store_id = q.store_id;
   if (!store_id) return json(400, { error: 'Missing store_id' });
 
+  // Collecting a reading that was still going when the phone asked.
+  //
+  // A hard invoice takes longer than the ten seconds Netlify allows, so
+  // the reading happens in the background and the answer lands here.
+  // This is how the phone finds out it is ready.
+  if (q.waiting_on) {
+    const r = await supabase
+      .from('scans')
+      .select('scan_id, kind, extracted, read_state, read_error, read_vendor_id')
+      .eq('store_id', store_id).eq('scan_id', q.waiting_on)
+      .maybeSingle();
+    if (r.error) return json(500, { error: r.error.message });
+    if (!r.data) return json(404, { error: 'No such scan.' });
+    // The vendor comes back in the same shape invoice-extract uses, so
+    // the screen does not have to know which of the two paths answered.
+    // Two shapes for one thing is two things, and they drift.
+    let vendor = { known: false };
+    if (r.data.read_vendor_id) {
+      const v = await supabase.from('vendors')
+        .select('vendor_id, name, payment_type, terms_code, terms_days')
+        .eq('store_id', store_id).eq('vendor_id', r.data.read_vendor_id)
+        .maybeSingle();
+      if (v.data) {
+        vendor = {
+          vendor_id: v.data.vendor_id,
+          name: v.data.name,
+          pay_method: v.data.payment_type,
+          terms_code: v.data.terms_code,
+          terms_days: v.data.terms_days,
+          known: true,
+        };
+      }
+    }
+
+    return json(200, {
+      ok: true,
+      scan_id: r.data.scan_id,
+      kind: r.data.kind,
+      still_reading: r.data.read_state === 'reading',
+      failed: r.data.read_state === 'failed',
+      why: r.data.read_error || null,
+      extracted: r.data.extracted || null,
+      draft: r.data.extracted || null,
+      vendor: vendor,
+      vendor_id: r.data.read_vendor_id || null,
+    });
+  }
+
   let query = supabase
     .from('scans')
     .select('scan_id, path, mime_type, bytes, kind, entity_type, entity_id, taken_by, created_at')

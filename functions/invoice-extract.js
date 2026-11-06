@@ -13,11 +13,13 @@
 // What comes back is a draft for Raz to glance at and confirm. A number read
 // off a photograph is never treated as a fact.
 
+const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const { requireUser, safely } = require('./lib/guard');
 const { judge } = require('./lib/readcheck');
 const { matchVendor } = require('./lib/bankrules');
-const { keep, noteReading } = require('./lib/keepscan');
+const { matchVendorForName } = require('./lib/vendormatch');
+const { keep, keepRowOnly, noteReading } = require('./lib/keepscan');
 
 // Used when quoting an amount back to him. Referenced before it existed
 // once already in this repo -- "json is not defined" -- and the cost was
@@ -181,59 +183,120 @@ exports.handler = safely('invoice-extract', async (event) => {
     taken_by: auth.user && auth.user.email ? auth.user.email : null,
   });
 
+  // ---- the reading happens somewhere without a clock -------------------
+  //
+  // Netlify stops a function at ten seconds. Every read that worked took
+  // 7.8 to 9.0; every read that died took 10.6 to 12.6 and came back
+  // 502. Nothing was wrong with the reading -- the hard invoices are
+  // simply the slow ones, so the clock was throwing away the work that
+  // mattered most and leaving him to type those in by hand.
+  //
+  // So the model call moved to a background function, which has fifteen
+  // minutes. This one hands the job over and then waits a few seconds to
+  // see if it finishes quickly. If it does, the answer comes back in the
+  // same reply and nothing about the screen changes. If it does not, the
+  // reply says it is still reading, and the phone collects the answer
+  // from the scan a moment later. Either way the work is never thrown
+  // away for being slow.
+  // Storage failing must not also cost him the figures.
+  //
+  // The reading is delivered to a scan row, and that row is only a
+  // mailbox -- the file is the photograph. So if the bucket is having a
+  // bad minute, a row is still opened without a picture behind it and
+  // the reading goes ahead. He loses the photo, which the reply says
+  // plainly, not the half hour of typing it in by hand.
+  if (!held.scan_id) {
+    const row = await keepRowOnly(supabase, {
+      store_id: store_id, mime_type: mime_type, kind: kind,
+      taken_by: auth.user && auth.user.email ? auth.user.email : null,
+    });
+    if (!row.scan_id) {
+      return json(502, withScan(held, {
+        error: 'The photo could not be read just now. Try it again.',
+      }));
+    }
+    held.scan_id = row.scan_id;
+  }
+
+  await supabase.from('scans')
+    .update({ read_state: 'reading', read_error: null })
+    .eq('scan_id', held.scan_id);
+
+  // Netlify sets URL to the site's own address, which is the thing to
+  // trust: a Host header is whatever the caller put in it, and building
+  // a URL we then post to out of attacker-controlled text is how a
+  // server ends up making requests on somebody else's behalf.
+  const site = String(process.env.URL || process.env.DEPLOY_PRIME_URL
+    || ((event.headers || {}).host ? 'https://' + event.headers.host : ''))
+    .replace(/\/+$/, '');
+  const origin = /^https?:\/\//.test(site) ? site : 'https://' + site;
+
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    // Background functions answer 202 at once; the work carries on after.
+    const jobBody = JSON.stringify({
+      scan_id: held.scan_id,
+      store_id: store_id,
+      kind: kind,
+      base64_image: base64_image,
+      mime_type: mime_type,
+    });
+    // Signed, because a background function has a public URL and nobody
+    // signs in to it. Without this, anybody who found the address could
+    // post photographs at it all day on his account.
+    const sentAt = String(Date.now());
+    const stamp = crypto.createHmac('sha256', process.env.SUPABASE_SERVICE_KEY || '')
+      .update(sentAt + '.' + jobBody).digest('hex');
+
+    await fetch(origin + '/.netlify/functions/paper-read-background', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
+        'X-Razi-At': sentAt,
+        'X-Razi-Stamp': stamp,
       },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 1024,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mime_type, data: base64_image } },
-            { type: 'text', text: PROMPTS[kind] },
-          ],
-        }],
-      }),
+      body: jobBody,
     });
+  } catch (e) {
+    await supabase.from('scans')
+      .update({ read_state: 'failed', read_error: 'Could not start the reader.' })
+      .eq('scan_id', held.scan_id);
+    return json(502, withScan(held, {
+      error: 'Could not start reading the photo. It has been saved.',
+    }));
+  }
 
-    if (!res.ok) {
-      const detail = await res.text();
-      return json(502, withScan(held, {
-        error: 'Could not read the photo right now.'
-          + (held.kept ? ' The photo itself has been saved.' : ''),
-        detail: detail.slice(0, 300),
-      }));
-    }
+  // A short wait, well inside the ten seconds, for the ones that are
+  // quick anyway. Six seconds covers most invoices; the rest are
+  // collected by the phone.
+  const started = Date.now();
+  let row = null;
+  while (Date.now() - started < 6000) {
+    await new Promise((r) => setTimeout(r, 700));
+    const look = await supabase.from('scans')
+      .select('extracted, read_state, read_error, read_vendor_id')
+      .eq('scan_id', held.scan_id).maybeSingle();
+    if (look.data && look.data.read_state !== 'reading') { row = look.data; break; }
+  }
 
-    const payload = await res.json();
-    const text = (payload.content || [])
-      .filter((c) => c.type === 'text').map((c) => c.text).join('');
+  if (!row) {
+    return json(202, withScan(held, {
+      reading: true,
+      scan_id: held.scan_id,
+      says: 'Still reading this one. It will fill itself in.',
+    }));
+  }
 
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      const m = text.match(/\{[\s\S]*\}/);
-      if (!m) {
-        return json(502, withScan(held, {
-          error: 'The photo could not be turned into invoice fields.'
-            + (held.kept ? ' The photo itself has been saved.' : ''),
-        }));
-      }
-      try { data = JSON.parse(m[0]); }
-      catch (e2) {
-        return json(502, withScan(held, {
-          error: 'The photo could not be turned into invoice fields.'
-            + (held.kept ? ' The photo itself has been saved.' : ''),
-        }));
-      }
-    }
+  if (row.read_state === 'failed' || !row.extracted) {
+    return json(502, withScan(held, {
+      error: 'The photo could not be turned into invoice fields.'
+        + ' The photo itself has been saved.',
+      detail: row.read_error || null,
+    }));
+  }
+
+  try {
+    const data = row.extracted;
+    const readVendorId = row.read_vendor_id || null;
 
     const num = (v) => {
       if (v === null || v === undefined || v === '') return null;
@@ -392,14 +455,30 @@ exports.handler = safely('invoice-extract', async (event) => {
     let vendor = null;
     let duplicate = null;
 
-    if (draft.vendor_name) {
+    // Which of his vendors this is.
+    //
+    // This used to ask Postgres for name ILIKE '%<what the reader saw>%',
+    // which is a literal substring and so only ever found a vendor when
+    // his list spelled the name exactly as the invoice did. Against his
+    // own deliveries that meant "PacAgri Foods" never found "pac agri
+    // foods", "FRITOLAY" never found "FRITO LAY", "Cargill Food
+    // Distribution" never found "CARGIL" and "Producers Dairyfoods Inc"
+    // never found "PRODUCERS" -- four vendors out of five, which is why
+    // he was typing the vendor in by hand nearly every time.
+    //
+    // The reader was not wrong. The lookup was.
+    if (readVendorId) {
+      // The background read already worked it out, against the aliases
+      // and the whole list. Nothing to do but fetch the row.
       const v = await supabase
         .from('vendors')
         .select('vendor_id, name, payment_type, terms_code, terms_days')
-        .eq('store_id', store_id)
-        .ilike('name', '%' + draft.vendor_name.replace(/[%_]/g, '') + '%')
-        .limit(1);
-      vendor = (v.data || [])[0] || null;
+        .eq('store_id', store_id).eq('vendor_id', readVendorId)
+        .limit(1).maybeSingle();
+      vendor = v.data || null;
+    }
+    if (!vendor && draft.vendor_name) {
+      vendor = await matchVendorForName(supabase, store_id, draft.vendor_name);
     }
 
     if (draft.invoice_number && vendor) {

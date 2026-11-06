@@ -362,6 +362,29 @@ export const getDay = (date) => call('/day' + (date ? '?date=' + date : ''));
 
 // Read a photograph of paper. kind is 'invoice', 'check' or 'statement'.
 // It returns a draft to confirm — nothing is saved by this call.
+// Collecting a reading that was still going when we asked.
+//
+// A hard invoice takes longer than the ten seconds Netlify allows a
+// function, so the reading happens in the background and the answer
+// lands on the scan. This waits for it.
+export const collectReading = async (scanId, seconds) => {
+  const until = Date.now() + ((seconds || 90) * 1000);
+  // Eased off gradually: quick at first, because most are quick, then
+  // slower so a three page invoice is not asked forty times.
+  let gap = 1200;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, gap));
+    gap = Math.min(Math.round(gap * 1.25), 4000);
+    try {
+      const d = await call('/scans?waiting_on=' + encodeURIComponent(scanId));
+      if (d && !d.still_reading) return d;
+    } catch (e) {
+      // A dropped request mid-wait is not a failed reading. Keep asking.
+    }
+  }
+  return { still_reading: true, timed_out: true };
+};
+
 export const readPaper = (kind, base64, mime) =>
   call('/invoice-extract', {
     method: 'POST',

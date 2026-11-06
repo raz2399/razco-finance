@@ -114,7 +114,22 @@ process.env.SUPABASE_SERVICE_KEY = 'k';
 process.env.ANTHROPIC_API_KEY = 'test-key';
 
 // The model call, stubbed. Its failure is the case that matters most.
-global.fetch = () => {
+let background = null;
+global.fetch = (url, options) => {
+  // The reading moved to a background function. Running it for real,
+  // against the same fake database, is the honest way to test the
+  // handover -- it is exactly what happens in production with the
+  // network taken out.
+  if (String(url).indexOf('paper-read-background') > -1) {
+    if (!background) {
+      background = require(
+        path.join(ROOT, 'functions', 'paper-read-background.js')).handler;
+    }
+    return background({
+      httpMethod: 'POST', headers: options.headers, body: options.body,
+    }).then(() => ({ ok: true, status: 202, json: () => Promise.resolve({}) }));
+  }
+
   if (modelFails) {
     return Promise.resolve({
       ok: false,
@@ -164,7 +179,7 @@ Promise.resolve()
   .then(() => check('a photo that reads fine is kept', () => {
     reset();
     return send().then((r) => {
-      assert.strictEqual(r.status, 200, r.body.error);
+      assert.ok(r.status === 200 || r.status === 202, r.body.error);
       assert.strictEqual(UPLOADED.length, 1, 'nothing was uploaded');
       assert.strictEqual(r.body.scan_kept, true);
       assert.ok(r.body.scan_id, 'the reply must say which scan it is');
@@ -180,7 +195,8 @@ Promise.resolve()
       assert.strictEqual(UPLOADED.length, 1,
         'the reading failed and the photo was thrown away with it');
       assert.strictEqual(r.body.scan_kept, true);
-      assert.ok(/saved/.test(r.body.error), 'it should say the photo survived: ' + r.body.error);
+      assert.ok(/saved/.test(r.body.error || r.body.says || ''),
+        'it should say the photo survived: ' + JSON.stringify(r.body).slice(0, 160));
     });
   }))
 
@@ -191,18 +207,29 @@ Promise.resolve()
       assert.strictEqual(UPLOADED.length, 1);
       const src = fs.readFileSync(
         path.join(ROOT, 'functions', 'invoice-extract.js'), 'utf8');
-      assert.ok(src.indexOf('const held = await keep(') < src.indexOf('api.anthropic.com'),
-        'the photo must be put away before the model is called');
+      // The reading now happens in a background function, so the line
+      // to beat is the handover rather than the model call. The claim
+      // is the same one: the picture is on disk before anybody tries to
+      // read it.
+      assert.ok(src.indexOf('const held = await keep(')
+        < src.indexOf('paper-read-background'),
+        'the photo must be put away before the reader is started');
     });
   }))
 
   .then(() => check('if the photo cannot be kept, the reading still happens', () => {
+    // Storage having a bad minute must cost him the picture, not the
+    // half hour of typing the invoice in by hand. The scan row is only
+    // the mailbox the reading is delivered to; the file is the photo,
+    // and one can exist without the other.
     reset();
     failUpload = true;
     return send().then((r) => {
-      assert.strictEqual(r.status, 200, 'a failed upload must not stop the read');
-      assert.ok(r.body.draft, 'the figures should still come back');
+      assert.ok(r.status === 200 || r.status === 202,
+        'a failed upload must not stop the read, got ' + r.status);
       assert.strictEqual(r.body.scan_kept, false);
+      assert.ok(r.body.draft || r.body.reading,
+        'it should either have the figures or be fetching them');
     });
   }))
 

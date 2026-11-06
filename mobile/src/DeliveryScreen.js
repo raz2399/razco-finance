@@ -15,7 +15,7 @@ import {
   StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { saveInvoice, readPaper, getVendorList, money } from './api';
+import { saveInvoice, readPaper, collectReading, getVendorList, money } from './api';
 import { C, S } from './theme';
 
 const METHODS = [
@@ -114,7 +114,47 @@ export default function DeliveryScreen({ onDone, onCancel }) {
     });
 
     try {
-      const res = await readPaper('invoice', asset.base64, asset.mimeType || 'image/jpeg');
+      let res = await readPaper('invoice', asset.base64, asset.mimeType || 'image/jpeg');
+
+      // Still reading. A three page invoice takes longer than the ten
+      // seconds a Netlify function gets, so it is read in the background
+      // and the answer is collected here. Before this, those came back
+      // as "the photo could not be turned into invoice fields" and he
+      // typed the whole thing in by hand -- and they were the big ones.
+      if (res && res.reading && res.scan_id) {
+        update(placeholder.id, {
+          scanId: res.scan_id,
+          tone: 'busy',
+          notes: ['Reading this one. It is a long invoice, so it takes a moment.'],
+        });
+        const got = await collectReading(res.scan_id, 120);
+        if (got && got.extracted && !got.failed) {
+          // Same shape either path, so everything below is unchanged.
+          res = {
+            draft: got.extracted,
+            vendor: got.vendor || { known: false },
+            scan_id: res.scan_id,
+          };
+        } else {
+          // Out of patience, or the reader gave up. The photo is on file
+          // either way, so typing it in still leaves the picture behind
+          // the invoice.
+          const kept = res.scan_id;
+          update(placeholder.id, {
+            scanId: kept,
+            tone: 'bad',
+            open: true,
+            notes: [
+              got && got.timed_out
+                ? 'This one is taking a long time to read. Type what it says.'
+                : 'Could not read this one. Type what it says.',
+              'The photo is saved either way, so it stays with the invoice.',
+            ],
+          });
+          return;
+        }
+      }
+
       const d = res.draft || {};
       const notes = [];
       const missed = [];
