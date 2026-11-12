@@ -1,0 +1,338 @@
+<!--
+  The mockup Raz was shown before the statement marking was built, kept
+  as the record of what was agreed. It offered two rules; he picked the
+  mixed one -- mark everything cleared, keep a red edge on whatever still
+  needs him -- and asked for one press that does all of it.
+
+  What shipped has one state this does not: a GREY "before the cutover"
+  wash. Running the real rule against his statement marked 92 lines and
+  $371,787 as needing him, all of it already netted inside the QuickBooks
+  opening balances. So the live screen knows the cutover and this file
+  does not. Read it for the colours and the layout, not for the states.
+
+  Live version: the Reconcile tab, and "Your statement" on the phone.
+-->
+<title>Razco Statement Marking</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Layout: a single statement column, dense ledger rows grouped by day,
+     with a sticky day header. Marking is a wash behind the row, the way a
+     highlighter sits on paper, never a border or a badge alone. */
+  :root {
+    --paper: #fbfaf7;
+    --ink: #1c1a16;
+    --ink-soft: #6c665b;
+    --rule: #e4e0d7;
+    --card: #ffffff;
+    --mark: rgba(255, 214, 51, 0.42);
+    --mark-edge: #e8b400;
+    --needs: #a8301f;
+    --needs-wash: rgba(168, 48, 31, 0.07);
+    --money-in: #1d6b4a;
+    --pending: #8a8276;
+    --accent: #6b4e9e;
+    --font-text: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-num: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #16150f;
+      --ink: #f0ece2;
+      --ink-soft: #9d968a;
+      --rule: #2e2b23;
+      --card: #1e1c15;
+      --mark: rgba(255, 206, 40, 0.26);
+      --mark-edge: #c79a00;
+      --needs: #ff8d79;
+      --needs-wash: rgba(255, 141, 121, 0.10);
+      --money-in: #68c698;
+      --pending: #827a6c;
+      --accent: #b79ae8;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #16150f;
+    --ink: #f0ece2;
+    --ink-soft: #9d968a;
+    --rule: #2e2b23;
+    --card: #1e1c15;
+    --mark: rgba(255, 206, 40, 0.26);
+    --mark-edge: #c79a00;
+    --needs: #ff8d79;
+    --needs-wash: rgba(255, 141, 121, 0.10);
+    --money-in: #68c698;
+    --pending: #827a6c;
+    --accent: #b79ae8;
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-text);
+    margin: 0;
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 22px 60px;
+  }
+
+  h1 {
+    font-size: 1.42rem;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    margin: 0 0 4px;
+    text-wrap: balance;
+  }
+  .sub { color: var(--ink-soft); font-size: 0.83rem; margin: 0 0 20px; line-height: 1.5; }
+
+  /* ---- the rule switch ---- */
+  .rules { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+  .rule-opt {
+    display: flex; gap: 10px; align-items: flex-start;
+    background: var(--card); border: 1px solid var(--rule);
+    border-radius: 9px; padding: 11px 13px; cursor: pointer;
+  }
+  .rule-opt[data-on="yes"] { border-color: var(--mark-edge); box-shadow: inset 0 0 0 1px var(--mark-edge); }
+  .rule-opt input { margin: 2px 0 0; accent-color: var(--mark-edge); }
+  .rule-name { font-weight: 620; font-size: 0.88rem; }
+  .rule-why { color: var(--ink-soft); font-size: 0.78rem; line-height: 1.45; margin-top: 2px; }
+
+  /* ---- legend ---- */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 7px 14px;
+    padding: 11px 13px; background: var(--card);
+    border: 1px solid var(--rule); border-radius: 9px; margin-bottom: 8px;
+  }
+  .key { display: inline-flex; align-items: center; gap: 7px; font-size: 0.76rem; color: var(--ink-soft); }
+  .chip { width: 22px; height: 13px; border-radius: 3px; border: 1px solid var(--rule); flex: none; }
+  .chip.done { background: var(--mark); border-color: var(--mark-edge); }
+  .chip.needs { background: var(--needs-wash); border-color: var(--needs); }
+  .chip.pend { background: repeating-linear-gradient(45deg, transparent 0 4px, var(--rule) 4px 5px); }
+  .chip.plain { background: var(--card); }
+
+  .tally { font-size: 0.78rem; color: var(--ink-soft); margin: 0 0 16px; line-height: 1.5; }
+  .tally b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  /* ---- the statement ---- */
+  .day {
+    position: sticky; top: env(safe-area-inset-top, 0px);
+    background: var(--paper); z-index: 2;
+    font-size: 0.72rem; font-weight: 650; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--ink-soft);
+    padding: 13px 0 6px; border-bottom: 1px solid var(--rule);
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 4px 1fr auto;
+    gap: 0 11px;
+    align-items: baseline;
+    padding: 9px 10px 9px 0;
+    border-bottom: 1px solid var(--rule);
+    position: relative;
+  }
+  .stripe { grid-row: 1 / span 2; align-self: stretch; border-radius: 2px; background: transparent; }
+
+  .row.mark { background: var(--mark); }
+  .row.mark .stripe { background: var(--mark-edge); }
+  .row.attn { background: var(--needs-wash); }
+  .row.attn .stripe { background: var(--needs); }
+  .row.pend { color: var(--pending); }
+  .row.pend .stripe {
+    background: repeating-linear-gradient(45deg, transparent 0 3px, var(--pending) 3px 4px);
+  }
+
+  .what { min-width: 0; }
+  .descr {
+    font-size: 0.855rem; font-weight: 520; line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  .meta { font-size: 0.73rem; color: var(--ink-soft); margin-top: 2px; line-height: 1.35; }
+  .row.pend .meta { color: var(--pending); }
+  .amt {
+    font-family: var(--font-num); font-size: 0.86rem; font-weight: 500;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .amt.in { color: var(--money-in); font-weight: 600; }
+  .flag {
+    display: inline-block; font-size: 0.68rem; font-weight: 650;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--needs); margin-left: 6px;
+  }
+  .tick { color: var(--mark-edge); font-weight: 700; margin-right: 5px; }
+
+  .note {
+    margin-top: 26px; padding: 14px 15px; border-radius: 9px;
+    background: var(--card); border: 1px solid var(--rule);
+    font-size: 0.82rem; line-height: 1.55; color: var(--ink-soft);
+  }
+  .note b { color: var(--ink); }
+  .note ul { margin: 8px 0 0; padding-left: 18px; }
+  .note li { margin-bottom: 5px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+  <h1>What has cleared, marked</h1>
+  <p class="sub">
+    Your real transactions, 3–6 November. Pick a marking rule and see which rows
+    light up. Nothing here is live yet — this is for you to judge before it ships.
+  </p>
+
+  <div class="rules" id="rules">
+    <label class="rule-opt" data-on="yes">
+      <input type="radio" name="rule" value="settled" id="r-settled" checked>
+      <span>
+        <span class="rule-name">Mark what is finished with</span>
+        <span class="rule-why">
+          Cleared the bank <em>and</em> squared away in the books. What stays
+          unmarked is what still wants something from you.
+        </span>
+      </span>
+    </label>
+    <label class="rule-opt">
+      <input type="radio" name="rule" value="cleared" id="r-cleared">
+      <span>
+        <span class="rule-name">Mark everything that cleared</span>
+        <span class="rule-why">
+          Exactly like a highlighter on a paper statement: if the bank took it,
+          it gets marked, whether or not the books know what it was.
+        </span>
+      </span>
+    </label>
+  </div>
+
+  <div class="legend">
+    <span class="key"><span class="chip done"></span> Marked</span>
+    <span class="key"><span class="chip needs"></span> Needs you</span>
+    <span class="key"><span class="chip pend"></span> Pending at the bank</span>
+    <span class="key"><span class="chip plain"></span> Money in</span>
+  </div>
+
+  <p class="tally" id="tally"></p>
+
+  <div id="ledger"></div>
+
+  <div class="note">
+    <b>Two things to tell me.</b>
+    <ul>
+      <li>Which rule reads better to you on a real day — and I can mix them, for
+        instance mark everything cleared but keep the red edge on the ones that
+        still need naming.</li>
+      <li>Whether the yellow is the right strength. On a phone in daylight it can
+        want to be stronger; on the desktop it is usually plenty.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  // Real rows off the bank feed, 3-6 November. state is worked out the same
+  // way the app does it: did it clear, is it in the books, does anything
+  // still need a decision.
+  var ROWS = [
+    { d: '2026-11-06', t: 'Merchant card deposit', n: 'Card settlement coming in', a: 19502.87, pending: true },
+    { d: '2026-11-06', t: "Tony's Fine Foods", n: 'Collection ACH', a: -13291.69, pending: true, booked: true, vendor: true },
+    { d: '2026-11-06', t: 'Citi card online payment', n: 'Nothing on the books for this yet', a: -10663.85, pending: true, needs: 'unknown' },
+    { d: '2026-11-06', t: 'Bueno Beverage', n: 'Fintech EFT', a: -1052.20, pending: true, booked: true, vendor: true },
+    { d: '2026-11-06', t: 'Shell', n: 'Pre-authorisation', a: -1.00, pending: true },
+
+    { d: '2026-11-05', t: 'Merchant card deposit', n: 'Card settlement', a: 18122.38 },
+    { d: '2026-11-05', t: 'So Cal Edison', n: 'Utilities', a: -14514.56, booked: true, cost: true },
+    { d: '2026-11-05', t: 'So Cal Edison', n: 'Utilities', a: -12385.70, booked: true, cost: true },
+    { d: '2026-11-05', t: 'Check 9962', n: 'Cleared — nobody has said who it was to', a: -6200.00, booked: true, needs: 'name' },
+    { d: '2026-11-05', t: 'Check 9916', n: 'Cleared — nobody has said who it was to', a: -1415.37, booked: true, needs: 'name' },
+    { d: '2026-11-05', t: 'Frito Lay', n: 'Vendor draft', a: -1060.84, booked: true, vendor: true },
+    { d: '2026-11-05', t: 'Bimbo Bakires USA', n: 'Vendor draft', a: -1044.62, booked: true, vendor: true },
+    { d: '2026-11-05', t: 'Check 9936', n: 'Cleared — nobody has said who it was to', a: -882.27, booked: true, needs: 'name' },
+    { d: '2026-11-05', t: 'Check 9913', n: 'Cleared — nobody has said who it was to', a: -866.80, booked: true, needs: 'name' },
+    { d: '2026-11-05', t: 'Mid Valley Disposal', n: 'Waste', a: -737.10, pending: true, booked: true, vendor: true },
+    { d: '2026-11-05', t: 'Facebook', n: 'Card 5337 — advertising', a: -360.00, booked: true, cost: true, card: true },
+    { d: '2026-11-05', t: 'Cash App', n: 'Card 5337', a: -200.00, booked: true, cost: true, card: true },
+    { d: '2026-11-05', t: 'Capital One', n: 'Nothing on the books for this yet', a: -99.00, needs: 'unknown' },
+    { d: '2026-11-05', t: 'Check 9937', n: 'Cleared — nobody has said who it was to', a: -77.39, booked: true, needs: 'name' },
+    { d: '2026-11-05', t: 'Payment Alliance', n: 'Refund in', a: 62.79 },
+    { d: '2026-11-05', t: 'Twilio', n: 'Card 5337 — software', a: -41.31, booked: true, cost: true, card: true },
+
+    { d: '2026-11-04', t: 'Business deposit', n: 'Over the counter', a: 71677.96 },
+    { d: '2026-11-04', t: 'Check 9965 — Alnameeh LLC', n: 'Against their account', a: -37000.00, booked: true, vendor: true },
+    { d: '2026-11-04', t: 'C&S Grocery', n: 'Vendor draft', a: -20433.82, booked: true, vendor: true },
+    { d: '2026-11-04', t: 'Merchant card deposit', n: 'Card settlement', a: 19544.38 },
+    { d: '2026-11-04', t: 'Frito Lay', n: 'Vendor draft', a: -1042.56, booked: true, vendor: true },
+    { d: '2026-11-04', t: 'Hartford Fire', n: 'Nothing on the books for this yet', a: -630.10, needs: 'unknown' },
+    { d: '2026-11-04', t: 'Harland Clarke', n: 'Check order — bank charges', a: -122.11, booked: true, cost: true },
+    { d: '2026-11-04', t: 'Starbucks', n: 'Card 5337', a: -12.30, booked: true, vendor: true },
+
+    { d: '2026-11-03', t: 'Merchant card deposit', n: 'Card settlement', a: 21262.44 },
+    { d: '2026-11-03', t: 'Merchant card deposit reversed', n: 'Taken back out', a: -3812.77, needs: 'unknown' },
+    { d: '2026-11-03', t: 'Check — no number printed', n: 'The statement does not say which check', a: -3500.00, needs: 'name' },
+    { d: '2026-11-03', t: 'Check 9888', n: 'Cleared — nobody has said who it was to', a: -3447.64, booked: true, needs: 'name' },
+    { d: '2026-11-03', t: 'Valley Wide Beverage', n: 'Paid invoice W4755051 in full', a: -1704.07, booked: true, vendor: true, settled: true }
+  ];
+
+  var DAYS = { '2026-11-06': 'Friday 6 November', '2026-11-05': 'Thursday 5 November',
+               '2026-11-04': 'Wednesday 4 November', '2026-11-03': 'Tuesday 3 November' };
+
+  function money(n) {
+    var s = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return (n < 0 ? '−' : '+') + '$' + s;
+  }
+
+  // Finished with: it cleared, and the books have an answer for it.
+  function isSettled(r) {
+    return !r.pending && !r.needs && (r.booked || r.a > 0);
+  }
+
+  function paint() {
+    var rule = document.querySelector('input[name="rule"]:checked').value;
+    var html = '';
+    var lastDay = null;
+    var marked = 0, attn = 0, pend = 0;
+
+    for (var i = 0; i < ROWS.length; i++) {
+      var r = ROWS[i];
+      if (r.d !== lastDay) {
+        html += '<div class="day">' + DAYS[r.d] + '</div>';
+        lastDay = r.d;
+      }
+
+      var cls = 'row';
+      var mark = rule === 'cleared' ? !r.pending : isSettled(r);
+      if (r.pending) { cls += ' pend'; pend++; }
+      if (mark) { cls += ' mark'; marked++; }
+      // The red edge survives either rule: a cleared check nobody has named
+      // is still money coming off nothing you owe.
+      if (r.needs) { cls += mark ? '' : ' attn'; attn++; }
+
+      var flag = '';
+      if (r.needs === 'name') flag = '<span class="flag">name it</span>';
+      else if (r.needs === 'unknown') flag = '<span class="flag">not in books</span>';
+
+      html += '<div class="' + cls + '">'
+        + '<span class="stripe"></span>'
+        + '<span class="what">'
+        + '<span class="descr">' + (mark ? '<span class="tick">✓</span>' : '') + r.t + flag + '</span>'
+        + '<span class="meta">' + (r.pending ? 'Pending · ' : '') + r.n + '</span>'
+        + '</span>'
+        + '<span class="amt' + (r.a > 0 ? ' in' : '') + '">' + money(r.a) + '</span>'
+        + '</div>';
+    }
+
+    document.getElementById('ledger').innerHTML = html;
+    document.getElementById('tally').innerHTML =
+      '<b>' + marked + '</b> of ' + ROWS.length + ' marked · '
+      + '<b>' + attn + '</b> still want something from you · '
+      + '<b>' + pend + '</b> not final at the bank yet';
+
+    var opts = document.querySelectorAll('.rule-opt');
+    for (var j = 0; j < opts.length; j++) {
+      opts[j].setAttribute('data-on', opts[j].querySelector('input').checked ? 'yes' : 'no');
+    }
+  }
+
+  document.getElementById('rules').addEventListener('change', paint);
+  paint();
+</script>
