@@ -65,16 +65,20 @@ const line = (over) => Object.assign({
 // counted as something it is not.
 // ---------------------------------------------------------------------
 
-check('paying the Citi card is internal, never a cost', () => {
-  // Paying a card settles a debt; the buying happened earlier, on the
-  // card. Counted as a cost it would charge him twice the day those
-  // card purchases are ever entered as bills.
+check('paying the Citi card is a cost, under its own name', () => {
+  // His call: the card's purchases never reach the bank feed, so
+  // treating the payment as a transfer would leave about $10,700 a
+  // month in no figure anywhere. It is carried as one lump, in a
+  // category named for what it is -- a month of mixed buying arriving
+  // as a single number. Filing it under Supplies would make Supplies
+  // a lie.
   ['PAYMENT CITI CARD ONLINE WEB RASMY ALI',
    'CITI CARD ONLINE PAYMENT ACH ENTRY MEMO POSTED',
    'PAYMENT CITI AUTOPAY WEB RAZCO FOOD SUPERMARKE'].forEach((d) => {
     const r = classifyLine({ description: d, amount: -10663.85 }, { vendors: [], aliases: [] });
-    assert.strictEqual(r.what, 'internal', d + ' should be internal, got ' + r.what);
+    assert.strictEqual(r.what, 'cost', d + ' should be a cost, got ' + r.what);
     assert.strictEqual(r.code, 'card_payment');
+    assert.strictEqual(r.category_name, 'Credit card spending');
   });
 });
 
