@@ -119,4 +119,81 @@ function parseModelJson(text) {
   return null;
 }
 
-module.exports = { PROMPTS, MODEL, parseModelJson };
+// How many tokens the reader may spend on one answer. Enough for a long
+// delivery invoice with every line on it.
+const MAX_TOKENS = 4096;
+
+/**
+ * Show the model one photograph and get the fields back.
+ *
+ * This lives here rather than in the background function because the
+ * fallback path needs exactly the same reader. When the bucket cannot
+ * take the photograph there is no file to fetch later, so the reading
+ * has to happen there and then -- and it must be the same prompts, the
+ * same model and the same parsing, or the rare path would quietly be a
+ * worse reader than the normal one and nobody would ever notice.
+ */
+async function askTheModel(base64, mime, kind, extraNote) {
+  const content = [
+    { type: 'image', source: { type: 'base64', media_type: mime, data: base64 } },
+    { type: 'text', text: PROMPTS[kind] + (extraNote ? '\n\n' + extraNote : '') },
+  ];
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
+      messages: [{ role: 'user', content: content }],
+    }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text();
+    const err = new Error('The reader refused the photo.');
+    err.detail = detail.slice(0, 400);
+    err.status = res.status;
+    throw err;
+  }
+
+  const payload = await res.json();
+  const text = (payload.content || [])
+    .filter((c) => c.type === 'text')
+    .map((c) => c.text)
+    .join('');
+  return parseModelJson(text);
+}
+
+// What to tell the reader when the first pass came back with nothing.
+//
+// Aimed squarely at the invoices he has been typing in by hand: a photo
+// at an angle, a carbon copy, a total written on in biro. Shared so the
+// background reader and the fallback reader say exactly the same thing.
+const SECOND_LOOK =
+  'A first pass found almost nothing on this photograph. Look again, '
+  + 'carefully, and assume it IS readable. It may be creased, at an '
+  + 'angle, a carbon copy, lit badly, or part covered by a thumb. The '
+  + 'total may be handwritten beside or instead of the printed one -- '
+  + 'if a figure is written on by hand, that is the amount payable and '
+  + 'the printed one is not. The vendor may only appear in small print '
+  + 'in a header, a footer, a remit-to block, or a logo. Give every '
+  + 'field you can make out, and list only what truly cannot be read.';
+
+/** Did that read actually tell us anything? */
+function tooThin(kind, data) {
+  if (!data) return true;
+  if (kind === 'check') {
+    return data.amount_numeric == null && data.amount_written == null;
+  }
+  if (kind === 'statement') return !data.lines || !data.lines.length;
+  return !data.vendor_name && data.total == null;
+}
+
+module.exports = {
+  PROMPTS, MODEL, MAX_TOKENS, SECOND_LOOK, parseModelJson, askTheModel, tooThin,
+};

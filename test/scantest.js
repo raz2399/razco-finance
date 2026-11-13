@@ -34,6 +34,7 @@ function reset() {
   modelFails = false;
 }
 
+let failDownload = false;
 const storage = {
   from() {
     return {
@@ -48,6 +49,16 @@ const storage = {
       },
       createSignedUrl(p) {
         return Promise.resolve({ data: { signedUrl: 'https://signed/' + p }, error: null });
+      },
+      // The reader fetches the photograph from the bucket rather than
+      // being handed it, so the bucket has to be able to give it back.
+      download(p) {
+        if (failDownload) return Promise.resolve({ error: { message: 'gone' }, data: null });
+        const hit = UPLOADED.filter((u) => u.path === p)[0];
+        const bytes = Buffer.from(hit ? 'x'.repeat(hit.bytes) : 'photo');
+        return Promise.resolve({
+          data: { arrayBuffer: () => Promise.resolve(bytes) }, error: null,
+        });
       },
     };
   },

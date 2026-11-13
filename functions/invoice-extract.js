@@ -20,6 +20,12 @@ const { judge } = require('./lib/readcheck');
 const { matchVendor } = require('./lib/bankrules');
 const { matchVendorForName } = require('./lib/vendormatch');
 const { keep, keepRowOnly, noteReading } = require('./lib/keepscan');
+const { askTheModel, tooThin, SECOND_LOOK } = require('./lib/readpaper');
+
+// Not an error: a marker that says the reading already happened here, so
+// the job-starting block can be skipped without pretending it failed.
+function AlreadyRead() {}
+AlreadyRead.prototype = Object.create(Error.prototype);
 
 // Used when quoting an amount back to him. Referenced before it existed
 // once already in this repo -- "json is not defined" -- and the cost was
@@ -216,11 +222,55 @@ exports.handler = safely('invoice-extract', async (event) => {
       }));
     }
     held.scan_id = row.scan_id;
+    held.no_file = true;
   }
 
-  await supabase.from('scans')
-    .update({ read_state: 'reading', read_error: null })
-    .eq('scan_id', held.scan_id);
+  // The bucket failed, so there will be nothing to fetch later.
+  //
+  // The reader works from the stored file now, which is what keeps the
+  // job small enough to be accepted at all. The cost is that a photo the
+  // bucket would not take cannot be read in the background: there is no
+  // file to read. Rather than lose both the picture and the figures, the
+  // reading happens here and now, inside the ten seconds -- which is
+  // exactly what the whole system did before the background function
+  // existed. A slow invoice may still run out of clock on this path.
+  // That is worse than usual, and far better than certain failure.
+  //
+  // It writes its answer onto the scan row and then falls through to the
+  // same waiting code the background path uses, which finds the row
+  // already finished and builds the reply from it. One place builds the
+  // draft, so the rare path cannot drift away from the normal one.
+  let readHere = false;
+  if (held.no_file) {
+    readHere = true;
+    try {
+      let data = await askTheModel(base64_image, mime_type, kind);
+      if (tooThin(kind, data)) {
+        const second = await askTheModel(base64_image, mime_type, kind, SECOND_LOOK);
+        if (!tooThin(kind, second)) data = second;
+      }
+      const thin = tooThin(kind, data);
+      await supabase.from('scans').update({
+        read_state: thin ? 'failed' : 'done',
+        extracted: thin ? null : data,
+        read_error: thin ? 'Nothing could be read from the photo.' : null,
+      }).eq('scan_id', held.scan_id);
+    } catch (e) {
+      await supabase.from('scans').update({
+        read_state: 'failed',
+        read_error: (e && e.message) || 'The photo could not be read.',
+      }).eq('scan_id', held.scan_id);
+      return json(502, withScan(held, {
+        error: 'The photo could not be read just now. Try it again.',
+      }));
+    }
+  }
+
+  if (!readHere) {
+    await supabase.from('scans')
+      .update({ read_state: 'reading', read_error: null })
+      .eq('scan_id', held.scan_id);
+  }
 
   // Netlify sets URL to the site's own address, which is the thing to
   // trust: a Host header is whatever the caller put in it, and building
@@ -232,13 +282,25 @@ exports.handler = safely('invoice-extract', async (event) => {
   const origin = /^https?:\/\//.test(site) ? site : 'https://' + site;
 
   try {
+    // Already read, inline, because the bucket would not take the photo.
+    // Nothing to hand over: skip straight to building the reply from the
+    // row the inline read has just filled in.
+    if (readHere) throw new AlreadyRead();
+
     // Background functions answer 202 at once; the work carries on after.
+    // The job names the photograph; it does not carry it.
+    //
+    // A background function is an ASYNCHRONOUS Lambda invocation, and
+    // those take 256 KB of payload, not the 6 MB a synchronous one
+    // takes. Posting the image here made the body about 2 MB, so every
+    // job was refused with 413 in under a fifth of a second and not one
+    // invoice was read for six days. The reader fetches the file from
+    // the bucket itself now, and this body stays about a hundred bytes
+    // whatever the photograph weighs.
     const jobBody = JSON.stringify({
       scan_id: held.scan_id,
       store_id: store_id,
       kind: kind,
-      base64_image: base64_image,
-      mime_type: mime_type,
     });
     // Signed, because a background function has a public URL and nobody
     // signs in to it. Without this, anybody who found the address could
@@ -247,7 +309,7 @@ exports.handler = safely('invoice-extract', async (event) => {
     const stamp = crypto.createHmac('sha256', process.env.SUPABASE_SERVICE_KEY || '')
       .update(sentAt + '.' + jobBody).digest('hex');
 
-    await fetch(origin + '/.netlify/functions/paper-read-background', {
+    const fired = await fetch(origin + '/.netlify/functions/paper-read-background', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -256,13 +318,38 @@ exports.handler = safely('invoice-extract', async (event) => {
       },
       body: jobBody,
     });
+
+    // The answer has to be looked at.
+    //
+    // This is the second half of the same six-day failure. The platform
+    // was refusing every job with 413, and nothing here read the reply,
+    // so the scan was left saying "reading" for ever: no error, no
+    // retry, no sign on any screen that anything was wrong. Seven
+    // photographs sat like that while he typed the invoices in by hand.
+    //
+    // A job that is refused is now a failure he can see, with the reason
+    // on the row, which is the difference between a thing that is broken
+    // and a thing that is broken and silent.
+    if (!fired.ok && fired.status !== 202) {
+      const why = fired.status === 413
+        ? 'The photo was too large to send for reading.'
+        : 'The reader refused the job (' + fired.status + ').';
+      await supabase.from('scans')
+        .update({ read_state: 'failed', read_error: why })
+        .eq('scan_id', held.scan_id);
+      return json(502, withScan(held, { error: why + ' The photo has been saved.' }));
+    }
   } catch (e) {
-    await supabase.from('scans')
-      .update({ read_state: 'failed', read_error: 'Could not start the reader.' })
-      .eq('scan_id', held.scan_id);
-    return json(502, withScan(held, {
-      error: 'Could not start reading the photo. It has been saved.',
-    }));
+    // The inline path has already done the reading; there is no job to
+    // start and nothing has gone wrong.
+    if (!(e instanceof AlreadyRead)) {
+      await supabase.from('scans')
+        .update({ read_state: 'failed', read_error: 'Could not start the reader.' })
+        .eq('scan_id', held.scan_id);
+      return json(502, withScan(held, {
+        error: 'Could not start reading the photo. It has been saved.',
+      }));
+    }
   }
 
   // A short wait, well inside the ten seconds, for the ones that are

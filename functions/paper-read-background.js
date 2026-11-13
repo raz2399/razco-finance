@@ -30,65 +30,13 @@
 
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
-const { PROMPTS, MODEL, parseModelJson } = require('./lib/readpaper');
+const { askTheModel, tooThin, SECOND_LOOK } = require('./lib/readpaper');
 const { matchVendorForName } = require('./lib/vendormatch');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
-
-// Room to work. The old limit was 1024 and shared with a ten second
-// budget; a long invoice with a list of what could not be read would run
-// out of both. Neither is scarce here.
-const MAX_TOKENS = 4096;
-
-async function askTheModel(base64, mime, kind, extraNote) {
-  const content = [
-    { type: 'image', source: { type: 'base64', media_type: mime, data: base64 } },
-    { type: 'text', text: PROMPTS[kind] + (extraNote ? '\n\n' + extraNote : '') },
-  ];
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      messages: [{ role: 'user', content: content }],
-    }),
-  });
-
-  if (!res.ok) {
-    const detail = await res.text();
-    const err = new Error('The reader refused the photo.');
-    err.detail = detail.slice(0, 400);
-    err.status = res.status;
-    throw err;
-  }
-
-  const payload = await res.json();
-  const text = (payload.content || [])
-    .filter((c) => c.type === 'text')
-    .map((c) => c.text)
-    .join('');
-  return parseModelJson(text);
-}
-
-// Did that read actually tell us anything? An invoice with no vendor and
-// no amount is not a reading, it is a shrug.
-function tooThin(kind, data) {
-  if (!data) return true;
-  if (kind === 'check') {
-    return data.amount_numeric == null && data.amount_written == null;
-  }
-  if (kind === 'statement') return !data.lines || !data.lines.length;
-  return !data.vendor_name && data.total == null;
-}
 
 // ---------------------------------------------------------------------
 // Who is allowed to start a read
@@ -136,8 +84,8 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Bad job.' }) };
   }
 
-  const { scan_id, store_id, kind, base64_image, mime_type } = job;
-  if (!scan_id || !base64_image) {
+  const { scan_id, store_id, kind } = job;
+  if (!scan_id) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Nothing to read.' }) };
   }
 
@@ -146,6 +94,45 @@ exports.handler = async (event) => {
       await supabase.from('scans').update(patch).eq('scan_id', scan_id);
     } catch (e) { /* the photograph is kept either way */ }
   };
+
+  // The photograph is fetched here, not posted here.
+  //
+  // This is what broke every scan for six days. A background function is
+  // an ASYNCHRONOUS Lambda invocation, and those are capped at 256 KB of
+  // payload -- not the 6 MB a synchronous function accepts. His photos
+  // are 1.0 to 1.5 MB, so base64 in the body was around 2 MB and the
+  // platform answered 413 in 180 milliseconds, every single time, before
+  // a line of this file ran. Not one invoice was read between the 6th
+  // and the 12th.
+  //
+  // Sending the scan_id instead makes the job about a hundred bytes, and
+  // it can never grow with the size of a photograph again: the only
+  // thing that travels is the name of the thing to read.
+  let picture;
+  try {
+    const row = await supabase.from('scans')
+      .select('path, mime_type').eq('scan_id', scan_id).maybeSingle();
+    if (row.error || !row.data || !row.data.path) {
+      await finish({ read_state: 'failed',
+        read_error: 'The photo could not be found to read.' });
+      return { statusCode: 404, body: JSON.stringify({ error: 'No such photo.' }) };
+    }
+    const dl = await supabase.storage.from('scans').download(row.data.path);
+    if (dl.error || !dl.data) {
+      await finish({ read_state: 'failed',
+        read_error: 'The photo could not be opened to read.' });
+      return { statusCode: 502, body: JSON.stringify({ error: 'Could not fetch.' }) };
+    }
+    const buf = Buffer.from(await dl.data.arrayBuffer());
+    picture = { base64: buf.toString('base64'), mime: row.data.mime_type };
+  } catch (e) {
+    await finish({ read_state: 'failed',
+      read_error: 'The photo could not be opened to read.' });
+    return { statusCode: 502, body: JSON.stringify({ error: 'Could not fetch.' }) };
+  }
+
+  const base64_image = picture.base64;
+  const mime_type = picture.mime;
 
   try {
     let data = await askTheModel(base64_image, mime_type, kind);
@@ -158,15 +145,7 @@ exports.handler = async (event) => {
     // in biro. Telling the reader that the first pass found nothing, and
     // where to look, gets a usable answer out of most of them.
     if (tooThin(kind, data)) {
-      const second = await askTheModel(base64_image, mime_type, kind,
-        'A first pass found almost nothing on this photograph. Look again, '
-        + 'carefully, and assume it IS readable. It may be creased, at an '
-        + 'angle, a carbon copy, lit badly, or part covered by a thumb. The '
-        + 'total may be handwritten beside or instead of the printed one -- '
-        + 'if a figure is written on by hand, that is the amount payable and '
-        + 'the printed one is not. The vendor may only appear in small print '
-        + 'in a header, a footer, a remit-to block, or a logo. Give every '
-        + 'field you can make out, and list only what truly cannot be read.');
+      const second = await askTheModel(base64_image, mime_type, kind, SECOND_LOOK);
       if (!tooThin(kind, second)) data = second;
       else if (second) data = Object.assign({}, second, data);
     }
