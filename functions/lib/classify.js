@@ -34,6 +34,9 @@
 // Twilio, the internet bill and the rest were money that left the bank
 // and appeared in no figure anywhere.
 
+// What a card line looks like, whatever was bought on it.
+const CARD_SHAPED = /\bDBT CRD\b|\bPOS DEBIT\b|CARD#|\bIBT DEB\b/;
+
 const up = (s) => String(s == null ? '' : s).toUpperCase();
 const squash = (s) => up(s).replace(/[^A-Z0-9]/g, '');
 const money = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -54,8 +57,7 @@ const COSTS = [
   { code: 'payroll', test: /\bPAYROLL\b|RAZCO LINDSAY IN/, label: 'Payroll', category: 'Payroll' },
   { code: 'sales_tax', test: /CDTFA|DEPT TAX|BOARD OF EQUAL/, label: 'Sales tax', category: 'Taxes & Licenses' },
   { code: 'income_tax', test: /\bIRS\b|EFTPS|FRANCHISE TAX/, label: 'Tax', category: 'Taxes & Licenses' },
-  { code: 'card_purchase', test: /\bDBT CRD\b|\bPOS DEBIT\b|CARD#/, label: 'Card purchase', category: null },
-  { code: 'software', test: /\bAWS\b|GOOGLECLOUD|GOOGLE CLOUD|DIGITALOCEAN|TWILIO|ADOBE|MICROSOFT|NETLIFY|RAILWAY|OPENAI|ANTHROPIC/, label: 'Software', category: 'Software & Subscriptions' },
+  { code: 'software', test: /\bAWS\b|GOOGLECLOUD|GOOGLE CLOUD|DIGITALOCEAN|TWILIO|ADOBE|MICROSOFT|NETLIFY|RAILWAY|OPENAI|ANTHROPIC|INTUIT|QBOOKS|AIPRM|SUPABASE|VERCEL|GODADDY|SQUARESPACE|AGILITYRETAIL/, label: 'Software', category: 'Software & Subscriptions' },
   { code: 'advertising', test: /FACEBK|FACEBOOK|META PLATFORMS|GOOGLE ADS/, label: 'Advertising', category: 'Advertising' },
   { code: 'utility', test: /WIRELESS INTERNET|EDISON|\bPG&?E\b|SO CAL GAS|WATER DEPT|CITY OF LINDSAY/, label: 'Utilities', category: 'Utilities' },
   { code: 'alarm_fire', test: /PYE-BARKER|ALARM|FIRE PROTECT/, label: 'Fire and alarm', category: 'Repairs & Maintenance' },
@@ -79,10 +81,30 @@ const COSTS = [
   // The pattern matches what his bank actually writes -- "PAYMENT CITI
   // CARD ONLINE WEB RASMY ALI" -- which the old one did not, so $42,900
   // since September reached no figure at all.
-  { code: 'card_payment', test: /CITI\s*(CARD\s*)?(ONLINE|AUTOPAY)|CARD (ONLINE )?PAYMENT|CREDIT CRD AUTOPAY|CARDMEMBER SERV/, label: 'Credit card payment', category: 'Credit card spending' },
+  { code: 'card_payment', test: /CITI\s*(CARD\s*)?(ONLINE|AUTOPAY)|CARD (ONLINE )?PAYMENT|CREDIT CRD AUTOPAY|CARDMEMBER SERV|CRCARDPMT|CAPITAL ONE/, label: 'Credit card payment', category: 'Credit card spending' },
   { code: 'loan', test: /\bLOAN\b|SBA |NOTE PAYMENT/, label: 'Loan payment', category: 'Interest & Bank Fees' },
-  { code: 'insurance', test: /INSURANCE|PREMIUM/, label: 'Insurance', category: 'Insurance' },
+  { code: 'insurance', test: /INSURANCE|PREMIUM|HARTFORD|STATE FARM|GEICO|PACERPYRLC/, label: 'Insurance', category: 'Insurance' },
   { code: 'rent', test: /\bRENT\b|LEASE PAYMENT/, label: 'Rent', category: 'Rent' },
+  { code: 'fuel', test: /\bSHELL\b|\bCHEVRON\b|\bARCO\b|\b76\b|VALERO|FUEL|GASOLINE/, label: 'Fuel', category: 'Fuel & Vehicle' },
+  { code: 'supplies', test: /AMAZON|AMZN|COSTCO|HOME DEPOT|LOWES|STAPLES|OFFICE DEPOT|WALMART|SAMS CLUB|ULINE|WEBSTAURANT/, label: 'Supplies', category: 'Supplies' },
+
+  // LAST. Every card line says "DBT CRD" or "CARD#", so this rule
+  // matches all of them -- and it used to sit above the merchant rules,
+  // which meant it won every time and handed back no category at all.
+  // Facebook, Twilio, DigitalOcean, Google Cloud, Railway, the internet
+  // bill and the fuel all have rules of their own and reached none of
+  // them: fifteen lines in the books as "card purchase, uncategorised".
+  //
+  // The same ordering mistake as payroll_tax under payroll, one line
+  // further up. A rule that matches a FORM of payment has to come after
+  // every rule that matches WHAT was paid for, because the form tells
+  // you nothing and the merchant tells you everything.
+  //
+  // Reaching this one means the merchant is genuinely unrecognised. It
+  // keeps a null category on purpose: inventing one would file real
+  // money under a heading nobody chose, and "uncategorised" is a thing
+  // he can see and fix.
+  { code: 'card_purchase', test: /\bDBT CRD\b|\bPOS DEBIT\b|CARD#|\bIBT DEB\b/, label: 'Card purchase', category: null },
 ];
 
 // Money moving between his own pockets. Never a cost, never income.
@@ -254,6 +276,12 @@ function classifyLine(txn, ctx) {
       label: cost.label,
       category_name: cost.category,
       merchant: cardMerchant(txn.description) || null,
+      // Whether it was a card is a fact about the line, not about which
+      // rule happened to match it. Deriving it from the rule meant that
+      // the moment Facebook started matching `advertising` instead of
+      // the generic card rule, the same swipe began recording itself as
+      // an ACH transfer.
+      is_card: CARD_SHAPED.test(text),
       amount: out,
     };
   }
@@ -293,5 +321,5 @@ function classifyLine(txn, ctx) {
 
 module.exports = {
   classifyLine, vendorFor, invoiceForAmount, cardMerchant,
-  squash, headOf, COSTS, INTERNAL,
+  squash, headOf, COSTS, INTERNAL, CARD_SHAPED,
 };

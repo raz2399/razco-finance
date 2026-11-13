@@ -69,6 +69,10 @@ const storage = {
       upload: async (p) => ({ data: { path: p }, error: null }),
       remove: async () => ({ error: null }),
       createSignedUrl: async (p) => ({ data: { signedUrl: 'https://s/' + p }, error: null }),
+      // The reader fetches the photograph itself now.
+      download: async () => ({
+        data: { arrayBuffer: async () => Buffer.from('photo-bytes') }, error: null,
+      }),
     };
   },
 };
@@ -89,8 +93,15 @@ let lastRequest = null;
 // fake database -- which is exactly what happens in production, only
 // without the network in between.
 let background = null;
+const JOBS = [];
+let refuseJob = 0;
 global.fetch = async (url, options) => {
   if (String(url).indexOf('paper-read-background') > -1) {
+    JOBS.push({ body: options.body, headers: options.headers });
+    // The platform refusing the job, which is what happened for six days.
+    if (refuseJob) {
+      return { ok: false, status: refuseJob, json: async () => ({}), text: async () => '' };
+    }
     if (!background) {
       background = require(
         path.join(__dirname, '..', 'functions', 'paper-read-background.js')).handler;
@@ -232,6 +243,50 @@ const POST = (b) => handler({
     lastRequest.body.messages[0].content.some((c) => c.type === 'image'));
   checkTrue('the model is a real one',
     /^claude-(opus|sonnet|haiku)-\d/.test(lastRequest.body.model), lastRequest.body.model);
+
+  // -------------------------------------------------------------------
+  // The job must never carry the photograph
+  //
+  // This is the regression that cost him six days of typing invoices in
+  // by hand. A Netlify background function is an ASYNCHRONOUS Lambda
+  // invocation, and those accept 256 KB of payload -- not the 6 MB a
+  // synchronous function accepts. Posting the base64 image made the body
+  // roughly 2 MB for a 1.5 MB photo, so the platform answered 413 in
+  // under a fifth of a second, every time, before a line of the reader
+  // ran.
+  //
+  // Nothing about it was visible. The scan row said "reading" for ever,
+  // no error was written anywhere, and the only symptom was that
+  // scanning quietly stopped working.
+  //
+  // The size of the job is now a tested property rather than something
+  // to remember: a photograph may be any size, the job may not grow
+  // with it.
+  console.log('\nThe job that is handed over');
+  JOBS.length = 0;
+  const BIG = Buffer.alloc(3 * 1024 * 1024, 7).toString('base64');
+  await POST({ base64_image: BIG });
+  const job = JOBS[0];
+  checkTrue('a job is handed over', !!job);
+  const kb = Math.round(Buffer.byteLength(job ? job.body : '', 'utf8') / 1024);
+  checkTrue('the job stays far under the 256 KB async-invoke limit', kb < 200, kb + ' KB');
+  const parsed = JSON.parse(job ? job.body : '{}');
+  checkTrue('it names the scan to read', !!parsed.scan_id);
+  checkTrue('the photograph does NOT travel in it', parsed.base64_image === undefined);
+
+  // The second half of the same silence: the platform's answer was never
+  // looked at, so a refused job left the row saying "reading" for ever.
+  console.log('\nA refused job is visible, not silent');
+  JOBS.length = 0;
+  refuseJob = 413;
+  const refused = await POST({});
+  refuseJob = 0;
+  checkTrue('the caller is told', refused.statusCode !== 200, 'got ' + refused.statusCode);
+  const stuck = (DB.scans || []).slice(-1)[0];
+  check('the scan is marked failed, not left reading',
+    stuck && stuck.read_state, 'failed');
+  checkTrue('and the row says why', /too large|refused/i.test((stuck && stuck.read_error) || ''),
+    (stuck && stuck.read_error) || 'no reason given');
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);

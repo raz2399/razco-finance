@@ -406,8 +406,22 @@ function runTheRealThing() {
       return plan(sb, 'store1').then((p) => {
         const codes = p.costs.map((c) => c.label);
         assert.ok(codes.indexOf('Payroll') > -1, 'payroll still reaches nothing');
-        assert.ok(codes.indexOf('Card purchase') > -1, 'card 5337 still reaches nothing');
-        const card = p.costs.filter((c) => c.label === 'Card purchase')[0];
+
+        // The Facebook line on card 5337. It used to come back labelled
+        // "Card purchase" with no category, because the rule matching
+        // the form of payment sat above every rule matching what was
+        // bought. What matters is that it reaches a cost at all; what it
+        // is CALLED should follow the merchant, so this asks for the
+        // card line by the thing that identifies it and then insists it
+        // was filed somewhere real.
+        const card = p.costs.filter((c) => c.method === 'card')[0];
+        assert.ok(card, 'card 5337 still reaches nothing');
+        assert.strictEqual(card.label, 'Advertising',
+          'Facebook is advertising, not an uncategorised card swipe');
+        // And "card" must still be how it was paid. That is a fact about
+        // the line, not about which rule matched it -- deriving it from
+        // the rule turned this very swipe into an ACH transfer the
+        // moment it started matching the advertising rule instead.
         assert.strictEqual(card.method, 'card');
         // The flag the expense line depends on. True here would mean the
         // cost is treated as paying a bill and never counted.

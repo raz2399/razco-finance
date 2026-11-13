@@ -446,3 +446,26 @@ export const applyStatement = (days) =>
       store_id: STORE_ID, action: 'apply_all', days: Number(days) || 21,
     }),
   });
+
+// ---------------------------------------------------------------------
+// Money that left without a bill or a bank line
+//
+// Cash out of the drawer, the gardener paid in notes, a payroll run.
+// None of it has an invoice to photograph, and the cash ones never
+// touch the bank at all, so without this they are simply missing from
+// the profit figure.
+export const getSpendSetup = () => call('/spend?store_id=' + STORE_ID);
+
+export const recordSpend = (fields) =>
+  call('/spend', {
+    method: 'POST',
+    body: JSON.stringify(Object.assign({ store_id: STORE_ID }, fields)),
+  });
+
+export const removeSpend = (paymentId) =>
+  call('/spend', {
+    method: 'POST',
+    body: JSON.stringify({
+      store_id: STORE_ID, action: 'remove', payment_id: paymentId,
+    }),
+  });

@@ -34,6 +34,13 @@ const GROUPS = [
     ],
   },
   {
+    title: 'Money out with no invoice',
+    items: [
+      { key: 'spend', name: 'Cash, payroll, anything else',
+        sub: 'Spending with no bill to photograph and no bank line' },
+    ],
+  },
+  {
     title: 'Reconciling',
     items: [
       { key: 'statement', name: 'Your statement',

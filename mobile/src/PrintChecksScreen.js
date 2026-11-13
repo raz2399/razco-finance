@@ -30,7 +30,7 @@ import {
 import { checksToPrint, printChecks, saveCheckAlignment, siteRoot, money } from './api';
 import { C, S } from './theme';
 
-export default function PrintChecksScreen({ onBack, onDone }) {
+export default function PrintChecksScreen({ onBack, onDone, focusVendor }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -56,8 +56,19 @@ export default function PrintChecksScreen({ onBack, onDone }) {
       setData(r);
       // Everything printable starts ticked: the common case is paying
       // the whole list, and unticking two is less work than ticking six.
+      const all = (r && r.waiting) || [];
+
+      // Arriving straight from writing a check: tick only that vendor's,
+      // because he came here to print the one he just wrote, not to
+      // reprint the six that were already waiting. If none of them are
+      // his, fall back to the usual everything-ticked.
+      const mine = focusVendor
+        ? all.filter((w) => w.printable && w.vendor_id === focusVendor)
+        : [];
+      const toTick = mine.length ? mine : all.filter((w) => w.printable);
+
       const on = {};
-      ((r && r.waiting) || []).forEach((w) => { if (w.printable) on[w.payment_id] = true; });
+      toTick.forEach((w) => { on[w.payment_id] = true; });
       setPicked(on);
       if (r && r.suggested_next) setStart(String(r.suggested_next));
       setError(null);
@@ -67,7 +78,7 @@ export default function PrintChecksScreen({ onBack, onDone }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [focusVendor]);
 
   React.useEffect(() => { load(); }, [load]);
 

@@ -48,7 +48,7 @@ const daysBetween = (a, b) => Math.round(
   (new Date(b + 'T12:00:00Z') - new Date(a + 'T12:00:00Z')) / 86400000
 );
 
-export default function WriteCheckScreen({ onBack, onDone }) {
+export default function WriteCheckScreen({ onBack, onDone, onPrint }) {
   const [query, setQuery] = useState('');
   const [vendors, setVendors] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -157,6 +157,7 @@ export default function WriteCheckScreen({ onBack, onDone }) {
         count: chosen.length,
         check_number: byHand ? String(checkNo).trim() : null,
         vendor: vendor ? vendor.name : '',
+        vendor_id: vendor ? vendor.vendor_id : null,
         result: r,
       });
       setPicked({});
@@ -205,12 +206,38 @@ export default function WriteCheckScreen({ onBack, onDone }) {
               : 'No number yet. It is waiting in Print checks, which gives it the '
                 + 'number off the pad actually in the printer.'}
           </Text>
+          {/* Written and waiting for a number is a job half done. The
+              next thing he wants is nearly always the printer, so that
+              is the big button, and it goes straight to the list with
+              this vendor already picked out. "Write another" stays
+              underneath for the Friday run of twenty. */}
+          {!done.check_number && onPrint ? (
+            <TouchableOpacity
+              style={[S.big, { marginTop: 16 }]}
+              onPress={() => onPrint(done.vendor_id || null)}
+              activeOpacity={0.85}
+            >
+              <Text style={S.bigText}>Print it now</Text>
+            </TouchableOpacity>
+          ) : null}
+
           <TouchableOpacity
-            style={[S.big, { marginTop: 16 }]}
+            style={[
+              S.big,
+              { marginTop: 10 },
+              !done.check_number && onPrint
+                ? { backgroundColor: C.white, borderWidth: 1, borderColor: C.line }
+                : null,
+            ]}
             onPress={() => { setDone(null); }}
             activeOpacity={0.85}
           >
-            <Text style={S.bigText}>Write another</Text>
+            <Text style={[
+              S.bigText,
+              !done.check_number && onPrint ? { color: C.ink } : null,
+            ]}>
+              Write another
+            </Text>
           </TouchableOpacity>
         </ScrollView>
       </SafeAreaView>

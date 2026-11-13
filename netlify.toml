@@ -26,3 +26,18 @@
 # sync itself is incremental and pulls nothing it has already seen.
 [functions."plaid-sync"]
   schedule = "30 */2 * * *"
+
+# Readings that never happened, picked up again.
+#
+# Seven photographs sat unread for six days because a job was refused,
+# nothing looked at the refusal, and nothing ever looked at the rows
+# afterwards. Handing work to something is a promise it will be done,
+# and a promise nobody checks is not a promise.
+#
+# Every ten minutes, so a hiccup costs him one cup of coffee rather than
+# an evening of typing. It claims each scan before starting it, so
+# overlapping runs cannot pay for the same reading twice, and it gives
+# up after a few goes so a photograph that genuinely cannot be read does
+# not cost money for ever.
+[functions."scan-sweep"]
+  schedule = "*/10 * * * *"
