@@ -58,7 +58,7 @@ const COSTS = [
   { code: 'sales_tax', test: /CDTFA|DEPT TAX|BOARD OF EQUAL/, label: 'Sales tax', category: 'Taxes & Licenses' },
   { code: 'income_tax', test: /\bIRS\b|EFTPS|FRANCHISE TAX/, label: 'Tax', category: 'Taxes & Licenses' },
   { code: 'software', test: /\bAWS\b|GOOGLECLOUD|GOOGLE CLOUD|DIGITALOCEAN|TWILIO|ADOBE|MICROSOFT|NETLIFY|RAILWAY|OPENAI|ANTHROPIC|INTUIT|QBOOKS|AIPRM|SUPABASE|VERCEL|GODADDY|SQUARESPACE|AGILITYRETAIL/, label: 'Software', category: 'Software & Subscriptions' },
-  { code: 'advertising', test: /FACEBK|FACEBOOK|META PLATFORMS|GOOGLE ADS/, label: 'Advertising', category: 'Advertising' },
+  { code: 'advertising', test: /FACEBK|FACEBOOK|META PLATFORMS|GOOGLE ADS|ADWORDS|YELP|VISTAPRINT/, label: 'Advertising', category: 'Advertising' },
   { code: 'utility', test: /WIRELESS INTERNET|EDISON|\bPG&?E\b|SO CAL GAS|WATER DEPT|CITY OF LINDSAY/, label: 'Utilities', category: 'Utilities' },
   { code: 'alarm_fire', test: /PYE-BARKER|ALARM|FIRE PROTECT/, label: 'Fire and alarm', category: 'Repairs & Maintenance' },
   { code: 'compliance', test: /WORKWISE|COMPLIA/, label: 'Compliance', category: 'Professional Services' },
@@ -83,10 +83,21 @@ const COSTS = [
   // since September reached no figure at all.
   { code: 'card_payment', test: /CITI\s*(CARD\s*)?(ONLINE|AUTOPAY)|CARD (ONLINE )?PAYMENT|CREDIT CRD AUTOPAY|CARDMEMBER SERV|CRCARDPMT|CAPITAL ONE/, label: 'Credit card payment', category: 'Credit card spending' },
   { code: 'loan', test: /\bLOAN\b|SBA |NOTE PAYMENT/, label: 'Loan payment', category: 'Interest & Bank Fees' },
-  { code: 'insurance', test: /INSURANCE|PREMIUM|HARTFORD|STATE FARM|GEICO|PACERPYRLC/, label: 'Insurance', category: 'Insurance' },
+  { code: 'insurance', test: /INSURANCE|PREMIUM|HARTFORD|STATE FARM|GEICO|PACERPYRLC|PROGRESSIVE|\\bNATIONWIDE\\b|TRAVELERS/, label: 'Insurance', category: 'Insurance' },
   { code: 'rent', test: /\bRENT\b|LEASE PAYMENT/, label: 'Rent', category: 'Rent' },
-  { code: 'fuel', test: /\bSHELL\b|\bCHEVRON\b|\bARCO\b|\b76\b|VALERO|FUEL|GASOLINE/, label: 'Fuel', category: 'Fuel & Vehicle' },
-  { code: 'supplies', test: /AMAZON|AMZN|COSTCO|HOME DEPOT|LOWES|STAPLES|OFFICE DEPOT|WALMART|SAMS CLUB|ULINE|WEBSTAURANT/, label: 'Supplies', category: 'Supplies' },
+  { code: 'fuel', test: /\bSHELL\b|\bCHEVRON\b|\bARCO\b|\b76\b|VALERO|FUEL|GASOLINE|\\bDMV\\b|CADMV|NEEDTAGS/, label: 'Fuel', category: 'Fuel & Vehicle' },
+  { code: 'supplies', test: /AMAZON|AMZN|COSTCO|HOME DEPOT|LOWES|STAPLES|OFFICE DEPOT|WALMART|SAMS CLUB|ULINE|WEBSTAURANT|ID IMAGES|EXACTO MENU|DURAFAST|LABEL CO/, label: 'Supplies', category: 'Supplies' },
+
+  // Everything below came out of ten months of his own card statement,
+  // where three quarters of the spending was reaching no category at
+  // all. They are the ordinary standing costs of running the shop, and
+  // every one of them is a repeat: the bin collection every month, the
+  // health permit, the refrigeration engineer.
+  { code: 'waste', test: /DISPOSAL|WASTE MANAGEMENT|\bREFUSE\b|GARBAGE|SANITATION/, label: 'Waste collection', category: 'Utilities' },
+  { code: 'permits', test: /ENV HEALT|ENVIRONMENTAL HEALT|COUNTY CLERK|SEC OF STATE|SECRETARY OF STATE|MY CORPORATION|CITY OF LINDSAY|ABC LICENSE|HEALTH DEPT|WEIGHTS AND MEASURES|AGRICULTURAL COMM|ALLPAID|TULARE COUNTY|DEPARTMENT OF REAL EST/, label: 'Permits and licences', category: 'Taxes & Licenses' },
+  { code: 'refrigeration', test: /HUSSMANN|REFRIGERAT|HVAC|\bCOMPRESSOR\b|PLUMBING|ELECTRIC CO|\bLOCKSMITH\b|PEST|TERMINIX|ORKIN|ACTION GLASS|\\bGLASS INC\\b|JANITOR/, label: 'Repairs', category: 'Repairs & Maintenance' },
+  { code: 'telecoms', test: /WIRELESS INTERNET|\bAT&T\b|VERIZON|T-MOBILE|COMCAST|SPECTRUM|FRONTIER COMM/, label: 'Phone and internet', category: 'Utilities' },
+  { code: 'shipping', test: /\bUPS\b|UPSCJCPORT|FEDEX|USPS|POSTAL/, label: 'Postage and freight', category: 'Freight' },
 
   // LAST. Every card line says "DBT CRD" or "CARD#", so this rule
   // matches all of them -- and it used to sit above the merchant rules,
@@ -140,7 +151,15 @@ function cardMerchant(description) {
   if (!/\bDBT CRD\b|CARD#/.test(d)) return null;
   let s = d
     .replace(/\bDBT CRD\b/g, ' ')
+    .replace(/\bPOS DEBIT\b/g, ' ')
+    .replace(/\bIBT DEB\b/g, ' ')
     .replace(/CARD#\s*\d+/g, ' ')
+    // His bank's own export puts the transaction date inside the
+    // description -- "DBT CRD 2254 10/24/26 26407419 SHELL ..." -- and
+    // without this every merchant comes back as a different name each
+    // time it is bought from, so a shop he uses monthly looks like ten
+    // one-off suppliers and nothing ever adds up.
+    .replace(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g, ' ')
     .replace(/\b\d{6,}\b/g, ' ')
     .replace(/\b\d{4}\b/g, ' ')
     .replace(/\s{2,}/g, ' ')
