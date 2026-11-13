@@ -42,8 +42,18 @@ const checkTrue = (n, c, note) => {
 
 // Endpoints that are meant to run with nobody signed in.
 const OPEN = ['probe'];
-// Scheduled ones: they are run by Netlify on a timer, not by a person.
-const SCHEDULED = ['daily-brief', 'plaid-sync'];
+// Scheduled ones: run by Netlify on a timer, not by a person, so they
+// have no URL to refuse anybody at.
+//
+// Read out of netlify.toml rather than written here. "It is scheduled"
+// is a claim that excuses a function from having a door, and a claim
+// like that has to be checked against the thing that actually decides
+// it -- otherwise a hand-kept list is one forgotten edit away from
+// letting a real endpoint through unguarded, or from failing the build
+// for a function that is perfectly fine.
+const TOML = fs.readFileSync(path.join(__dirname, '..', 'netlify.toml'), 'utf8');
+const SCHEDULED = (TOML.match(/\[functions\."([^"]+)"\]\s*\n\s*schedule\s*=/g) || [])
+  .map((m) => m.match(/\[functions\."([^"]+)"\]/)[1]);
 // Authorised by a signed link rather than a session, because the browser
 // that opens them was handed a URL by the app and carries no header.
 // Listed here, but the claim is checked below rather than taken on
