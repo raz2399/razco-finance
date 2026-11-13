@@ -193,7 +193,7 @@ async function plan(supabase, store_id, opts) {
         pending_bank_txn_id: t.is_pending ? t.bank_txn_id : null,
         pending_plaid_id: t.is_pending ? (t.plaid_transaction_id || null) : null,
         from_pending: !!t.is_pending,
-        method: read.code === 'card_purchase' ? 'card' : 'ach',
+        method: read.is_card ? 'card' : 'ach',
         amount: read.amount,
         payment_date: t.posted_date,
         vendor_id: null,

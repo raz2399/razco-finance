@@ -13,7 +13,7 @@ const assert = require('assert');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const { classifyLine, vendorFor, invoiceForAmount, cardMerchant } =
+const { classifyLine, vendorFor, invoiceForAmount, cardMerchant, COSTS } =
   require(path.join(ROOT, 'functions', 'lib', 'classify.js'));
 
 let pass = 0;
@@ -117,6 +117,62 @@ check('a real card PURCHASE is still a cost', () => {
     { description: 'DBT CRD 0926 28404739 FACEBK LSHSADEQS4 CARD# 5337', amount: -250 },
     { vendors: [], aliases: [] });
   assert.strictEqual(r.what, 'cost');
+});
+
+
+// ---------------------------------------------------------------------
+// What was paid for beats how it was paid
+//
+// Every card line says "DBT CRD" or "CARD#", so the card rule matches
+// all of them. It used to sit ABOVE the merchant rules, so it won every
+// time and handed back no category: fifteen lines of his real spending
+// in the books as "card purchase, uncategorised", including an internet
+// bill and a fuel stop that both had rules of their own.
+//
+// The same ordering mistake as payroll_tax under payroll, one line
+// further up the list. A rule matching the FORM of payment has to come
+// after every rule matching WHAT was bought, because the form tells you
+// nothing at all.
+// ---------------------------------------------------------------------
+
+const cardLine = (merchant) =>
+  classifyLine({ description: 'DBT CRD 0926 28404739 ' + merchant + ' CARD# 5337', amount: -100 },
+    { vendors: [], aliases: [] });
+
+check('a card purchase is filed by its merchant, not as "card"', () => {
+  assert.strictEqual(cardLine('FACEBK LSHSADEQS4').category_name, 'Advertising');
+  assert.strictEqual(cardLine('DIGITALOCEAN.COM').category_name, 'Software & Subscriptions');
+  assert.strictEqual(cardLine('TWILIO INC WWW.TWILIO.CO').category_name, 'Software & Subscriptions');
+  assert.strictEqual(cardLine('WIRELESS INTERNET SERVI').category_name, 'Utilities');
+  assert.strictEqual(cardLine('SHELL 12740573006 STRATHMORECA').category_name, 'Fuel & Vehicle');
+  assert.strictEqual(cardLine('AMAZON MKTPL4663K7ZV3').category_name, 'Supplies');
+});
+
+check('an unrecognised merchant is left uncategorised, not guessed', () => {
+  // The honest end of the same rule. A category invented for a merchant
+  // nobody recognises files real money under a heading he never chose;
+  // blank is a thing he can see and fix.
+  const r = cardLine('MCDERMONTX LINDSAYCA');
+  assert.strictEqual(r.what, 'cost');
+  assert.strictEqual(r.code, 'card_purchase');
+  assert.strictEqual(r.category_name, null);
+});
+
+check('the card rule is the LAST rule in the cost list', () => {
+  // Pinning the property rather than the symptom: wherever a new
+  // merchant rule gets added, this one has to stay underneath it.
+  const codes = COSTS.map((c) => c.code);
+  assert.strictEqual(codes[codes.length - 1], 'card_purchase',
+    'card_purchase must be last, found: ' + codes.slice(-3).join(', '));
+});
+
+check('every cost rule except the card catch-all names a category', () => {
+  // A rule that matches and then files nothing is the shape of the bug
+  // above: it looks handled and reaches no figure.
+  COSTS.forEach((c) => {
+    if (c.code === 'card_purchase') return;
+    assert.ok(c.category, c.code + ' matches but files nothing');
+  });
 });
 
 
