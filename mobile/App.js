@@ -15,6 +15,7 @@ import DeliveryScreen from './src/DeliveryScreen';
 import SalesScreen from './src/SalesScreen';
 import MenuScreen from './src/MenuScreen';
 import StatementScreen from './src/StatementScreen';
+import SpendScreen from './src/SpendScreen';
 import FixScreen from './src/FixScreen';
 import ChecksScreen from './src/ChecksScreen';
 import CheckScreen from './src/CheckScreen';
@@ -29,6 +30,10 @@ import { C } from './src/theme';
 
 export default function App() {
   const [screen, setScreen] = useState('home');
+  // Where Print checks was opened from, and for whom. Both exist so a
+  // check written and then printed is one errand rather than two.
+  const [printFor, setPrintFor] = useState(null);
+  const [cameFrom, setCameFrom] = useState(null);
   // Nothing is shown until somebody signs in. Not a dimmed screen, not a
   // cached number from last time -- the sign-in screen and nothing else.
   //
@@ -124,7 +129,32 @@ export default function App() {
         <StatusBar style="dark" />
         {/* Writing a check changes both what is owed and what is out, so
             Home refetches on the way out and after each one. */}
-        <WriteCheckScreen onBack={() => { refreshHome(); home(); }} onDone={refreshHome} />
+        {/* onPrint goes straight to the printer with the vendor he
+            just wrote to already picked out, and remembers where it
+            came from so Back lands here again rather than at the menu.
+            The Friday run is twenty checks; walking out to the menu
+            between each one is the thing that makes it feel slow. */}
+        <WriteCheckScreen
+          onBack={() => { refreshHome(); home(); }}
+          onDone={refreshHome}
+          onPrint={(vendorId) => {
+            setPrintFor(vendorId || null);
+            setCameFrom('writecheck');
+            setScreen('printchecks');
+          }}
+        />
+      </View>
+    );
+  }
+
+  if (screen === 'spend') {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <StatusBar style="dark" />
+        {/* Cash and payroll are money out that no invoice or bank line
+            will ever report, so Home's figures move the moment one is
+            written down. */}
+        <SpendScreen onBack={() => { refreshHome(); home(); }} onDone={refreshHome} />
       </View>
     );
   }
@@ -146,7 +176,17 @@ export default function App() {
         <StatusBar style="dark" />
         {/* Numbering checks changes what is outstanding, so Home is told
             to refetch on the way out. */}
-        <PrintChecksScreen onBack={() => { refreshHome(); home(); }} onDone={refreshHome} />
+        <PrintChecksScreen
+          focusVendor={printFor}
+          onBack={() => {
+            refreshHome();
+            const back = cameFrom;
+            setPrintFor(null);
+            setCameFrom(null);
+            if (back) setScreen(back); else home();
+          }}
+          onDone={refreshHome}
+        />
       </View>
     );
   }
