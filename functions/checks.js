@@ -144,6 +144,103 @@ exports.handler = safely('checks', async (event) => {
       return json(200, { success: true, payment_id: body.payment_id, action: body.action });
     }
 
+    // ---------------- POST: put a wrong check number right ----------------
+    //
+    // Check 9960 went into the books as 9986 once, because the next-free
+    // number was read off the highest number ever used and a stray 9999
+    // from September was sitting in the way. The numbering bug is fixed;
+    // the wrong number it left behind was not correctable from anywhere
+    // in the app, and nor is any of the ordinary kind -- a digit
+    // transposed off the stub, two checks logged against one number.
+    //
+    // A check number is how he and the bank talk about the same piece of
+    // paper, so changing one has to be done carefully rather than
+    // quickly:
+    //
+    //   - the new number must be free, or the two checks become
+    //     indistinguishable on the statement
+    //   - a check the bank has already matched keeps its number, because
+    //     the bank's number is the true one and the books are what is
+    //     wrong; renumbering it would break the match and the money
+    //     would go looking for a second home
+    //   - what it was before is written into the memo, so a year from
+    //     now the trail is on the record and not in anybody's memory
+    if (body.action === 'renumber') {
+      const to = String(body.check_number || '').trim();
+      if (!body.payment_id) return json(400, { error: 'Which check?' });
+      if (!/^[0-9]{1,8}$/.test(to)) {
+        return json(400, { error: 'A check number is digits only.' });
+      }
+
+      const was = await supabase.from('payments')
+        .select('payment_id, check_number, amount, payment_date, memo, status, bank_txn_id')
+        .eq('payment_id', body.payment_id).eq('store_id', store_id).maybeSingle();
+      if (was.error) return json(500, { error: was.error.message });
+      if (!was.data) return json(404, { error: 'No such check.' });
+      if (String(was.data.check_number || '') === to) {
+        return json(200, { ok: true, says: 'That is already its number.' });
+      }
+
+      // The bank has matched this one. Its number came off the cleared
+      // item, so it is the books that are wrong about something else.
+      if (was.data.bank_txn_id) {
+        return json(409, {
+          error: 'The bank has already matched this check as '
+            + (was.data.check_number || 'unnumbered')
+            + ', so that is the number it really carries. Changing it here '
+            + 'would break the match. Void it and write a new one if the '
+            + 'paper is wrong.',
+        });
+      }
+
+      const taken = await supabase.from('payments')
+        .select('payment_id, amount, payment_date, status')
+        .eq('store_id', store_id).eq('method', 'check').eq('check_number', to)
+        .neq('payment_id', body.payment_id).limit(1).maybeSingle();
+      if (taken.data) {
+        return json(409, {
+          error: 'Check ' + to + ' is already used, for $'
+            + Number(taken.data.amount).toFixed(2) + ' on ' + taken.data.payment_date
+            + '. Two checks on one number cannot be told apart on the statement.',
+          clashes_with: taken.data,
+        });
+      }
+
+      // A number the bank has already cleared under somebody else's
+      // entry is the same collision one step further out.
+      const atBank = await supabase.from('bank_transactions')
+        .select('bank_txn_id, posted_date, amount')
+        .eq('store_id', store_id).eq('check_number', to).limit(1).maybeSingle();
+
+      const before = was.data.check_number || 'no number';
+      const note = 'was check ' + before;
+      const memo = was.data.memo && was.data.memo.indexOf(note) === -1
+        ? was.data.memo + ' (' + note + ')'
+        : was.data.memo || note;
+
+      const done = await supabase.from('payments')
+        .update({ check_number: to, memo: memo, updated_at: new Date().toISOString() })
+        .eq('payment_id', body.payment_id).eq('store_id', store_id)
+        .select('payment_id, check_number');
+      if (done.error) return json(500, { error: done.error.message });
+
+      return json(200, {
+        ok: true,
+        payment_id: body.payment_id,
+        was: was.data.check_number || null,
+        now: to,
+        says: 'Now check ' + to + ', was ' + before + '.',
+        // Said rather than refused: the bank line may well be this very
+        // check finally lining up, which is usually why he is correcting
+        // the number in the first place.
+        note: atBank.data
+          ? 'The bank shows a check ' + to + ' on ' + atBank.data.posted_date
+            + ' for $' + Number(Math.abs(atBank.data.amount)).toFixed(2)
+            + '. If that is this one, it will match on the next sync.'
+          : null,
+      });
+    }
+
     // ---------------- POST: log a new check -------------------------------
     const checkNumber = String(body.check_number || '').trim();
     const payee = String(body.payee || '').trim();
