@@ -30,23 +30,27 @@ function reset() {
     invoices: [
       { store_id: 'store1', invoice_id: 'i1', vendor_id: 'v-ok', invoice_number: '100',
         invoice_date: '2026-10-28', total_amount: 500, amount_paid: 0,
-        balance_due: 500, status: 'approved' },
+        credit_amount: 0, balance_due: 500, status: 'approved' },
       { store_id: 'store1', invoice_id: 'i2', vendor_id: 'v-ok', invoice_number: '101',
         invoice_date: '2026-10-30', total_amount: 900, amount_paid: 0,
-        balance_due: 900, status: 'approved' },
+        credit_amount: 0, balance_due: 900, status: 'approved' },
       // Part of this one was settled outside the system.
       { store_id: 'store1', invoice_id: 'i3', vendor_id: 'v-ok', invoice_number: '102',
         invoice_date: '2026-11-01', total_amount: 1000, amount_paid: 600,
-        balance_due: 400, status: 'partially_paid' },
+        credit_amount: 0, balance_due: 400, status: 'partially_paid' },
       { store_id: 'store1', invoice_id: 'i-other', vendor_id: 'v-mj', invoice_number: '900',
         invoice_date: '2026-11-01', total_amount: 300, amount_paid: 0,
-        balance_due: 300, status: 'approved' },
+        credit_amount: 0, balance_due: 300, status: 'approved' },
     ],
     payments: [
       { store_id: 'store1', payment_id: 'p-old', method: 'check', check_number: 9947,
         amount: 1086.19, payment_date: '2026-11-03', status: 'outstanding' },
     ],
     payment_allocations: [],
+    // Empty by default. An ambient open credit would quietly change the
+    // figure every other case in this file is asserting, and those cases
+    // are about what a check pays, not about credits.
+    vendor_credits: [],
     bank_transactions: [
       { store_id: 'store1', bank_txn_id: 'b1', check_number: 9888,
         amount: -3447.64, posted_date: '2026-11-03' },
@@ -153,6 +157,14 @@ const pay = (body) => handler({
 }).then((r) => ({ status: r.statusCode, body: JSON.parse(r.body) }));
 
 const inv = (id) => DB.invoices.filter((i) => i.invoice_id === id)[0];
+
+// A credit this vendor owes him, open and waiting for the next check.
+const owed = (amount, vendor, id) => {
+  DB.vendor_credits.push({
+    store_id: 'store1', credit_id: id || 'c1', vendor_id: vendor || 'v-ok',
+    amount: amount, reason: 'short', credit_date: '2026-11-02', status: 'open',
+  });
+};
 const checks = () => DB.payments.filter((p) => p.payment_id.indexOf('new-') === 0);
 
 console.log('\nthe check pays exactly what he ticked');
@@ -276,6 +288,86 @@ Promise.resolve()
       assert.ok(/OK PRODUCE/.test(checks()[0].memo), checks()[0].memo);
       // And which bills it covers, so the stub means something.
       assert.ok(/100/.test(checks()[0].memo), checks()[0].memo);
+    });
+  }))
+
+  // -------------------------------------------------------------------
+  // Credits come off the check
+  //
+  // Without this a credit is only a note to himself: the vendor owes him
+  // $180 for a short delivery, the system knows, and the check still
+  // goes out for the full amount.
+  // -------------------------------------------------------------------
+
+  .then(() => check('an open credit shrinks the check', () => {
+    reset();
+    owed(180);
+    return pay({ invoice_ids: ['i1'], check_number: '9961' }).then((r) => {
+      assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+      assert.strictEqual(Number(checks()[0].amount), 320, '500 less the 180 credit');
+      assert.strictEqual(r.body.credit_used, 180);
+      assert.ok(/180\.00 of credit/.test(r.body.credit_note || ''), r.body.credit_note);
+    });
+  }))
+
+  .then(() => check('and the credit is marked used, so it cannot be spent twice', () => {
+    reset();
+    owed(180);
+    return pay({ invoice_ids: ['i1'], check_number: '9961' })
+      .then(() => pay({ invoice_ids: ['i2'], check_number: '9962' }))
+      .then((r) => {
+        assert.strictEqual(Number(r.body.credit_used || 0), 0, 'the credit was already used');
+        assert.strictEqual(Number(checks()[1].amount), 900, 'second check is the full bill');
+      });
+  }))
+
+  .then(() => check('another vendor\'s credit never touches this check', () => {
+    reset();
+    owed(180);                       // OK Produce owes him 180
+    owed(50, 'v-mj', 'c-mj');        // M & J owe him 50
+    return pay({ invoice_ids: ['i-other'], check_number: '9963' }).then(() => {
+      // M & J's own $50 comes off their $300 bill. OK Produce's $180 is
+      // somebody else's money and must not appear anywhere near it.
+      assert.strictEqual(Number(checks()[0].amount), 250, '300 less M&J\'s own 50');
+      const theirs = DB.vendor_credits.filter((c) => c.credit_id === 'c1')[0];
+      assert.strictEqual(theirs.status, 'open', 'OK Produce keeps its credit');
+    });
+  }))
+
+  .then(() => check('a credit bigger than the bill leaves the rest open', () => {
+    reset();
+    owed(700);                           // more than the $500 bill
+    return pay({ invoice_ids: ['i1'], check_number: '9964' }).then((r) => {
+      assert.strictEqual(r.status, 200, JSON.stringify(r.body));
+      assert.strictEqual(r.body.no_check_needed, true, 'nothing left to pay');
+      assert.strictEqual(checks().length, 0, 'no worthless check was written');
+      assert.strictEqual(inv('i1').status, 'paid', 'the bill is still settled');
+      const left = DB.vendor_credits.filter((c) => c.credit_id === 'c1')[0];
+      assert.strictEqual(Number(left.amount), 200, 'the unused 200 stays open');
+      assert.strictEqual(left.status, 'open');
+    });
+  }))
+
+  .then(() => check('credits can be told to stay out of it', () => {
+    reset();
+    owed(180);
+    return pay({ invoice_ids: ['i1'], check_number: '9965', ignore_credits: true })
+      .then((r) => {
+        assert.strictEqual(Number(checks()[0].amount), 500);
+        assert.strictEqual(Number(r.body.credit_used || 0), 0);
+        assert.strictEqual(DB.vendor_credits[0].status, 'open', 'and the credit is untouched');
+      });
+  }))
+
+  .then(() => check('a credited bill is not recorded as paid in full', () => {
+    // The bill says 500, the credit was 180, the check was 320. Claiming
+    // 500 was paid would drive the balance 180 into the negative.
+    reset();
+    DB.invoices[0].credit_amount = 180;
+    DB.invoices[0].balance_due = 320;
+    return pay({ invoice_ids: ['i1'], check_number: '9966' }).then(() => {
+      assert.strictEqual(Number(inv('i1').amount_paid), 320,
+        'amount_paid is what he paid, not what the bill said');
     });
   }))
 
