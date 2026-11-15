@@ -128,6 +128,43 @@ Rules:
   person can find that line on the page.
 - Do not total anything yourself. Report what is printed.
 - Numbers: digits only, no currency symbols, no thousands separators.`,
+
+  vendor_statement: `You are reading a photograph of a monthly statement
+a grocery wholesaler has sent the store: their own list of what they say
+is still owed.
+
+Return ONLY a JSON object, no markdown, no commentary:
+
+{
+  "vendor_name": string | null,
+  "statement_date": "YYYY-MM-DD" | null,
+  "total_due": number | null,
+  "items": [
+    { "invoice_number": string | null,
+      "invoice_date": "YYYY-MM-DD" | null,
+      "amount": number,
+      "kind": "invoice" | "credit" | "payment" | "other" }
+  ],
+  "unreadable": string[]
+}
+
+Rules:
+- One entry per line on the statement. "invoice_number" is their reference
+  for it, exactly as printed -- that number is the only way to line their
+  list up against the store's own, so copy it character for character and
+  do not tidy it.
+- "amount" is what that line adds to the balance. An invoice is positive.
+  A credit or a payment they have recorded is NEGATIVE.
+- "kind" says which of those it is. If the statement does not make it
+  clear, use "other" rather than deciding.
+- Include every line, including ones showing as already paid, because the
+  store needs to see what they think has been settled.
+- Do not total anything yourself and do not make the lines add up to
+  "total_due". Report both as printed. Where they disagree, that is
+  something the store needs to know about, not something to correct.
+- Aging buckets along the bottom (30/60/90 days) are summaries, not lines.
+  Leave them out.
+- Numbers: digits only, no currency symbols, no thousands separators.`,
 };
 
 
@@ -218,13 +255,30 @@ const SECOND_LOOK =
   + 'in a header, a footer, a remit-to block, or a logo. Give every '
   + 'field you can make out, and list only what truly cannot be read.';
 
-/** Did that read actually tell us anything? */
+/**
+ * Did that read actually tell us anything?
+ *
+ * Each kind is judged by the field its own prompt actually returns. The
+ * bank-statement case asked for `lines` while the prompt above has
+ * always returned `transactions`, so every bank statement he
+ * photographed came back "nothing could be read from the photo" -- a
+ * clean read, marked failed, and then retried by the sweeper until it
+ * gave up. The field name is taken from the prompt now, not from
+ * memory.
+ */
 function tooThin(kind, data) {
   if (!data) return true;
   if (kind === 'check') {
     return data.amount_numeric == null && data.amount_written == null;
   }
-  if (kind === 'statement') return !data.lines || !data.lines.length;
+  if (kind === 'statement') {
+    return !data.transactions || !data.transactions.length;
+  }
+  if (kind === 'vendor_statement') {
+    // A statement with no lines is useless even when the total reads,
+    // because there is nothing to line up against his own books.
+    return !data.items || !data.items.length;
+  }
   return !data.vendor_name && data.total == null;
 }
 
