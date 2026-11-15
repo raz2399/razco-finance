@@ -22,6 +22,16 @@ Return ONLY a JSON object, no markdown, no commentary:
   "total": number | null,
   "terms_text": string | null,
   "line_count": number | null,
+  "lines": [
+    {
+      "code": string | null,
+      "description": string | null,
+      "pack": string | null,
+      "quantity": number | null,
+      "unit_cost": number | null,
+      "line_total": number | null
+    }
+  ],
   "unreadable": string[]
 }
 
@@ -34,7 +44,31 @@ Rules:
 - "terms_text" is whatever the invoice literally says about payment terms
   ("NET 14", "COD", "2% 10 NET 30"). Do not translate or interpret it.
 - Dates: if the year is not shown, use null rather than assuming.
-- Numbers: digits only, no currency symbols, no thousands separators.`,
+- Numbers: digits only, no currency symbols, no thousands separators.
+
+Lines:
+- Read every product line on the invoice into "lines", in the order they
+  appear. This is what lets the store notice a case price going up, so a
+  line read wrong is worse than a line left out.
+- "code" is the vendor's own item or SKU number if the invoice shows one.
+  It is the only reliable way to recognise the same product next month,
+  because descriptions get abbreviated differently from one invoice to the
+  next. Null if there is no code column.
+- "pack" is the pack or size exactly as printed ("24/12 OZ", "50 LB",
+  "6/#10"). Copy it, do not convert it. A price per case and a price per
+  pound are not comparable, and the pack is what tells them apart.
+- "quantity" is cases or units shipped, NOT ordered. Where the invoice shows
+  both ordered and shipped, take shipped: that is what is being billed.
+- "unit_cost" is the price for one of whatever "quantity" counts. If the
+  invoice prints only a line total, give the total and leave unit_cost null
+  rather than dividing it out yourself.
+- Leave a field null rather than inferring it. Do not make quantity times
+  unit_cost agree with line_total: report all three as printed and let the
+  system notice if they disagree.
+- Skip rows that are not products: subtotals, tax, freight, pallet deposits,
+  fuel surcharges and "thank you" lines.
+- If the lines are not legible at all, give "lines": [] and say so in
+  "unreadable". A total with no lines is still a useful invoice.`,
 
   check: `You are reading a photograph of a business check, or its stub,
 that the store has written to a vendor.
@@ -93,6 +127,43 @@ Rules:
   partly legible goes in "unreadable" instead, described well enough that a
   person can find that line on the page.
 - Do not total anything yourself. Report what is printed.
+- Numbers: digits only, no currency symbols, no thousands separators.`,
+
+  vendor_statement: `You are reading a photograph of a monthly statement
+a grocery wholesaler has sent the store: their own list of what they say
+is still owed.
+
+Return ONLY a JSON object, no markdown, no commentary:
+
+{
+  "vendor_name": string | null,
+  "statement_date": "YYYY-MM-DD" | null,
+  "total_due": number | null,
+  "items": [
+    { "invoice_number": string | null,
+      "invoice_date": "YYYY-MM-DD" | null,
+      "amount": number,
+      "kind": "invoice" | "credit" | "payment" | "other" }
+  ],
+  "unreadable": string[]
+}
+
+Rules:
+- One entry per line on the statement. "invoice_number" is their reference
+  for it, exactly as printed -- that number is the only way to line their
+  list up against the store's own, so copy it character for character and
+  do not tidy it.
+- "amount" is what that line adds to the balance. An invoice is positive.
+  A credit or a payment they have recorded is NEGATIVE.
+- "kind" says which of those it is. If the statement does not make it
+  clear, use "other" rather than deciding.
+- Include every line, including ones showing as already paid, because the
+  store needs to see what they think has been settled.
+- Do not total anything yourself and do not make the lines add up to
+  "total_due". Report both as printed. Where they disagree, that is
+  something the store needs to know about, not something to correct.
+- Aging buckets along the bottom (30/60/90 days) are summaries, not lines.
+  Leave them out.
 - Numbers: digits only, no currency symbols, no thousands separators.`,
 };
 
@@ -184,13 +255,30 @@ const SECOND_LOOK =
   + 'in a header, a footer, a remit-to block, or a logo. Give every '
   + 'field you can make out, and list only what truly cannot be read.';
 
-/** Did that read actually tell us anything? */
+/**
+ * Did that read actually tell us anything?
+ *
+ * Each kind is judged by the field its own prompt actually returns. The
+ * bank-statement case asked for `lines` while the prompt above has
+ * always returned `transactions`, so every bank statement he
+ * photographed came back "nothing could be read from the photo" -- a
+ * clean read, marked failed, and then retried by the sweeper until it
+ * gave up. The field name is taken from the prompt now, not from
+ * memory.
+ */
 function tooThin(kind, data) {
   if (!data) return true;
   if (kind === 'check') {
     return data.amount_numeric == null && data.amount_written == null;
   }
-  if (kind === 'statement') return !data.lines || !data.lines.length;
+  if (kind === 'statement') {
+    return !data.transactions || !data.transactions.length;
+  }
+  if (kind === 'vendor_statement') {
+    // A statement with no lines is useless even when the total reads,
+    // because there is nothing to line up against his own books.
+    return !data.items || !data.items.length;
+  }
   return !data.vendor_name && data.total == null;
 }
 

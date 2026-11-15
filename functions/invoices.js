@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const { requireUser, safely } = require('./lib/guard');
 const { attach } = require('./lib/keepscan');
+const { linesFrom, linesCover } = require('./lib/lines');
 
 // The store is in Lindsay, California. Its day ends when the store closes,
 // not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
@@ -371,7 +372,7 @@ exports.handler = safely('invoices', async (event) => {
 
       const sel = await supabase
         .from('invoices')
-        .select('invoice_id, invoice_number, vendor_id, total_amount, amount_paid, balance_due, status')
+        .select('invoice_id, invoice_number, vendor_id, total_amount, amount_paid, credit_amount, balance_due, status')
         .eq('store_id', store_id)
         .in('invoice_id', ids);
 
@@ -385,8 +386,75 @@ exports.handler = safely('invoices', async (event) => {
         return json(400, { error: 'One check pays one vendor. Select invoices for a single vendor.' });
       }
 
-      const amount = round(picked.reduce((s, p) => s + Number(p.balance_due), 0));
+      let amount = round(picked.reduce((s, p) => s + Number(p.balance_due), 0));
       const payDate = body.payment_date || todayStr();
+
+      // Credits on account come off the check.
+      //
+      // Without this a credit is only a note to himself: the vendor owes
+      // him $180 for a short delivery, the system knows, and the check
+      // still goes out for the full amount. Taking it off here is the
+      // whole point of recording one -- and it has to happen at the
+      // moment the check is written, because that is the only moment the
+      // figure can still be changed.
+      //
+      // Only ever down to zero. A credit larger than the bill does not
+      // make the vendor send money back; the rest stays open and comes
+      // off the check after this one.
+      const usedCredits = [];
+      let creditTaken = 0;
+      if (!body.ignore_credits) {
+        const vendorId = Object.keys(vendorIds)[0];
+        const open = await supabase.from('vendor_credits')
+          .select('credit_id, amount, reason, credit_date')
+          .eq('store_id', store_id).eq('vendor_id', vendorId).eq('status', 'open')
+          .order('credit_date', { ascending: true });
+        if (!open.error) {
+          for (let i = 0; i < (open.data || []).length && creditTaken < amount; i++) {
+            const c = open.data[i];
+            const take = Math.min(round(Number(c.amount)), round(amount - creditTaken));
+            if (!(take > 0)) break;
+            // Only a credit used whole is closed. A part-used one keeps
+            // the remainder, or the rest of it would vanish.
+            const patch = take >= round(Number(c.amount))
+              ? { status: 'applied', applied_at: new Date().toISOString() }
+              : { amount: round(Number(c.amount) - take) };
+            const hit = await supabase.from('vendor_credits')
+              .update(Object.assign(patch, { updated_at: new Date().toISOString() }))
+              .eq('credit_id', c.credit_id).eq('store_id', store_id).eq('status', 'open');
+            if (hit.error) continue;
+            creditTaken = round(creditTaken + take);
+            usedCredits.push({ credit_id: c.credit_id, amount: take, reason: c.reason });
+          }
+          if (creditTaken > 0) amount = round(amount - creditTaken);
+        }
+      }
+
+      // The credits covered the lot, so there is no check to write.
+      //
+      // Writing one for zero would put a worthless piece of paper in the
+      // run and leave a $0.00 payment on the books for the bank to hunt
+      // for. The bills still close -- they are settled, just not with
+      // money -- and the credits are already marked used.
+      if (!(amount > 0)) {
+        for (const p of picked) {
+          await supabase.from('invoices').update({
+            status: 'paid',
+            amount_paid: round(Number(p.total_amount || 0) - Number(p.credit_amount || 0)),
+            updated_at: new Date().toISOString(),
+          }).eq('invoice_id', p.invoice_id).eq('store_id', store_id);
+        }
+        return json(200, {
+          success: true,
+          no_check_needed: true,
+          credit_used: creditTaken,
+          credits: usedCredits,
+          invoices_closed: picked.length,
+          message: 'Credits covered all of it — $' + creditTaken.toFixed(2)
+            + ' settled ' + picked.length + ' bill'
+            + (picked.length === 1 ? '' : 's') + '. No check needed.',
+        });
+      }
 
       // A number he typed has to be one that is not already spent. Two
       // checks carrying one number is the failure the printing side
@@ -463,7 +531,13 @@ exports.handler = safely('invoices', async (event) => {
           .from('invoices')
           .update({
             status: 'paid',
-            amount_paid: round(p.total_amount !== undefined ? p.total_amount : p.balance_due),
+            // What he actually paid, not what the bill said. A credited
+            // bill is settled by a smaller check, and claiming the whole
+            // total was paid would drive the balance negative by exactly
+            // the credit.
+            amount_paid: round(
+              (p.total_amount !== undefined ? Number(p.total_amount) : Number(p.balance_due))
+              - Number(p.credit_amount || 0)),
           })
           .eq('invoice_id', p.invoice_id);
       }
@@ -479,7 +553,9 @@ exports.handler = safely('invoices', async (event) => {
         const allocations = picked.map((p) => ({
           payment_id: payId,
           invoice_id: p.invoice_id,
-          amount: round(p.total_amount !== undefined ? p.total_amount : p.balance_due),
+          amount: round(
+            (p.total_amount !== undefined ? Number(p.total_amount) : Number(p.balance_due))
+            - Number(p.credit_amount || 0)),
         }));
         if (allocations.length) {
           const alloc = await supabase.from('payment_allocations').insert(allocations);
@@ -504,6 +580,15 @@ exports.handler = safely('invoices', async (event) => {
         vendor_name: vendorName,
         invoices_paid: picked.length,
         amount,
+        // Said out loud whenever a credit shrank the check. He is about
+        // to look at a figure smaller than the bills he ticked, and the
+        // only thing worse than a wrong number is a right one he cannot
+        // account for.
+        credit_used: creditTaken || 0,
+        credits: usedCredits,
+        credit_note: creditTaken
+          ? '$' + creditTaken.toFixed(2) + ' of credit came off this check.'
+          : null,
       });
     }
 
@@ -664,6 +749,47 @@ exports.handler = safely('invoices', async (event) => {
     // turned out to be -- and if it fails, the photograph is still on
     // file under the day it was taken.
     if (body.scan_id && invoiceId) await attach(supabase, body.scan_id, 'invoice', invoiceId);
+
+    // The product lines, taken from the same photograph the totals came
+    // from. They are read off the scan rather than posted by the phone,
+    // so every way of saving an invoice gets them and none of them has
+    // to be taught how.
+    //
+    // This is what makes a case price watchable. The total alone can
+    // never answer the question that decides whether a grocery store
+    // makes money -- did this case cost more than it cost last time --
+    // because the order is a different size every week and the total
+    // moves for reasons that have nothing to do with price.
+    //
+    // It never fails the save. A bill with no lines is still a bill he
+    // owes, and losing the invoice over a line the reader fumbled would
+    // trade something that matters for something that is merely useful.
+    let lineNote = null;
+    if (body.scan_id && invoiceId) {
+      try {
+        const sc = await supabase.from('scans').select('extracted')
+          .eq('scan_id', body.scan_id).maybeSingle();
+        const got = linesFrom(sc.data && sc.data.extracted, invoiceId);
+        if (got.lines.length) {
+          const cover = linesCover(got.lines, sc.data.extracted);
+          const cols = (defs.invoice_lines || {}).properties || {};
+          const rows = got.lines.map((l) => onlyRealColumns(
+            Object.assign({ store_id: store_id }, l), cols));
+          const put = await supabase.from('invoice_lines').insert(rows);
+          if (!put.error) {
+            lineNote = {
+              kept: got.kept,
+              suspect: got.suspect,
+              // Said out loud, because lines that come to far less than
+              // the bill mean a page was missed -- and half an invoice
+              // compared against last month's whole one reads as an
+              // enormous saving that never happened.
+              covers_the_bill: cover.checked ? cover.covered : null,
+            };
+          }
+        }
+      } catch (e) { /* the bill is saved either way */ }
+    }
 
     const acct = await supabase
       .from('bank_accounts').select('account_id').eq('store_id', store_id).limit(1).maybeSingle();
