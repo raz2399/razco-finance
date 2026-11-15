@@ -22,6 +22,16 @@ Return ONLY a JSON object, no markdown, no commentary:
   "total": number | null,
   "terms_text": string | null,
   "line_count": number | null,
+  "lines": [
+    {
+      "code": string | null,
+      "description": string | null,
+      "pack": string | null,
+      "quantity": number | null,
+      "unit_cost": number | null,
+      "line_total": number | null
+    }
+  ],
   "unreadable": string[]
 }
 
@@ -34,7 +44,31 @@ Rules:
 - "terms_text" is whatever the invoice literally says about payment terms
   ("NET 14", "COD", "2% 10 NET 30"). Do not translate or interpret it.
 - Dates: if the year is not shown, use null rather than assuming.
-- Numbers: digits only, no currency symbols, no thousands separators.`,
+- Numbers: digits only, no currency symbols, no thousands separators.
+
+Lines:
+- Read every product line on the invoice into "lines", in the order they
+  appear. This is what lets the store notice a case price going up, so a
+  line read wrong is worse than a line left out.
+- "code" is the vendor's own item or SKU number if the invoice shows one.
+  It is the only reliable way to recognise the same product next month,
+  because descriptions get abbreviated differently from one invoice to the
+  next. Null if there is no code column.
+- "pack" is the pack or size exactly as printed ("24/12 OZ", "50 LB",
+  "6/#10"). Copy it, do not convert it. A price per case and a price per
+  pound are not comparable, and the pack is what tells them apart.
+- "quantity" is cases or units shipped, NOT ordered. Where the invoice shows
+  both ordered and shipped, take shipped: that is what is being billed.
+- "unit_cost" is the price for one of whatever "quantity" counts. If the
+  invoice prints only a line total, give the total and leave unit_cost null
+  rather than dividing it out yourself.
+- Leave a field null rather than inferring it. Do not make quantity times
+  unit_cost agree with line_total: report all three as printed and let the
+  system notice if they disagree.
+- Skip rows that are not products: subtotals, tax, freight, pallet deposits,
+  fuel surcharges and "thank you" lines.
+- If the lines are not legible at all, give "lines": [] and say so in
+  "unreadable". A total with no lines is still a useful invoice.`,
 
   check: `You are reading a photograph of a business check, or its stub,
 that the store has written to a vendor.

@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const { requireUser, safely } = require('./lib/guard');
 const { attach } = require('./lib/keepscan');
+const { linesFrom, linesCover } = require('./lib/lines');
 
 // The store is in Lindsay, California. Its day ends when the store closes,
 // not at 5pm local when UTC rolls into tomorrow -- which is exactly when the
@@ -664,6 +665,47 @@ exports.handler = safely('invoices', async (event) => {
     // turned out to be -- and if it fails, the photograph is still on
     // file under the day it was taken.
     if (body.scan_id && invoiceId) await attach(supabase, body.scan_id, 'invoice', invoiceId);
+
+    // The product lines, taken from the same photograph the totals came
+    // from. They are read off the scan rather than posted by the phone,
+    // so every way of saving an invoice gets them and none of them has
+    // to be taught how.
+    //
+    // This is what makes a case price watchable. The total alone can
+    // never answer the question that decides whether a grocery store
+    // makes money -- did this case cost more than it cost last time --
+    // because the order is a different size every week and the total
+    // moves for reasons that have nothing to do with price.
+    //
+    // It never fails the save. A bill with no lines is still a bill he
+    // owes, and losing the invoice over a line the reader fumbled would
+    // trade something that matters for something that is merely useful.
+    let lineNote = null;
+    if (body.scan_id && invoiceId) {
+      try {
+        const sc = await supabase.from('scans').select('extracted')
+          .eq('scan_id', body.scan_id).maybeSingle();
+        const got = linesFrom(sc.data && sc.data.extracted, invoiceId);
+        if (got.lines.length) {
+          const cover = linesCover(got.lines, sc.data.extracted);
+          const cols = (defs.invoice_lines || {}).properties || {};
+          const rows = got.lines.map((l) => onlyRealColumns(
+            Object.assign({ store_id: store_id }, l), cols));
+          const put = await supabase.from('invoice_lines').insert(rows);
+          if (!put.error) {
+            lineNote = {
+              kept: got.kept,
+              suspect: got.suspect,
+              // Said out loud, because lines that come to far less than
+              // the bill mean a page was missed -- and half an invoice
+              // compared against last month's whole one reads as an
+              // enormous saving that never happened.
+              covers_the_bill: cover.checked ? cover.covered : null,
+            };
+          }
+        }
+      } catch (e) { /* the bill is saved either way */ }
+    }
 
     const acct = await supabase
       .from('bank_accounts').select('account_id').eq('store_id', store_id).limit(1).maybeSingle();
