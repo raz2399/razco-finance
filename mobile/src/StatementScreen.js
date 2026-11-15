@@ -124,7 +124,7 @@ export default function StatementScreen({ onBack, onDone }) {
             disabled={busy}
           >
             <Text style={S.bigText}>
-              {busy ? 'Working…' : (ready ? 'Do all of it (' + ready + ' ready)' : 'Do all of it')}
+              {busy ? 'Working…' : (ready ? 'Do the whole day (' + ready + ' ready)' : 'Do the whole day')}
             </Text>
           </TouchableOpacity>
 

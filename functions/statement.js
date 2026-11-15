@@ -27,6 +27,7 @@ const { requireUser, safely } = require('./lib/guard');
 const { plan, apply } = require('./lib/settlerun');
 const { spread, statusAfter } = require('./lib/settle');
 const { readRow, tally, money, OPEN } = require('./lib/mark');
+const { proposeFor } = require('./lib/deptguess');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -161,6 +162,36 @@ exports.handler = safely('statement', async (event) => {
       did.money_named = money(did.money_named + parts[0].amount);
     }
 
+    // Third: the vendors whose own name says plainly what they sell.
+    //
+    // This belongs in the same press because it is the same kind of
+    // work -- something the system is certain of and he would otherwise
+    // have to confirm by hand -- and because without a department on
+    // the vendor, settling its bills still leaves the margin figures
+    // empty. Doing one without the other is half a day's work twice.
+    //
+    // The proposals are worked out here rather than taken from the
+    // request, so a stale screen cannot commit a vendor to a department
+    // he was never shown.
+    did.coded = 0;
+    const [vs, cs] = await Promise.all([
+      supabase.from('vendors').select('vendor_id, name, default_category_id')
+        .eq('store_id', store_id).eq('active', true),
+      supabase.from('expense_categories').select('category_id, name, department_id')
+        .eq('store_id', store_id).eq('active', true),
+    ]);
+    if (!vs.error && !cs.error) {
+      const sureVendors = proposeFor(vs.data || [], cs.data || []);
+      for (let i = 0; i < sureVendors.length; i++) {
+        const v = sureVendors[i];
+        const up = await supabase.from('vendors')
+          .update({ default_category_id: v.category_id, updated_at: new Date().toISOString() })
+          .eq('vendor_id', v.vendor_id).eq('store_id', store_id);
+        if (up.error) { did.problems.push(v.vendor + ': ' + up.error.message); continue; }
+        did.coded += 1;
+      }
+    }
+
     const bits = [];
     if (did.settled) {
       bits.push(did.settled + ' line' + (did.settled === 1 ? '' : 's')
@@ -170,6 +201,10 @@ exports.handler = safely('statement', async (event) => {
       bits.push(did.named + ' check' + (did.named === 1 ? '' : 's')
         + ' matched to a bill by the amount, ' + dollars(did.money_named)
         + ' off what you owe');
+    }
+    if (did.coded) {
+      bits.push(did.coded + ' vendor' + (did.coded === 1 ? '' : 's')
+        + ' given a department');
     }
 
     // What is left, and why the press could not touch it. Without this

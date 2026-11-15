@@ -1573,7 +1573,7 @@
             something from you. Unmarked lines are still pending at the bank.
           </p>
           <div>
-            <button class="rn-big" id="rec-stmt-apply">Do all of it</button>
+            <button class="rn-big" id="rec-stmt-apply">Do the whole day</button>
             <select id="rec-stmt-days" style="font:inherit;font-size:12.5px;padding:8px 10px;
               border:1px solid var(--border);border-radius:7px;margin-left:8px">
               <option value="21">Last 3 weeks</option>
@@ -3154,8 +3154,8 @@ var APP = {
       var btn = document.getElementById('rec-stmt-apply');
       if (btn) {
         btn.textContent = c.can_name
-          ? 'Do all of it (' + c.can_name + ' ready)'
-          : 'Do all of it';
+          ? 'Do the whole day (' + c.can_name + ' ready)'
+          : 'Do the whole day';
       }
 
       var rows = d.rows || [];
