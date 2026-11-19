@@ -38,3 +38,7 @@ exports.handler = async () => {
 const lib = require('./lib/banksync');
 exports.toLedgerAmount = lib.toLedgerAmount;
 exports.toRow = lib.toRow;
+// The natural key is what stops a reconnect duplicating his statement, so
+// it is testable from here too.
+exports.withKeys = lib.withKeys;
+exports.naturalKey = lib.naturalKey;

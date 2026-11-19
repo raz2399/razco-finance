@@ -61,8 +61,14 @@ function inWords(p) {
       + t.invoices_to_touch + ' invoice' + (t.invoices_to_touch === 1 ? '' : 's'));
   }
   if (t.credit_left_over) {
-    bits.push(dollars(t.credit_left_over) + ' left as credit on account, because there '
-      + 'was no open invoice to put it against');
+    // Recorded, not outstanding. These are payments to vendors whose
+    // bills were never entered: the money is in the books against the
+    // right vendor and the only thing missing is paperwork that may
+    // never exist. Calling it credit sitting on account read like a pile
+    // of unresolved money and sent him looking for work already done.
+    bits.push(dollars(t.credit_left_over) + ' of that recorded against the vendor '
+      + 'with no bill on file to match it to -- nothing to do there unless you '
+      + 'want the invoices entered');
   }
   if (t.disagreements) {
     bits.push(t.disagreements + ' check' + (t.disagreements === 1 ? '' : 's')

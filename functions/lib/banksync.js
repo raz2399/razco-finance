@@ -124,11 +124,58 @@ function toRow(t, storeId, accountId) {
     plaid_transaction_id: t.transaction_id,
     plaid_pending_id: t.pending_transaction_id || null,
     is_pending: !!t.pending,
-    // import_hash is unique in this table and the CSV path relies on it, so
-    // the Plaid id goes there too rather than leaving it empty.
-    import_hash: 'plaid:' + t.transaction_id,
     match_status: 'unmatched',
   };
+}
+
+/**
+ * What makes two rows the same real transaction.
+ *
+ * This used to be Plaid's transaction id, and that was the bug that cost
+ * him his books. A Plaid "item" is one login session, and the id is only
+ * unique WITHIN it -- reconnect, and the very same payment comes back
+ * with an id it has never had before. He reconnected twice in a week, so
+ * 132 transactions ended up stored three times each, settlement recorded
+ * a payment against every copy, and his costs ran about $327,000 over.
+ *
+ * The identity has to be something the bank would recognise: which
+ * account, what day, how much, and what it says. None of that changes
+ * when the login does.
+ *
+ * `n` separates genuinely repeated transactions -- two identical $50
+ * withdrawals on one afternoon are two withdrawals, not one seen twice --
+ * by their position among identical rows in the same pull. Identical
+ * rows are interchangeable, so which one gets which index does not
+ * matter; only how many there are.
+ */
+function naturalKey(row, n) {
+  const desc = String(row.description || '').toUpperCase()
+    .replace(/\s+/g, ' ').trim().slice(0, 60);
+  return 'bank:' + [
+    row.account_id || 'no-account',
+    row.posted_date,
+    money(row.amount).toFixed(2),
+    row.is_pending ? 'P' : 'C',
+    desc,
+    n,
+  ].join('|');
+}
+
+/**
+ * Stamp a batch with its natural keys, counting repeats as it goes.
+ *
+ * Pending and posted are kept apart in the key, because the same payment
+ * legitimately appears as both and the posted one must not overwrite the
+ * pending one before the code below has moved the link across.
+ */
+function withKeys(rows) {
+  const seen = {};
+  return rows.map((r) => {
+    const base = naturalKey(r, 0);
+    const n = seen[base] || 0;
+    seen[base] = n + 1;
+    return Object.assign({}, r, { import_hash: naturalKey(r, n) });
+  });
 }
 
 async function syncItem(item) {
@@ -215,10 +262,11 @@ async function syncItem(item) {
   let written = 0;
   const CHUNK = 200;
   for (let i = 0; i < incoming.length; i += CHUNK) {
-    const rows = incoming.slice(i, i + CHUNK)
-      .map((t) => toRow(t, storeId, item.account_id));
+    const rows = withKeys(incoming.slice(i, i + CHUNK)
+      .map((t) => toRow(t, storeId, item.account_id)));
     if (LIVE) {
-      // Conflicts are resolved on import_hash, not plaid_transaction_id.
+      // Conflicts are resolved on import_hash, which now holds the
+      // natural key rather than Plaid's id.
       //
       // There IS a unique index on plaid_transaction_id, but it is a
       // PARTIAL one -- "WHERE plaid_transaction_id IS NOT NULL" -- and
@@ -229,10 +277,10 @@ async function syncItem(item) {
       // CONFLICT specification", which reads like the index is missing
       // when it is sitting right there.
       //
-      // import_hash has a plain, total unique index, and toRow already
-      // sets it to 'plaid:' + transaction_id -- one per Plaid
-      // transaction, exactly as before. Same guarantee, through a door
-      // Postgres will actually open.
+      // import_hash has a plain, total unique index. Putting the natural
+      // key in it means a re-pull after a reconnect lands on the rows he
+      // already has and updates them, instead of laying down a second
+      // and third copy of his whole statement.
       const res = await supabase.from('bank_transactions')
         .upsert(rows, { onConflict: 'import_hash' });
       if (res.error) throw new Error('Could not save transactions: ' + res.error.message);
@@ -449,6 +497,7 @@ async function syncStore(store_id) {
 }
 
 module.exports = {
+  naturalKey, withKeys,
   syncStore,
   clearChecks,
   toLedgerAmount,
