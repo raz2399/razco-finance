@@ -2921,10 +2921,18 @@ var APP = {
           '<td style="padding:6px 8px 6px 0">' +
             (c.check_number ? 'Check ' + c.check_number : self.escHtml(c.vendor_name || 'Vendor draft')) + '</td>' +
           '<td style="padding:6px 0;text-align:right;font-weight:600">' + self.money(c.amount) + '</td>' +
+          // Money going OUT with no bill on file is not a credit, and
+          // calling it one filled this screen with alarm over a hundred
+          // thousand dollars of ordinary payments. The payment IS
+          // recorded, against the vendor, in the books. All that is
+          // missing is a bill to match it to, which for a vendor whose
+          // invoices were never entered is not a fault and not work.
           '<td style="padding:6px 0 6px 10px;color:var(--text-light)">' +
             (c.allocations && c.allocations.length
               ? 'off ' + c.allocations.length + ' invoice' + (c.allocations.length === 1 ? '' : 's')
-              : 'credit &mdash; no open invoice to put it against') + '</td>' +
+              : (c.vendor_name
+                  ? 'recorded to ' + self.escHtml(c.vendor_name) + ' &mdash; no bill on file'
+                  : 'recorded &mdash; no bill on file')) + '</td>' +
           '</tr>';
       }
       h += '</table>';
@@ -4402,9 +4410,39 @@ var APP = {
         self.bankMsg('bad', 'Could not start: ' + self.escHtml((d && d.error) || ('HTTP ' + status)));
         return;
       }
+      // Mending an existing connection rather than making a new one.
+      //
+      // Plaid hands back no public token in update mode -- the item is
+      // repaired where it stands -- so there is nothing to exchange.
+      // Treating it like a fresh link would leave the row sitting in
+      // needs_login for ever and the sync would keep skipping a
+      // connection he had already fixed.
+      var repairing = d.mode === 'update' ? d.item_id : null;
+      if (repairing) {
+        self.bankMsg('ok', 'Signing back in to the connection you already have. '
+          + 'Nothing needs setting up again.');
+      }
+
       var handler = window.Plaid.create({
         token: d.link_token,
         onSuccess: function(public_token, metadata) {
+          if (repairing) {
+            self.bankMsg('ok', 'Restoring the connection...');
+            self.post('/plaid-link', {
+              store_id: self.store_id, action: 'repaired', item_id: repairing
+            }, function(st3, d3) {
+              if (st3 !== 200 || !d3 || d3.error) {
+                self.bankMsg('bad', 'Signed in at the bank but not saved here: ' +
+                  self.escHtml((d3 && d3.error) || ('HTTP ' + st3)));
+                return;
+              }
+              self.bankMsg('ok', 'Back on. Picking up where it left off.');
+              self.loadBankLink();
+              self.syncBankNow();
+            });
+            return;
+          }
+
           self.bankMsg('ok', 'Saving the connection...');
           self.post('/plaid-link', {
             store_id: self.store_id,

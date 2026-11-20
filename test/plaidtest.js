@@ -24,7 +24,7 @@ process.env.SUPABASE_SERVICE_KEY = 'test';
 // "Read the bank now" button can share it. plaid-sync.js still
 // re-exports these, and the test goes through that door on purpose:
 // if the re-export ever breaks, the scheduled run breaks with it.
-const { toLedgerAmount, toRow } = require(path.join(__dirname, '..', 'functions', 'plaid-sync.js'));
+const { toLedgerAmount, toRow, withKeys } = require(path.join(__dirname, '..', 'functions', 'plaid-sync.js'));
 
 let pass = 0, fail = 0;
 const check = (n, a, b) => {
@@ -76,8 +76,43 @@ check('typed as a debit', row.txn_type, 'debit');
 check('the check number comes from the bank, as a number', row.check_number, 6742);
 check('posted, not pending', row.is_pending, false);
 check('carries Plaid\'s own id', row.plaid_transaction_id, 'tx_abc123');
-checkTrue('and that id is what makes it unique here',
-  row.import_hash === 'plaid:tx_abc123');
+// What makes a row unique is NOT Plaid's id any more.
+//
+// A Plaid "item" is one login session and the id is unique only within
+// it: reconnect, and the same payment comes back with an id it has never
+// had. He reconnected twice in a week, 132 transactions ended up stored
+// three times each, settlement recorded a payment against every copy,
+// and his costs ran about $327,000 over. The identity has to be
+// something the bank would recognise.
+checkTrue('the Plaid id is kept, but is not the identity',
+  row.plaid_transaction_id === 'tx_abc123');
+
+const keyed = withKeys([row])[0];
+checkTrue('the key is the account, day, amount and wording',
+  keyed.import_hash.indexOf('uuid-acct') > -1
+  && keyed.import_hash.indexOf(row.posted_date) > -1
+  && keyed.import_hash.indexOf('-149.12') > -1,
+  keyed.import_hash);
+checkTrue('and carries no Plaid id at all',
+  keyed.import_hash.indexOf('tx_abc123') === -1, keyed.import_hash);
+
+console.log('\nThe same statement pulled again after a reconnect');
+// Every id different, because it is a new login session. Not one row of
+// it may land as new.
+const first = withKeys([
+  toRow({ transaction_id: 'old_1', account_id: 'a', date: '2026-11-10',
+    name: 'CHECK 9981', amount: 6595.79, pending: false }, 'store1', 'acct'),
+  toRow({ transaction_id: 'old_2', account_id: 'a', date: '2026-11-10',
+    name: 'ONLINE FEE REYESCOCACOLA CCD', amount: 7784.94, pending: false }, 'store1', 'acct'),
+]);
+const again = withKeys([
+  toRow({ transaction_id: 'new_9', account_id: 'a', date: '2026-11-10',
+    name: 'CHECK 9981', amount: 6595.79, pending: false }, 'store1', 'acct'),
+  toRow({ transaction_id: 'new_8', account_id: 'a', date: '2026-11-10',
+    name: 'ONLINE FEE REYESCOCACOLA CCD', amount: 7784.94, pending: false }, 'store1', 'acct'),
+]);
+check('the same statement keeps the same keys',
+  again.map((r) => r.import_hash), first.map((r) => r.import_hash));
 
 console.log('\nA deposit');
 const DEP = {
@@ -91,14 +126,37 @@ check('typed as a credit', dep.txn_type, 'credit');
 check('no check number invented', dep.check_number, null);
 
 console.log('\nTwo identical deposits in one day');
-// The flaw that cost $760 under the old fingerprint. Plaid gives each its
-// own id, so there is nothing to collapse.
-const a = toRow({ transaction_id: 'tx_1', account_id: 'acct_1', date: '2026-03-11',
-  name: 'DEPOSIT', amount: -380, pending: false }, 'store1', 'u');
-const b = toRow({ transaction_id: 'tx_2', account_id: 'acct_1', date: '2026-03-11',
-  name: 'DEPOSIT', amount: -380, pending: false }, 'store1', 'u');
-checkTrue('they are two rows, not one', a.import_hash !== b.import_hash);
-check('and both are money in', [a.amount, b.amount], [380, 380]);
+// The danger in identifying a transaction by what it looks like: two
+// genuinely separate $380 deposits on one afternoon are two deposits,
+// and collapsing them would lose $380 of real money. The count within a
+// pull is what keeps them apart.
+const pair = withKeys([
+  toRow({ transaction_id: 'tx_1', account_id: 'acct_1', date: '2026-03-11',
+    name: 'DEPOSIT', amount: -380, pending: false }, 'store1', 'u'),
+  toRow({ transaction_id: 'tx_2', account_id: 'acct_1', date: '2026-03-11',
+    name: 'DEPOSIT', amount: -380, pending: false }, 'store1', 'u'),
+]);
+checkTrue('they are two rows, not one', pair[0].import_hash !== pair[1].import_hash);
+check('and both are money in', [pair[0].amount, pair[1].amount], [380, 380]);
+
+// And pulled again they must still be exactly two.
+const pairAgain = withKeys([
+  toRow({ transaction_id: 'z_1', account_id: 'acct_1', date: '2026-03-11',
+    name: 'DEPOSIT', amount: -380, pending: false }, 'store1', 'u'),
+  toRow({ transaction_id: 'z_2', account_id: 'acct_1', date: '2026-03-11',
+    name: 'DEPOSIT', amount: -380, pending: false }, 'store1', 'u'),
+]);
+check('re-pulled, they land on the same two rows',
+  pairAgain.map((r) => r.import_hash), pair.map((r) => r.import_hash));
+
+console.log('\nPending and posted are not the same row');
+// The same payment legitimately appears as both, and the posted one must
+// not overwrite the pending one before the link has been moved across.
+const pA = withKeys([toRow({ transaction_id: 'p1', account_id: 'a', date: '2026-11-18',
+  name: 'CHECK 9989', amount: 2850, pending: true }, 'store1', 'acct')])[0];
+const pB = withKeys([toRow({ transaction_id: 'p2', account_id: 'a', date: '2026-11-18',
+  name: 'CHECK 9989', amount: 2850, pending: false }, 'store1', 'acct')])[0];
+checkTrue('they keep separate keys', pA.import_hash !== pB.import_hash);
 
 console.log('\nA pending transaction');
 const PEND = {
