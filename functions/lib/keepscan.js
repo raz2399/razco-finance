@@ -89,6 +89,9 @@ async function keep(supabase, opts) {
     bytes: bytes.length,
     kind: opts.kind || 'invoice',
     taken_by: opts.taken_by || null,
+    // Twelve bills photographed in one go stay one job.
+    batch_id: opts.batch_id || null,
+    batch_position: opts.batch_position == null ? null : Number(opts.batch_position),
   };
 
   try {
@@ -152,6 +155,8 @@ async function keepRowOnly(supabase, opts) {
       bytes: 0,
       kind: opts.kind || 'invoice',
       taken_by: opts.taken_by || null,
+      batch_id: opts.batch_id || null,
+      batch_position: opts.batch_position == null ? null : Number(opts.batch_position),
     }).select('scan_id').single();
     if (ins.error) return { kept: false, why: ins.error.message };
     return { kept: false, scan_id: ins.data.scan_id, no_photo: true };

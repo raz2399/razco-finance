@@ -48,7 +48,18 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-const MODEL = process.env.EXTRACT_MODEL || 'claude-sonnet-5-5';
+// The strongest reader available, because the paper is the hard part.
+//
+// These are not clean PDFs. They are photographs of carbon copies taken
+// at an angle on a loading dock, with a total written over the printed
+// one in biro. Sonnet reads a tidy invoice as well as anything; on his
+// difficult ones it was the reason he was typing 90% of them by hand.
+// The reading happens in a background function with fifteen minutes and
+// no user waiting, so the slower, dearer model costs nothing that
+// matters and buys the only thing that does.
+//
+// Overridable, so a bad day at the model does not need a deploy.
+const MODEL = process.env.EXTRACT_MODEL || 'claude-opus-5-5';
 const MAX_BYTES = 6 * 1024 * 1024; // a phone photo, not a scan of a book
 
 const json = (status, body) => ({
@@ -350,6 +361,20 @@ exports.handler = safely('invoice-extract', async (event) => {
         error: 'Could not start reading the photo. It has been saved.',
       }));
     }
+  }
+
+  // Photographing a stack: hand back the ticket and go.
+  //
+  // Waiting six seconds on each of twelve invoices is over a minute of
+  // standing at the counter watching a spinner for nothing. The reading
+  // runs on another machine, and twelve can run at once as easily as
+  // one; the batch screen follows them together.
+  if (body.nowait || body.batch_id) {
+    return json(202, withScan(held, {
+      reading: true,
+      batch_id: body.batch_id || null,
+      says: 'Reading it.',
+    }));
   }
 
   // A short wait, well inside the ten seconds, for the ones that are

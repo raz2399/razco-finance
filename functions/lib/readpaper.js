@@ -5,7 +5,18 @@
 // actual reading with no clock on it. Two copies of a prompt is two
 // prompts, and they drift.
 
-const MODEL = process.env.EXTRACT_MODEL || 'claude-sonnet-5-5';
+// The strongest reader available, because the paper is the hard part.
+//
+// These are not clean PDFs. They are photographs of carbon copies taken
+// at an angle on a loading dock, with a total written over the printed
+// one in biro. Sonnet reads a tidy invoice as well as anything; on his
+// difficult ones it was the reason he was typing 90% of them by hand.
+// The reading happens in a background function with fifteen minutes and
+// no user waiting, so the slower, dearer model costs nothing that
+// matters and buys the only thing that does.
+//
+// Overridable, so a bad day at the model does not need a deploy.
+const MODEL = process.env.EXTRACT_MODEL || 'claude-opus-5-5';
 
 const PROMPTS = {
   invoice: `You are reading a photograph of a grocery wholesaler's delivery invoice.
@@ -192,7 +203,11 @@ function parseModelJson(text) {
 
 // How many tokens the reader may spend on one answer. Enough for a long
 // delivery invoice with every line on it.
-const MAX_TOKENS = 4096;
+// A long delivery invoice can run to a hundred lines, and every line
+// now comes back with a code, a pack size and three figures. 4096 was
+// enough for a total and a vendor; it is not enough for the lines, and
+// a reply cut off mid-array parses as nothing at all.
+const MAX_TOKENS = 16000;
 
 /**
  * Show the model one photograph and get the fields back.
