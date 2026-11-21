@@ -15,7 +15,10 @@ import {
   StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { saveInvoice, readPaper, collectReading, getVendorList, money } from './api';
+import {
+  saveInvoice, readPaper, collectReading, getVendorList, money,
+  sendToBatch, getBatch, newBatchId,
+} from './api';
 import { C, S } from './theme';
 
 const METHODS = [
@@ -91,6 +94,9 @@ export default function DeliveryScreen({ onDone, onCancel }) {
 
   const [items, setItems] = useState([blank()]);
   const [reading, setReading] = useState(false);
+  // How the stack as a whole is getting on, so twelve invoices show one
+  // line of progress instead of twelve spinners.
+  const [stack, setStack] = useState(null);
   const [savingAll, setSavingAll] = useState(false);
 
   const update = (id, patch) =>
@@ -102,6 +108,39 @@ export default function DeliveryScreen({ onDone, onCancel }) {
   const unsaved = items.filter((d) => d.status !== 'saved');
   const saved = items.filter((d) => d.status === 'saved');
   const readyCount = unsaved.filter((d) => whatIsMissing(d).length === 0).length;
+
+  // One read invoice, written onto its line.
+  //
+  // The batch gives back the same fields the single-photo path gets, so
+  // this says the same things in the same words -- a stack read together
+  // must not describe itself differently from one read alone, or he has
+  // two systems to learn instead of one.
+  function applyScanToRow(rowId, sc) {
+    const notes = [];
+    if (sc.missing && sc.missing.length) {
+      notes.push('Could not read ' + sc.missing.join(', ') + '.');
+    }
+    (sc.unreadable || []).forEach((u) => notes.push(u));
+    if (sc.duplicate_of) notes.push('Already recorded — ' + sc.duplicate_of + '.');
+    if (sc.vendor) notes.push(sc.vendor + ' is on file. Terms already set.');
+    if (sc.lines) {
+      notes.push(sc.lines + ' line' + (sc.lines === 1 ? '' : 's') + ' read off it'
+        + (sc.lines_cover_bill === false
+          ? ', but they do not come to the bill — a page may be missing.' : '.'));
+    }
+
+    update(rowId, {
+      scanId: sc.scan_id,
+      vendor: sc.vendor || sc.vendor_on_paper || '',
+      invoiceNo: sc.invoice_number || '',
+      amount: sc.total === null || sc.total === undefined ? '' : String(sc.total),
+      vendorKnown: !!sc.vendor_id,
+      terms: 'net30',
+      notes: notes,
+      tone: sc.duplicate_of ? 'bad' : (sc.ready ? 'good' : 'check'),
+      open: !sc.ready,
+    });
+  }
 
   // ---- turning a photo into a line on the stack -------------------------
   async function ingest(asset) {
@@ -225,13 +264,96 @@ export default function DeliveryScreen({ onDone, onCancel }) {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
     });
     if (picked.canceled || !picked.assets) return;
+    await readTheStack(picked.assets.filter((a) => a.base64));
+  }
+
+  // ---- a stack of invoices, read together --------------------------------
+  //
+  // This used to send them one at a time and wait on each: twelve bills
+  // meant over a minute of standing at the counter watching a spinner,
+  // for nothing. The reading runs on another machine and twelve can run
+  // at once as easily as one, so the photographs go over together under
+  // one batch id and the answers are collected afterwards.
+  //
+  // Three uploads at a time, not twelve. A phone on the shop's wifi
+  // sending twelve full-size photographs at once finishes none of them,
+  // and the whole point is that the first bill is readable while the
+  // last is still going up.
+  async function readTheStack(assets) {
+    if (!assets.length) return;
+    if (assets.length === 1) { await ingest(assets[0]); return; }
+
+    const batchId = newBatchId();
     setReading(true);
-    try {
-      // one at a time, so a slow signal does not fire twelve at once
-      for (const a of picked.assets) {
-        if (a.base64) await ingest(a);
+    setStack({ id: batchId, total: assets.length, sent: 0, says: 'Sending the stack…' });
+
+    const rows = assets.map((a, i) => {
+      const row = blank({ thumb: a.uri, tone: 'working', notes: ['Waiting to be read…'], open: false });
+      row.batchPos = i;
+      return row;
+    });
+    setItems((list) => {
+      const onlyBlank = list.length === 1 && list[0].status === 'draft' &&
+        !list[0].vendor && !list[0].amount && !list[0].thumb;
+      return (onlyBlank ? [] : list).concat(rows);
+    });
+
+    let sent = 0;
+    const queue = assets.map((a, i) => ({ a, i }));
+    async function worker() {
+      for (;;) {
+        const job = queue.shift();
+        if (!job) return;
+        try {
+          const res = await sendToBatch('invoice', job.a.base64,
+            job.a.mimeType || 'image/jpeg', batchId, job.i);
+          if (res && res.scan_id) update(rows[job.i].id, { scanId: res.scan_id });
+        } catch (e) {
+          update(rows[job.i].id, {
+            tone: 'bad', notes: ['That photo would not send. Try it on its own.'],
+          });
+        }
+        sent += 1;
+        setStack((st) => (st && st.id === batchId
+          ? Object.assign({}, st, { sent: sent, says: 'Sent ' + sent + ' of ' + assets.length })
+          : st));
       }
-    } finally { setReading(false); }
+    }
+    await Promise.all([worker(), worker(), worker()]);
+
+    // Now follow the whole stack rather than each photograph.
+    try {
+      for (let tries = 0; tries < 150; tries++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        let b = null;
+        try { b = await getBatch(batchId); } catch (e) { continue; }
+        if (!b || !b.ok) continue;
+
+        setStack({
+          id: batchId, total: b.counts.total, sent: assets.length,
+          done: b.counts.done, failed: b.counts.failed,
+          ready: b.counts.ready, pile: b.pile_total, says: b.says,
+        });
+
+        (b.scans || []).forEach((sc) => {
+          const row = rows[sc.position];
+          if (!row) return;
+          if (sc.state === 'reading') return;
+          if (sc.state === 'failed') {
+            update(row.id, {
+              tone: 'bad',
+              notes: [sc.error || 'That one could not be read. Snap it again.'],
+            });
+            return;
+          }
+          applyScanToRow(row.id, sc);
+        });
+
+        if (b.finished) break;
+      }
+    } finally {
+      setReading(false);
+    }
   }
 
   // ---- saving the stack --------------------------------------------------
@@ -310,8 +432,27 @@ export default function DeliveryScreen({ onDone, onCancel }) {
             </TouchableOpacity>
 
             <Text style={st.shootNote}>
-              Take them one after another. They stack up below and save together.
+              Pick the whole pile at once — they are read together, not one
+              after another.
             </Text>
+
+            {/* One line for the whole stack. Twelve spinners tell him
+                nothing; how many are read, and what the pile comes to,
+                is what he is standing there waiting to know. */}
+            {stack ? (
+              <View style={st.stackBar}>
+                <View style={st.stackTrack}>
+                  <View style={[st.stackFill, {
+                    width: Math.round(
+                      ((stack.done || 0) / Math.max(stack.total || 1, 1)) * 100) + '%',
+                  }]} />
+                </View>
+                <Text style={st.stackSays}>{stack.says}</Text>
+                {stack.pile ? (
+                  <Text style={st.stackPile}>{money(stack.pile, true)} in the stack</Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
 
           {items.map((d, i) => (
@@ -563,6 +704,13 @@ function Card({ d, index, vendors, onChange, onRemove }) {
 }
 
 const st = StyleSheet.create({
+  stackBar: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.line },
+  stackTrack: {
+    height: 6, borderRadius: 3, backgroundColor: C.line, overflow: 'hidden',
+  },
+  stackFill: { height: 6, borderRadius: 3, backgroundColor: C.green },
+  stackSays: { marginTop: 8, fontSize: 13, color: C.ink, fontWeight: '600' },
+  stackPile: { marginTop: 2, fontSize: 12.5, color: C.mute },
   sugBox: {
     borderWidth: 1, borderColor: C.line, borderRadius: 10, marginTop: 6,
     backgroundColor: C.white, overflow: 'hidden',

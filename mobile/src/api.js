@@ -527,3 +527,31 @@ export const removeSpend = (paymentId) =>
       store_id: STORE_ID, action: 'remove', payment_id: paymentId,
     }),
   });
+
+// ---------------------------------------------------------------------
+// A stack of invoices, read together
+//
+// The old path sent twelve photographs one at a time and waited six
+// seconds on each: over a minute of standing at the counter watching a
+// spinner, for nothing. The reading runs on another machine and twelve
+// can run at once as easily as one, so these hand the photograph over
+// and come back for the answers.
+export const sendToBatch = (kind, base64, mime, batchId, position) =>
+  call('/invoice-extract', {
+    method: 'POST',
+    body: JSON.stringify({
+      store_id: STORE_ID, kind, base64_image: base64, mime_type: mime,
+      batch_id: batchId, batch_position: position, nowait: true,
+    }),
+  });
+
+export const getBatch = (batchId) =>
+  call('/scan-batch?store_id=' + STORE_ID + '&batch_id=' + encodeURIComponent(batchId));
+
+// A batch id the phone makes itself, so the upload can start before any
+// round trip. Not a real uuid v4 -- it only has to be unique to him.
+export const newBatchId = () => {
+  const hex = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).slice(1);
+  return hex() + hex() + '-' + hex() + '-4' + hex().slice(1) + '-a' + hex().slice(1)
+    + '-' + hex() + hex() + hex();
+};
